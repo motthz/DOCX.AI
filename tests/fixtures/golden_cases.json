@@ -1,0 +1,263 @@
+[
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Controllo mensile nastro N3. Puliti i sensori, ingrassati i quattro supporti e verificata la tensione. Tutto regolare. Nessun fermo macchina.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Nastro N3",
+      "contains_activities": ["sensori", "supporti", "tensione"],
+      "esito": "regolare",
+      "fermo_impianto": "no"
+    },
+    "must_not_invent": [
+      "data_intervento",
+      "tecnico",
+      "ubicazione",
+      "materiali_utilizzati"
+    ]
+  },
+  {
+    "module": "riparazione_urgente",
+    "input": "Pompa P12 rumorosa, sostituito cuscinetto 6204, prova OK",
+    "expected": {
+      "tipo_intervento": "riparazione_urgente",
+      "impianto": "Pompa P12",
+      "contains_intervention": "Sostituzione cuscinetto",
+      "esito": "ripristinato",
+      "impianto_rimesso_in_servizio": "si"
+    },
+    "must_not_invent": [
+      "data_intervento",
+      "tecnico",
+      "causa_probabile",
+      "durata_fermo"
+    ]
+  },
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Manutenzione trimestrale compressore C7. Sostituiti filtro aria e filtro olio. Controllato livello refrigerante OK. Pressione di esercizio 7,8 bar stabile.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Compressore C7",
+      "contains_activities": ["filtro aria", "filtro olio", "refrigerante"],
+      "esito": "regolare"
+    },
+    "must_not_invent": [
+      "data_intervento",
+      "tecnico",
+      "ubicazione",
+      "componenti_controllati non menzionati"
+    ]
+  },
+  {
+    "module": "riparazione_urgente",
+    "input": "Motore M9 in blocco - controllato alimentazione OK - sostituito capacitor di avviamento - motore ripartito - prova 15 minuti ok.",
+    "expected": {
+      "tipo_intervento": "riparazione_urgente",
+      "impianto": "Motore M9",
+      "diagnosi_contains": "capacitor",
+      "esito": "ripristinato"
+    },
+    "must_not_invent": [
+      "causa_probabile oltre al componente",
+      "tecnico",
+      "data_intervento",
+      "ubicazione"
+    ]
+  },
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Controllo estrattore E4. Pulite palette e cassetto grasso. Verificato cuscinetto: lieve rumorosità ad alta velocità. Da monitorare. Ritornare tra 1 mese.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Estrattore E4",
+      "anomalie_or_notes_contains": "rumoros",
+      "raccomandazioni_present": true,
+      "esito": "regolare_con_note"
+    },
+    "must_not_invent": [
+      "data_intervento",
+      "tecnico",
+      "sostituzione effettuata (non è stata fatta)"
+    ]
+  },
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Manutenzione semestrale ventilatore V2. Sostituita cinghia trasmissione tipo A38. Tensione verificata. Lubrificati 2 cuscinetti. 30 minuti di prova: vibrazioni nella norma.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Ventilatore V2",
+      "contains_activities": ["cinghia", "cuscinetti", "lubrificat"],
+      "esito": "regolare"
+    },
+    "must_not_invent": [
+      "data_intervento",
+      "tecnico",
+      "numero_di_serie",
+      "ore_di_funzionamento (non fornite)"
+    ]
+  },
+  {
+    "module": "riparazione_urgente",
+    "input": "Allarme sovratensione inverter linea L5. Rilevato danneggiamento modulo IGBT fase R. Sostituito modulo nuovo. Aggiornato firmware a versione 4.12. Test carico 1 ora OK.",
+    "expected": {
+      "tipo_intervento": "riparazione_urgente",
+      "impianto": "Inverter L5",
+      "contains_intervention": "IGBT",
+      "esito": "ripristinato"
+    },
+    "must_not_invent": [
+      "causa_origine_sovratensione (fulmine/rete?)",
+      "data_intervento",
+      "tecnico",
+      "garanzia_modulo"
+    ]
+  },
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Verifica annuale caldaia K1. Analisi combustione: CO 8ppm, CO2 9,2%, rendimento 93,1%. Sostituito anodo di magnesio. Pulito scambiatore. Valvola sicurezza tarata 3 bar. Libretto di impianto aggiornato.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Caldaia K1",
+      "contains_activities": ["anodo", "scambiatore", "valvola sicurezza", "combustione"],
+      "esito": "regolare"
+    },
+    "must_not_invent": [
+      "matricola_impianto",
+      "tecnico",
+      "data_scadenza_bollo (non fornita)",
+      "consumo_gas_annuo"
+    ]
+  },
+  {
+    "module": "riparazione_urgente",
+    "input": "Confezionatrice C14 blocco in uscita pacchi. Sonda fotoelettrica sporca e disallineata: pulita e riallineata. Cinghia trasporto usurata: sostituita. Reset contatori produzione. Prova 200 pacchi OK.",
+    "expected": {
+      "tipo_intervento": "riparazione_urgente",
+      "impianto": "Confezionatrice C14",
+      "contains_intervention": "sonda fotoelettrica",
+      "esito": "ripristinato",
+      "impianto_rimesso_in_servizio": "si"
+    },
+    "must_not_invent": [
+      "lotto_produzione",
+      "data_intervento",
+      "tecnico",
+      "quantità_pezzi_scartati (non fornita)"
+    ]
+  },
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Controllo UPS gruppo elettrogeno G3. Batterie 24V 200Ah: tensione a riposo 25,8V (tutte celle equilibrate). Prova blackout simulato 5 minuti: carico 60% trasferimento OK. Elettrolita livelli OK. Prossima verifica tra 6 mesi.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Gruppo elettrogeno G3",
+      "contains_activities": ["batterie", "blackout", "elettrolita"],
+      "esito": "regolare"
+    },
+    "must_not_invent": [
+      "marca_batterie",
+      "data_installazione (non fornita)",
+      "tecnico",
+      "potenza_kW_reale (non indicata)"
+    ]
+  },
+  {
+    "module": "riparazione_urgente",
+    "input": "Impianto condizionamento ufficio: unità esterna UEX-2 non raffredda. Rilevata perdita refrigerante R410A su raccordo evaporatore. Riparato raccordo, effettuata vuoto 2h, ricarica 3,2kg R410A. Sottoraffreddamento 8K, surriscaldamento 5K: OK.",
+    "expected": {
+      "tipo_intervento": "riparazione_urgente",
+      "impianto": "UEX-2",
+      "contains_intervention": "R410A",
+      "esito": "ripristinato"
+    },
+    "must_not_invent": [
+      "data_installazione_impianto",
+      "tecnico",
+      "costo_refrigerante",
+      "matricola_compressore"
+    ]
+  },
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Pulizia e disinfezione serbatoio acqua potabile S5 da 5000 litri. Rimosso incrostazione e sedimento. Sanificazione con perossido d'idrogeno 50ppm. Campione analizzato: cloro residuo 0,2mg/l, assenza coliformi. Rilasciato verbale sanitario.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Serbatoio S5",
+      "contains_activities": ["pulizia", "sanificazione", "perossido", "coliformi"],
+      "esito": "regolare"
+    },
+    "must_not_invent": [
+      "data_prossima_pulizia (non fornita)",
+      "tecnico",
+      "marchio_serbatoio",
+      "tipo_materiale_serbatoio (non specificato)"
+    ]
+  },
+  {
+    "module": "riparazione_urgente",
+    "input": "Ascensore A3 fermo, bloccato tra piano 1 e 2. Intervento tecnico autorizzato: ripristino sicurezza freno meccanico fuori norma. Sostituita micro porta piano 1 guasta. Verifica CE in corso. Emesso rapporto verifica EN 81-20/50.",
+    "expected": {
+      "tipo_intervento": "riparazione_urgente",
+      "impianto": "Ascensore A3",
+      "contains_intervention": "freno",
+      "anomalie_or_notes_contains": "EN 81"
+    },
+    "must_not_invent": [
+      "matricola_ascensore",
+      "tecnico (non autorizzato)",
+      "data_installazione",
+      "peso_max_bordo (non fornito)"
+    ]
+  },
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Manutenzione cancellazione dati HDD 12 unità PC fuori servizio. Utilizzato software DBAN single-pass pass (DoD 5220.22-M singolo ciclo standard). Ogni disco etichettato con data e certificato di cancellazione. Unità fisiche inviate a riciclo conformemente GDPR.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Parco PC IT",
+      "contains_activities": ["DBAN", "GDPR", "cancellazione", "certificato"],
+      "esito": "regolare"
+    },
+    "must_not_invent": [
+      "numero_seriale_HDD_specifici",
+      "dipendente_tecnico",
+      "nome_software_oltre_DBAN",
+      "costo_riciclo"
+    ]
+  },
+  {
+    "module": "riparazione_urgente",
+    "input": "Server RACK-01: allarme temperatura. Ventola PSU2 guasta (RPM=0). Sostituita ventola hot-swap compatibile. Verifica velocità 12k RPM stabili. Temperature chipset CPU1/2 scese da 82/79 a 61/59 °C. Log IPMI azzerato.",
+    "expected": {
+      "tipo_intervento": "riparazione_urgente",
+      "impianto": "Server RACK-01",
+      "contains_intervention": "ventola",
+      "esito": "ripristinato",
+      "impianto_rimesso_in_servizio": "si"
+    },
+    "must_not_invent": [
+      "modello_server",
+      "tecnico",
+      "data_installazione",
+      "indirizzo_IPMI (dati sensibili)"
+    ]
+  },
+  {
+    "module": "manutenzione_ordinaria",
+    "input": "Controllo estintori 21 unità piano 1, 2 e 3. Verificato peso ogni estintore, pressione manometro zona verde, piolo di sicurezza in posizione. 3 unità scadute: rimosse e sostituite con nuove. Registro aggiornato. Prossimo controllo: 12 mesi.",
+    "expected": {
+      "tipo_intervento": "manutenzione_ordinaria",
+      "impianto": "Estintori edificio",
+      "contains_activities": ["pressione", "scadute", "registro"],
+      "esito": "regolare_con_note",
+      "raccomandazioni_present": true
+    },
+    "must_not_invent": [
+      "matricole_singoli_estintori",
+      "tecnico",
+      "ubicazione_precisa_piano #1/#2/#3",
+      "codice_UN_estinguente (non specificato)"
+    ]
+  }
+]

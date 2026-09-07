@@ -1,0 +1,363 @@
+"""Command-line entrypoint for MaintenanceAI.
+
+Usage:
+  python -m maintenance_ai.main                # Launch GUI
+  python src/maintenance_ai/main.py            # Launch GUI
+  MaintenanceAI.exe                            # Launch GUI (packaged)
+  <any above> --self-test                      # Run smoke tests, exit code !=0 on failure
+  <any above> --config PATH                    # Use alternate config file
+"""
+
+from __future__ import annotations
+
+import argparse
+import os as _os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional
+
+
+def _install_crash_logger() -> Optional[Path]:
+    """Redirect stderr/stdout to a persistent crash.log BEFORE any app code runs.
+
+    When the PyInstaller bootloader uses ``runw.exe`` (console=False), both
+    streams are detached from any terminal and exceptions during Tk bootstrap
+    are invisible. By appending to ``logs/crash.log`` under the app data dir
+    we guarantee that every crash leaves a readable traceback even if no
+    messagebox pops up.
+    """
+    try:
+        base = Path(__file__).resolve()
+    except NameError:
+        base = Path(sys.argv[0]).resolve() if sys.argv else Path.cwd()
+    # Try to mirror Config resolution: %LOCALAPPDATA%/MaintenanceAI
+    data_dir: Optional[Path] = None
+    try:
+        import os as _os
+        local = _os.environ.get("LOCALAPPDATA")
+        if local:
+            data_dir = Path(local) / "MaintenanceAI"
+        else:
+            # Frozen fallback: exe grandparent (dist root)
+            if getattr(sys, "frozen", False):
+                data_dir = Path(sys.executable).parent
+    except Exception:
+        pass
+    if data_dir is None:
+        return None
+    logs_dir = data_dir / "logs"
+    try:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return None
+    log_file = logs_dir / "crash.log"
+    try:
+        fh = open(log_file, "a", encoding="utf-8")
+        stamp = datetime.now().isoformat(timespec="seconds")
+        fh.write(f"\n===== MaintenanceAI start {stamp} =====\n")
+        # Flush immediately on every write (stderr traces won't flush)
+        class _FlushingWriter:
+            def __init__(self, _fh, _orig):
+                self._fh = _fh
+                self._orig = _orig
+            def write(self, s):
+                try:
+                    self._fh.write(s)
+                    self._fh.flush()
+                except Exception:
+                    pass
+                try:
+                    if self._orig is not None:
+                        self._orig.write(s)
+                        try: self._orig.flush()
+                        except Exception: pass
+                except Exception:
+                    pass
+            def flush(self):
+                try: self._fh.flush()
+                except Exception: pass
+                try:
+                    if self._orig is not None: self._orig.flush()
+                except Exception: pass
+            def isatty(self): return False
+            def fileno(self): raise OSError()
+            def __getattr__(self, item): return getattr(self._orig, item)
+        sys.stdout = _FlushingWriter(fh, sys.stdout)
+        sys.stderr = _FlushingWriter(fh, sys.stderr)
+        print(f"sys.argv = {sys.argv}")
+        print(f"sys.frozen = {getattr(sys, 'frozen', False)}")
+        return log_file
+    except Exception:
+        return None
+
+
+_DPI_SUCCESS = False
+
+
+def _enable_dpi_awareness() -> None:
+    """Enable Windows Per-Monitor v2 DPI awareness BEFORE creating any Tk widget.
+
+    Returns: sets global _DPI_SUCCESS True on any success, False on total failure.
+    """
+    global _DPI_SUCCESS
+    try:
+        import os as _os
+        if _os.name != "nt":
+            _DPI_SUCCESS = True
+            return
+    except Exception:
+        return
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        shcore = ctypes.windll.shcore
+        try:
+            if user32.SetProcessDpiAwarenessContext(-4) == 0:
+                _DPI_SUCCESS = True
+                return
+        except Exception:
+            pass
+        try:
+            if shcore.SetProcessDpiAwareness(2) == 0:
+                _DPI_SUCCESS = True
+                return
+        except Exception:
+            pass
+        try:
+            if shcore.SetProcessDpiAwareness(1) == 0:
+                _DPI_SUCCESS = True
+                return
+        except Exception:
+            pass
+        try:
+            if user32.SetProcessDPIAware() != 0:
+                _DPI_SUCCESS = True
+                return
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _mutex_and_focus_existing() -> bool:
+    """Single instance mutex + focus of existing MainWindow.
+
+    Returns False se dobbiamo uscire (istanza già attiva e già portata in foreground),
+    True se possiamo proseguire con l'avvio dell'istanza corrente.
+    """
+    try:
+        import os as _os
+        if _os.name != "nt":
+            return True
+    except Exception:
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+        localapp = _os.environ.get("LOCALAPPDATA", _os.getcwd())
+        import hashlib
+        unique = hashlib.sha256(localapp.encode("utf-8", errors="replace")).hexdigest()[0:16]
+        mutex_name = f"Global\\MaintenanceAI-{unique}"
+        ERROR_ALREADY_EXISTS = 183
+        kernel32.GetLastError.restype = wintypes.DWORD
+        kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        handle = kernel32.CreateMutexW(None, False, mutex_name)
+        if handle == 0:
+            return True
+        last_err = kernel32.GetLastError()
+        if last_err != ERROR_ALREADY_EXISTS:
+            return True
+        # Istanza già attiva: tenta di trovare e portare in primo piano la finestra
+        SW_RESTORE = 9
+        EnumWindowsProc = ctypes.WINFUNCTYPE(
+            wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+        )
+        found = {"hwnd": None}
+
+        def _enum_cb(hwnd, _lparam):
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value
+                if title.startswith("MaintenanceAI") or "MaintenanceAI" in title:
+                    is_visible = user32.IsWindowVisible(hwnd)
+                    if is_visible:
+                        found["hwnd"] = hwnd
+                        return False
+            return True
+
+        proc = EnumWindowsProc(_enum_cb)
+        try:
+            user32.EnumWindows(proc, 0)
+        except Exception:
+            pass
+        hwnd = found["hwnd"]
+        if hwnd is not None:
+            try:
+                user32.ShowWindow(hwnd, SW_RESTORE)
+                user32.SetForegroundWindow(hwnd)
+                user32.BringWindowToTop(hwnd)
+                user32.SetFocus(hwnd)
+            except Exception:
+                pass
+            return False
+        # Mutex esistente ma nessuna finestra trovata (crash precedente senza cleanup)
+        # → rilasciamo il mutex vecchio e proseguiamo
+        try:
+            kernel32.CloseHandle(handle)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return True
+
+
+# Install crash logger FIRST, before any imports of our own code.
+_crash_log = _install_crash_logger()
+
+# Enable DPI awareness early, before any tkinter import happens (or just
+# before, no harm calling before load since it's a kernel32/user32/shcore
+# process-wide flag).
+_enable_dpi_awareness()
+
+
+def _project_root_for_src_run() -> None:
+    """Ensure imports work when file is invoked directly as a script
+    OR via ``python -m maintenance_ai.main`` from any CWD."""
+    try:
+        here = Path(__file__).resolve().parent
+    except NameError:
+        return
+    src_dir = here.parent
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+    root = src_dir.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    if getattr(sys, "frozen", False):
+        return
+    try:
+        cwd_src = Path.cwd() / "src"
+        if cwd_src.is_dir() and str(cwd_src) not in sys.path:
+            sys.path.insert(0, str(cwd_src))
+        cwd = Path.cwd()
+        if (cwd / "config" / "default.json").is_file() and str(cwd) not in sys.path:
+            sys.path.insert(0, str(cwd))
+    except Exception:
+        pass
+
+
+_project_root_for_src_run()
+
+
+from maintenance_ai.app import App  # noqa: E402
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="MaintenanceAI")
+    parser.add_argument("--self-test", action="store_true",
+                        help="Esegui self-test delle componenti core e termina")
+    parser.add_argument("--config", type=Path, default=None,
+                        help="Percorso alternativo per config/default.json")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Aggiungi output verboso (per self-test)")
+    parser.add_argument("--debug-llm", action="store_true",
+                        help="Dump prompt/schema/raw-output LLM in logs/llm_debug")
+    parser.add_argument("--no-gui-test-mode", action="store_true",
+                        help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+
+    # 0) Single instance mutex: se già attivo, focus + exit 0
+    proceed = _mutex_and_focus_existing()
+    if not proceed:
+        return 0
+    # Env var per smoke test
+    if _os.environ.get("MAINTENANCE_AI_SMOKE_TEST") == "1":
+        args.no_gui_test_mode = True
+    if _os.environ.get("MAINTENANCE_AI_DEBUG_LLM") == "1":
+        args.debug_llm = True
+
+    try:
+        app = App.bootstrap(config_path=args.config, verbose=args.verbose)
+        # Avvisa DPI awareness fallito (logging pronto dopo bootstrap)
+        if not _DPI_SUCCESS:
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                "DPI awareness: nessun metodo disponibile, finestre potrebbero apparire sgranate su display ad alta risoluzione."
+            )
+        if args.debug_llm:
+            import logging as _lg2
+            _lg2.getLogger(__name__).info("LLM debug dump mode attivo.")
+    except Exception as exc:  # noqa: BLE001
+        msg = f"Errore durante l'inizializzazione: {type(exc).__name__}: {exc}"
+        print(msg, file=sys.stderr)
+        try:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+        except Exception:
+            pass
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("MaintenanceAI - Errore avvio", msg)
+            try:
+                root.destroy()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return 1
+    try:
+        if args.self_test:
+            return app.run_self_test()
+        try:
+            from maintenance_ai.ui.main_window import MainWindow
+        except Exception as exc:  # noqa: BLE001
+            msg = f"Impossibile caricare l'interfaccia grafica: {type(exc).__name__}: {exc}"
+            print(msg, file=sys.stderr)
+            try:
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            except Exception:
+                pass
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                root = tk.Tk()
+                root.withdraw()
+                messagebox.showerror("MaintenanceAI - Errore UI", msg)
+                try:
+                    root.destroy()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            return 1
+        try:
+            MainWindow(app.config, app.db, app.module_manager,
+                       app.context, app.reports,
+                       rules_manager=app.rules_manager,
+                       doc_generator=app.doc_generator,
+                       doc_modifier=app.doc_modifier,
+                       audit_engine=app.audit_engine,
+                       smart_fill_engine=app.smart_fill_engine,
+                       doc_loader=app.doc_loader).show()
+        finally:
+            try:
+                app.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
+        return 0
+    finally:
+        pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

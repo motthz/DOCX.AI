@@ -1,0 +1,91 @@
+# MaintenanceAI .gitignore
+# ============================================================
+
+# ----- Ambienti virtuali Python -----
+.venv/
+venv/
+env/
+.venv-*/
+scripts/.venv/
+
+# ----- Python cache e bytecode -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# ----- Distribution / packaging -----
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+release/
+*.spec.bak
+
+# ----- Runtime LLM e modelli (binari grandi, distribuiti separatamente) -----
+runtime/
+models/
+dl_cache/
+
+# ----- Logs -----
+*.log
+logs/
+
+# ----- Database e backup (utente locale, LOCALAPPDATA) -----
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.bak
+*.sqlite
+
+# ----- IDE / Editor -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ----- Windows -----
+$RECYCLE.BIN/
+Desktop.ini
+
+# ----- TRAE -----
+.trae/
+
+# ----- PyInstaller artifacts -----
+base_library.zip
+*.toc
+*.pkg
+*.pyz
+warn-*.txt
+xref-*.html
+
+# ----- File spuri di debug/audit (non tracciare ma tenere in locale se utile) -----
+AUDIT_*.md
+debug-*.md
+FEATURE_CATALOG.md
+
+# ----- Documenti di progetto PDF/TXT -----
+*.pdf
+spec_part*.txt
+Specifica*.pdf
+
+# ----- Script di audit usa e getta -----
+owasp_audit.py
+journey_audit.py
+functional_audit.py

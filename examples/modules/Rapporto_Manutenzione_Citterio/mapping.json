@@ -1,0 +1,3 @@
+{
+  "_comment": "Per i template DOCX i placeholder {{nome_campo}} vengono rilevati direttamente dal parser. Questo mapping contiene riferimenti per audit/export."
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Rapporto di Manutenzione Citterio",
+  "slug": "Rapporto_Manutenzione_Citterio",
+  "version": "1.0.0",
+  "description": "Modulo standard Citterio RG16.00.04 rev.3 per rapporti di manutenzione ordinaria e straordinaria con sezione pulizia/sanificazione.",
+  "template_type": "docx",
+  "created_at": "2026-08-27T18:58:00"
+}

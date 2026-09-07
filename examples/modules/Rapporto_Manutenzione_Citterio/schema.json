@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RapportoManutenzioneCitterio",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "numero_rapporto": {
+      "type": "string"
+    },
+    "tipologia_intervento": {
+      "type": "string",
+      "enum": [
+        "manutenzione_ordinaria_programmata",
+        "manutenzione_straordinaria",
+        "non_specificato"
+      ]
+    },
+    "reparto": {
+      "type": "string"
+    },
+    "linea": {
+      "type": "string"
+    },
+    "data": {
+      "type": "string"
+    },
+    "apparecchiatura": {
+      "type": "string"
+    },
+    "descrizione_anomalia": {
+      "type": "string"
+    },
+    "pezzi_sostituiti": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tipologia_pezzo": {
+            "type": "string"
+          },
+          "numero_pz": {
+            "type": "string"
+          },
+          "codice_misure": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipologia_pezzo",
+          "numero_pz",
+          "codice_misure"
+        ]
+      }
+    },
+    "note": {
+      "type": "string"
+    },
+    "data_intervento": {
+      "type": "string"
+    },
+    "firma_operatore_manutenzione": {
+      "type": "string"
+    },
+    "pulizia_sanificazione_si": {
+      "type": "boolean"
+    },
+    "pulizia_sanificazione_no": {
+      "type": "boolean"
+    },
+    "superfici_contatto_alimenti": {
+      "type": "boolean"
+    },
+    "superfici_non_contatto_alimenti": {
+      "type": "boolean"
+    },
+    "uso_macchina_dopo_pulizia_serale": {
+      "type": "boolean"
+    },
+    "imbrattamento_non_interessa_superfici": {
+      "type": "boolean"
+    },
+    "firma_esecutore_pulizia": {
+      "type": "string"
+    },
+    "esito_verifica": {
+      "type": "string",
+      "enum": [
+        "conforme",
+        "non_conforme",
+        "non_specificato"
+      ]
+    },
+    "firma_verifica": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "numero_rapporto",
+    "tipologia_intervento",
+    "reparto",
+    "linea",
+    "data",
+    "apparecchiatura",
+    "descrizione_anomalia",
+    "pezzi_sostituiti",
+    "note",
+    "data_intervento",
+    "firma_operatore_manutenzione",
+    "pulizia_sanificazione_si",
+    "pulizia_sanificazione_no",
+    "superfici_contatto_alimenti",
+    "superfici_non_contatto_alimenti",
+    "uso_macchina_dopo_pulizia_serale",
+    "imbrattamento_non_interessa_superfici",
+    "firma_esecutore_pulizia",
+    "esito_verifica",
+    "firma_verifica"
+  ]
+}
