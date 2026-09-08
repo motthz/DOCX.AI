@@ -3,40 +3,52 @@
 ============================================================
 Versione: 0.1.0   |   Sorgente: https://github.com/motthz/DOCK.IA
 
-Questa e' la cartella SORGENTE di MaintenanceAI clonata da GitHub.
+AVVIO RACCOMANDATO (tutto automatico, SOLO UN DOPPIO CLICK):
+
+        MaintenanceAI.exe          <--- QUESTO E' IL FILE EXE CHE CERCHI
+
+        Si trova direttamente nella root del progetto.
+        E' un VERO file EXE Windows (PE 32/64 bit), non un .bat.
+        Come funziona:
+          - SE E' IL PRIMO AVVIO (mancano .venv / runtime / modello)
+              -> avvia automaticamente INSTALLA_E_AVVIA.bat che
+                 installa Python, venv, requirements, runtime e modello
+                 e poi parte l'app.
+          - SE E' GIA' STATO INSTALLATO TUTTO
+              -> avvia AVVIA_APP.bat direttamente.
+
+In entrambi i casi le finestre CMD / PowerShell restano aperte
+cosi' puoi vedere scaricamenti progressivi ed eventuali errori.
 
 ------------------------------------------------------------
-PRIMO AVVIO (tutto automatico, richiede solo un doppio click)
+PRIMO AVVIO DETTAGLIATO
 ------------------------------------------------------------
-  (solo 1 volta, poi si puo' usare AVVIA_APP.bat per sempre)
+Prima volta sempre il doppio click su MaintenanceAI.exe.
+I passaggi automatici sono:
+  1. Controlla / installa Python 3.12 (via winget, se manca)
+  2. Crea l'ambiente virtuale .venv e installa le librerie
+  3. Scarica il runtime llama-server.exe (llama.cpp Windows CPU x64)
+  4. Scarica il modello Qwen3-1.7B-Q8_0.gguf (~1.8 GB, verificato SHA-256)
+  5. Esegue i controlli di salute e infine AVVIA L'APP
 
-1. Fare DOPPIO CLICK sul file:
-
-        INSTALLA_E_AVVIA.bat
-
-   Attendere che finisca TUTTO (5 passaggi):
-     - Controlla / installa Python 3.12
-     - Crea l'ambiente virtuale .venv e scarica le librerie
-     - Scarica il runtime llama-server.exe (llama.cpp Windows CPU x64)
-     - Scarica il modello Qwen3-1.7B-Q8_0.gguf (~1.8 GB, verificato SHA-256)
-     - Esegue i controlli di salute e infine AVVIA L'APP
-
-   Il primo avvio puo' durare da 5 a 30 minuti
-   a seconda della velocita' della connessione a Internet.
+Durata prevista primo avvio: 5-30 minuti
+(dipende dalla velocita' della connessione a Internet).
 
 ------------------------------------------------------------
 AVVII SUCCESSIVI (piu' veloce, NESSUN download)
 ------------------------------------------------------------
-   Fare DOPPIO CLICK su:
+Sempre lo stesso file:
 
-        AVVIA_APP.bat
+        MaintenanceAI.exe
+
+  (in alternativa, direttamente AVVIA_APP.bat)
 
 ------------------------------------------------------------
-PER CREARE IL VERO .exe PORTATILE (MaintenanceAI.exe)
+ALTERNATIVA: IL VERO EXE PORTATILE "one-folder" PER CLIENTI
 ------------------------------------------------------------
-Se invece dell'app da sorgente vuoi la VERSIONE FINALE
-con l'.exe dentro una cartella standalone (come quella
-che andrebbe data a un cliente NON sviluppatore):
+Se vuoi invece dell'app da sorgente la VERSIONE FINALE
+con un MaintenanceAI.exe standalone (cartella onedir PyInstaller)
+da distribuire a un cliente SENZA INSTALLARE Python sul suo PC:
 
    Apri PowerShell e scrivi:
 
