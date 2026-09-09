@@ -32,7 +32,7 @@ from .theme import (
     center_window,
     make_scrollable_frame,
 )
-from ..llm.quality_scorer import quality_band, quality_score, quality_text
+from ..llm.quality_scorer import quality_band, score as quality_score, quality_text
 
 
 def _labelize(key: str) -> str:

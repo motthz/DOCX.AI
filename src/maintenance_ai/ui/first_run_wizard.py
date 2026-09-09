@@ -34,6 +34,16 @@ class FirstRunWizard:
                  data_root: Optional[Path] = None,
                  config=None,
                  db=None):
+        if ttk is None:
+            raise RuntimeError(
+                "Libreria ttk di Tkinter non disponibile. "
+                "Reinstallare Python con la componente 'Tcl/Tk and IDLE' completa."
+            )
+        if filedialog is None or messagebox is None:
+            raise RuntimeError(
+                "Librerie filedialog/messagebox di Tkinter non disponibili. "
+                "Reinstallare Python con la componente 'Tcl/Tk and IDLE' completa."
+            )
         self.result = False
         self.default_workspace = Path(default_workspace)
         self.data_root = Path(data_root) if data_root else None

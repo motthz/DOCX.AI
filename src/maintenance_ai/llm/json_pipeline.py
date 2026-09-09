@@ -162,8 +162,9 @@ def _fill_missing_defaults(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict
             data[key] = []
         elif expected == "object" and not isinstance(value, dict):
             data[key] = {}
-        elif expected == "integer" and not isinstance(value, int) or (
-            expected == "number" and not isinstance(value, (int, float))
+        elif (
+            (expected == "integer" and (not isinstance(value, int) or isinstance(value, bool)))
+            or (expected == "number" and (not isinstance(value, (int, float)) or isinstance(value, bool)))
         ):
             try:
                 cast = int(value) if expected == "integer" else float(value)

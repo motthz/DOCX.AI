@@ -335,19 +335,9 @@ class ModuleManager:
             elif (low.endswith("_list") or low.endswith("_items")
                   or low.endswith("_s") or low.endswith("_i")
                   or low.endswith("_pezzi") or "pezzi" in low):
-                # Default array of strings. Could be array of objects too, but for v1
-                # keep strings — the user can edit schema.json manually afterwards.
                 props[ph] = {
                     "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "descrizione": {"type": "string"},
-                            "quantita": {"type": "string"},
-                            "note": {"type": "string"},
-                        },
-                    },
+                    "items": {"type": "string"},
                 }
             else:
                 props[ph] = {"type": "string"}
@@ -444,6 +434,11 @@ class ModuleManager:
         candidate = base_slug
         i = 2
         while True:
+            if i > 10_000:
+                raise RuntimeError(
+                    f"Impossibile generare uno slug univoco per la copia del modulo '{slug}' "
+                    f"dopo 10000 tentativi. Scegliere un suffisso diverso o rimuovere moduli duplicati."
+                )
             target_dir = self.workspace / candidate
             if not target_dir.exists() and self.db.get_module(candidate) is None:
                 break

@@ -1,0 +1,61 @@
+{
+  "app": {
+    "name": "MaintenanceAI",
+    "version": "0.1.0",
+    "language": "it-IT",
+    "data_dir_env": "%LOCALAPPDATA%/MaintenanceAI"
+  },
+  "llm": {
+    "backend": "llama_server",
+    "ollama_url": "http://127.0.0.1:11434",
+    "ollama_model": "qwen3:0.6b-instruct-q8_0",
+    "runtime_dir": "runtime/llama",
+    "runtime_exe": "llama-server.exe",
+    "model_dir": "models",
+    "model": "models/Qwen3-1.7B-Q8_0.gguf",
+    "fallback_model": "models/Qwen3-0.6B-Q8_0.gguf",
+    "context_size": 4096,
+    "profile": "balanced",
+    "host": "127.0.0.1",
+    "port_min": 39280,
+    "port_max": 39299,
+    "no_webui": true,
+    "no_think": true,
+    "max_retries": 3,
+    "debug": false,
+    "profiles": {
+      "compatibility": {
+        "model": "models/Qwen3-0.6B-Q8_0.gguf",
+        "context_size": 2048,
+        "thread_override": 2
+      },
+      "balanced": {
+        "model": "models/Qwen3-1.7B-Q8_0.gguf",
+        "context_size": 4096,
+        "thread_override": null
+      },
+      "fastest": {
+        "model": "models/Qwen3-1.7B-Q8_0.gguf",
+        "context_size": 4096,
+        "thread_override": 8
+      }
+    }
+  },
+  "security": {
+    "max_input_file_mb": 25,
+    "max_archive_uncompressed_mb": 100,
+    "max_archive_entries": 5000,
+    "allowed_extensions_input": [".docx", ".xlsx", ".pdf", ".txt", ".jpg", ".jpeg", ".png"],
+    "blocked_extensions": [".docm", ".xlsm", ".exe", ".bat", ".ps1", ".js", ".lnk"]
+  },
+  "db": {
+    "filename": "maintenance_ai.db",
+    "schema_version": 1
+  },
+  "ui": {
+    "theme": "clam",
+    "window_width": 1240,
+    "window_height": 820,
+    "enable_revision_screen": true
+  }
+}

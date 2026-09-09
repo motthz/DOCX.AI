@@ -52,16 +52,20 @@ def _install_crash_logger() -> Optional[Path]:
     except Exception:
         return None
     log_file = logs_dir / "crash.log"
+    fh = None
     try:
         fh = open(log_file, "a", encoding="utf-8")
         stamp = datetime.now().isoformat(timespec="seconds")
         fh.write(f"\n===== MaintenanceAI start {stamp} =====\n")
-        # Flush immediately on every write (stderr traces won't flush)
+        fh.flush()
         class _FlushingWriter:
             def __init__(self, _fh, _orig):
                 self._fh = _fh
                 self._orig = _orig
+                self._closed = False
             def write(self, s):
+                if self._closed:
+                    return
                 try:
                     self._fh.write(s)
                     self._fh.flush()
@@ -80,6 +84,15 @@ def _install_crash_logger() -> Optional[Path]:
                 try:
                     if self._orig is not None: self._orig.flush()
                 except Exception: pass
+            def close(self):
+                if self._closed:
+                    return
+                self._closed = True
+                self.flush()
+                try:
+                    self._fh.close()
+                except Exception:
+                    pass
             def isatty(self): return False
             def fileno(self): raise OSError()
             def __getattr__(self, item): return getattr(self._orig, item)
@@ -89,6 +102,9 @@ def _install_crash_logger() -> Optional[Path]:
         print(f"sys.frozen = {getattr(sys, 'frozen', False)}")
         return log_file
     except Exception:
+        if fh is not None:
+            try: fh.close()
+            except Exception: pass
         return None
 
 

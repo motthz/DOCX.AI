@@ -20,6 +20,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
+    HRFlowable,
     Paragraph,
     PageBreak,
     SimpleDocTemplate,

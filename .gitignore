@@ -18,7 +18,8 @@ __pycache__/
 # ----- Distribution / packaging -----
 build/
 develop-eggs/
-dist/
+# NOTA: dist/ NON e' ignorato: include la build distribuibile MaintenanceAI onedir
+# dist/
 downloads/
 eggs/
 .eggs/
@@ -76,7 +77,9 @@ warn-*.txt
 xref-*.html
 
 # ----- File spuri di debug/audit (non tracciare ma tenere in locale se utile) -----
+# NOTA: AUDIT_REPORT.md ufficiale di release e' tracciato; solo AUDIT_ temporanei sono ignorati
 AUDIT_*.md
+!AUDIT_REPORT.md
 debug-*.md
 FEATURE_CATALOG.md
 

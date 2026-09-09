@@ -17,30 +17,54 @@ if not (llama_dir / "llama-server.exe").is_file():
 elif not model.is_file():
     results["h2"] = ("SKIP", "manca modello Qwen3-1.7B")
 else:
-    # porta libera range
+    # porta libera range — TOCTOU mitigation: massimo 3 tentativi con porte diverse
     def free_port():
         s = socket.socket(); s.bind(("127.0.0.1", 0))
         p = s.getsockname()[1]; s.close(); return p
-    port = free_port()
     key = hashlib.sha256(os.urandom(16)).hexdigest()
     env = os.environ.copy()
     env["PATH"] = str(llama_dir) + os.pathsep + env.get("PATH", "")
-    cmd = [
-        str(llama_dir / "llama-server.exe"),
-        "-m", str(model),
-        "--host", "127.0.0.1",
-        "--port", str(port),
-        "--api-key", key,
-        "-c", "4096",
-        "--no-webui",
-    ]
     CREATE_NO_WINDOW = 0x08000000
-    pop = subprocess.Popen(cmd, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
-    atexit.register(lambda: pop.poll() is None and pop.kill())
+    pop = None
+    port = None
+    last_err = ""
+    for attempt in range(3):
+        port = free_port()
+        cmd = [
+            str(llama_dir / "llama-server.exe"),
+            "-m", str(model),
+            "--host", "127.0.0.1",
+            "--port", str(port),
+            "--api-key", key,
+            "-c", "4096",
+            "--no-webui",
+        ]
+        pop = subprocess.Popen(cmd, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        atexit.register(lambda p=pop: p.poll() is None and p.kill())
+        # attesa iniziale 5s + check 1 health immediato per capire se porta è occupata
+        time.sleep(5)
+        if pop.poll() is None:
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/health")
+                req.add_header("Authorization", f"Bearer {key}")
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    if r.status == 200:
+                        break
+            except Exception as e:
+                last_err = str(e)
+        # Fallito: chiudi e ritenta
+        try:
+            pop.poll() is None and pop.kill()
+            pop.wait(timeout=5)
+        except Exception:
+            pass
+        port = None
+        pop = None
+        time.sleep(1)
     ok = False
     start = time.time()
-    err = ""
-    while time.time() - start < 180:
+    err = last_err or ""
+    while port is not None and pop is not None and (time.time() - start < 180):
         time.sleep(3)
         if pop.poll() is not None:
             err = f"llama-server è morto subito exit={pop.returncode}"
@@ -56,23 +80,25 @@ else:
             last_err = str(e)
     # shutdown
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/inference/server_state", method="POST")
-        req.add_header("Authorization", f"Bearer {key}")
-        req.add_header("Content-Type", "application/json")
-        body = json.dumps({"action": "stop"}).encode()
-        try:
-            with urllib.request.urlopen(req, data=body, timeout=5) as r:
-                _ = r.read()
-        except:
-            pass
-    except:
+        if port is not None and pop is not None:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/inference/server_state", method="POST")
+            req.add_header("Authorization", f"Bearer {key}")
+            req.add_header("Content-Type", "application/json")
+            body = json.dumps({"action": "stop"}).encode()
+            try:
+                with urllib.request.urlopen(req, data=body, timeout=5) as r:
+                    _ = r.read()
+            except Exception:
+                pass
+    except Exception:
         pass
     time.sleep(2)
-    if pop.poll() is None:
-        pop.terminate()
-        time.sleep(2)
+    if pop is not None:
         if pop.poll() is None:
-            pop.kill()
+            pop.terminate()
+            time.sleep(2)
+            if pop.poll() is None:
+                pop.kill()
     results["h2"] = ("PASS" if ok else "FAIL", err or f"health status ok={ok} port={port}")
     print(results["h2"])
 
@@ -117,6 +143,7 @@ else:
     all_ok = all(v["exists"] and v["size"] > 0 for v in checks.values())
     # anche JSON parsabile
     parsed_ok = False
+    pdf_ok = False
     if checks["json"]["exists"]:
         try:
             with open(paths["json"], "r", encoding="utf-8") as f:
@@ -160,6 +187,11 @@ else:
 print("\n=== RIEPILOGO")
 for k, v in results.items():
     print(f"[{k}] {v[0]}: {v[1]}")
-with open(ROOT / "dl_cache" / "h2h3h5.json", "w", encoding="utf-8") as f:
-    json.dump(results, f, indent=2)
+try:
+    cache_dir = ROOT / "dl_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with open(cache_dir / "h2h3h5.json", "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+except Exception:
+    pass
 sys.exit(0 if all(v[0] != "FAIL" for v in results.values()) else 1)
