@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -125,6 +126,8 @@ class AIService:
         self._pipeline: Optional[JsonPipeline] = None
         self._server_chain: List[Any] = []  # all non-mock servers we started
         self._mock = mock
+        self._pipeline_lock = threading.Lock()
+        self.backend_label = "non avviato"
 
     # --------------------------------------------------------------
     # LLM pipeline: lazy-init + failover chain + debug artifacts
@@ -134,90 +137,122 @@ class AIService:
             use_mock = self._mock
         if use_mock:
             return JsonPipeline(MockLlamaServer(), max_retries=1)
-        if self._pipeline is not None:
+        # Thread-safe: report extraction and document features run in worker
+        # threads and must share ONE llama-server (each one loads ~2 GB of RAM).
+        with self._pipeline_lock:
+            if self._pipeline is not None:
+                return self._pipeline
+            self._pipeline = self._build_pipeline()
             return self._pipeline
+
+    def _llama_options(self, eff: Dict[str, Any], model_path: Path,
+                       context_size: int) -> LlamaServerOptions:
+        return LlamaServerOptions(
+            runtime_dir=self.config.resolve_ai_path(eff["runtime_dir"]),
+            runtime_exe=eff.get("runtime_exe", "llama-server.exe"),
+            model_path=model_path,
+            context_size=context_size,
+            host=eff.get("host", "127.0.0.1"),
+            port_min=int(eff.get("port_min", 39280)),
+            port_max=int(eff.get("port_max", 39299)),
+            no_webui=bool(eff.get("no_webui", True)),
+            no_think=bool(eff.get("no_think", True)),
+            thread_override=eff.get("thread_override"),
+        )
+
+    def _try_ollama(self, eff: Dict[str, Any], *, explicit: bool) -> Optional[OllamaBackend]:
+        url = str(eff.get("ollama_url", "http://127.0.0.1:11434"))
+        model = str(eff.get("ollama_model", "qwen3:0.6b-instruct-q8_0"))
+        srv = OllamaBackend(OllamaBackendOptions(url=url, model=model))
+        if not srv.health_check(timeout=1.5):
+            if explicit:
+                LOG.warning("Ollama backend non raggiungibile su %s", url)
+            return None
+        if not explicit:
+            # Auto-detect: use an installed model, preferring Qwen.
+            installed = srv.list_models()
+            if not installed:
+                return None
+            if model not in installed:
+                qwen = [m for m in installed if m.lower().startswith("qwen")]
+                srv.options.model = (qwen or installed)[0]
+        srv.start(timeout=2.0)
+        return srv
+
+    def _build_pipeline(self) -> JsonPipeline:
         eff = self.config.llm_effective
         chain: List[Any] = []
         max_retries = max(0, int(eff.get("max_retries", 3)))
         backend = str(eff.get("backend", "llama_server")).lower()
+        self.backend_label = "mock"
 
-        # 1) Primary backend di config (ollama or llama primary model)
+        # 1) Ollama, if explicitly selected in the config
         if backend == "ollama":
-            o_opts = OllamaBackendOptions(
-                url=str(eff.get("ollama_url", "http://127.0.0.1:11434")),
-                model=str(eff.get("ollama_model", "qwen3:0.6b-instruct-q8_0")),
-            )
-            ollama_srv = OllamaBackend(o_opts)
             try:
-                ollama_srv.start(timeout=5.0)
-                chain.append(ollama_srv)
-                self._server_chain.append(ollama_srv)
+                srv = self._try_ollama(eff, explicit=True)
+                if srv is not None:
+                    chain.append(srv)
+                    self._server_chain.append(srv)
+                    self.backend_label = f"ollama:{srv.options.model}"
             except Exception as exc:  # noqa: BLE001
                 LOG.warning(f"Ollama backend non disponibile (procedo con fallback): {exc}")
 
-        # 2) Llama primary (sempre tentiamo come primary o fallback)
-        primary_model_path = self.config.resolve_app_path(eff["model"]) if eff.get("model") else None
-        if primary_model_path and primary_model_path.exists():
-            try:
-                opts = LlamaServerOptions(
-                    runtime_dir=self.config.resolve_app_path(eff["runtime_dir"]),
-                    runtime_exe=eff.get("runtime_exe", "llama-server.exe"),
-                    model_path=primary_model_path,
-                    context_size=int(eff.get("context_size", 4096)),
-                    host=eff.get("host", "127.0.0.1"),
-                    port_min=int(eff.get("port_min", 39280)),
-                    port_max=int(eff.get("port_max", 39299)),
-                    no_webui=bool(eff.get("no_webui", True)),
-                    no_think=bool(eff.get("no_think", True)),
-                    thread_override=eff.get("thread_override"),
-                )
-                primary = LlamaServer(opts)
-                primary.start()
-                chain.append(primary)
-                self._server_chain.append(primary)
-            except Exception as exc:  # noqa: BLE001
-                LOG.warning(f"Llama primary non disponibile: {exc}")
+        # 2) llama.cpp primary model, then the smaller fallback model ONLY if the
+        #    primary could not start (avoids loading two models into RAM).
+        if not chain:
+            ctx_size = int(eff.get("context_size", 4096))
+            candidates = []
+            if eff.get("model"):
+                candidates.append((self.config.resolve_ai_path(eff["model"]), ctx_size))
+            if eff.get("fallback_model"):
+                candidates.append((self.config.resolve_ai_path(eff["fallback_model"]),
+                                   max(512, ctx_size // 2)))
+            for model_path, csize in candidates:
+                if not model_path.is_file():
+                    continue
+                try:
+                    srv = LlamaServer(self._llama_options(eff, model_path, csize))
+                    srv.start()
+                    chain.append(srv)
+                    self._server_chain.append(srv)
+                    self.backend_label = f"llama:{model_path.name}"
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    LOG.warning(f"Llama ({model_path.name}) non disponibile: {exc}")
 
-        # 3) Llama fallback (0.6B)
-        fallback_model_path = None
-        if eff.get("fallback_model"):
-            fallback_model_path = self.config.resolve_app_path(eff["fallback_model"])
-        if fallback_model_path and fallback_model_path.exists():
+        # 3) Auto-detect a locally running Ollama as a last real backend
+        if not chain and backend != "ollama":
             try:
-                fb_opts = LlamaServerOptions(
-                    runtime_dir=self.config.resolve_app_path(eff["runtime_dir"]),
-                    runtime_exe=eff.get("runtime_exe", "llama-server.exe"),
-                    model_path=fallback_model_path,
-                    context_size=max(512, int(int(eff.get("context_size", 4096)) // 2)),
-                    host=eff.get("host", "127.0.0.1"),
-                    port_min=int(eff.get("port_min", 39280)),
-                    port_max=int(eff.get("port_max", 39299)),
-                    no_webui=bool(eff.get("no_webui", True)),
-                    no_think=bool(eff.get("no_think", True)),
-                    thread_override=eff.get("thread_override"),
-                )
-                fb = LlamaServer(fb_opts)
-                fb.start()
-                chain.append(fb)
-                self._server_chain.append(fb)
+                srv = self._try_ollama(eff, explicit=False)
+                if srv is not None:
+                    chain.append(srv)
+                    self._server_chain.append(srv)
+                    self.backend_label = f"ollama:{srv.options.model}"
             except Exception as exc:  # noqa: BLE001
-                LOG.warning(f"Llama fallback non disponibile: {exc}")
+                LOG.info(f"Ollama auto-detect fallito: {exc}")
 
         # 4) Mock deterministico always-on fallback (per sicurezza)
         chain.append(MockLlamaServer())
+        if self.backend_label == "mock":
+            LOG.warning("Nessun backend AI locale disponibile: uso modalita' manuale (mock).")
 
-        # Debug dump root
         debug_root = None
         if bool(eff.get("debug", False)):
             debug_root = self.config.logs_root() / "llm_debug"
 
-        # First chain server is "mock only" → use single server constructor (legacy)
         if len(chain) == 1:
-            self._pipeline = JsonPipeline(chain[0], max_retries=max_retries, debug_root=debug_root)
-        else:
-            self._pipeline = JsonPipeline(chain[0], max_retries=max_retries, debug_root=debug_root,
-                                          server_chain=chain)
-        return self._pipeline
+            return JsonPipeline(chain[0], max_retries=max_retries, debug_root=debug_root)
+        return JsonPipeline(chain[0], max_retries=max_retries, debug_root=debug_root,
+                            server_chain=chain)
+
+    @property
+    def is_real_ai(self) -> bool:
+        return self.backend_label != "mock"
+
+    def reset(self) -> None:
+        """Stop running backends so the next call re-detects them (e.g. after
+        the AI components were installed or the LLM profile changed)."""
+        self.shutdown()
 
     def shutdown(self) -> None:
         excs: List[str] = []
@@ -231,6 +266,7 @@ class AIService:
             LOG.warning(f"Errori durante stop LLM: {excs}")
         self._server_chain = []
         self._pipeline = None
+        self.backend_label = "non avviato"
 
     # --------------------------------------------------------------
     # Log operation to DB

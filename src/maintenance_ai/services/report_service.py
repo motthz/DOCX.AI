@@ -50,6 +50,7 @@ class ReportService:
         module_manager: ModuleManager,
         context: ContextService,
         pipeline: Optional[JsonPipeline] = None,
+        ai_service: Any = None,
     ):
         self.config = config
         self.db = db
@@ -57,6 +58,9 @@ class ReportService:
         self.context = context
         self._pipeline_override = pipeline
         self._server: Any = None
+        # Shared AIService (failover chain llama -> ollama -> mock). When set,
+        # reports reuse its single llama-server instead of starting another one.
+        self.ai_service = ai_service
 
     # ---- LLM pipeline (lazily created on first use) ------------------------
     def pipeline(self, *, use_mock: bool = False) -> JsonPipeline:
@@ -66,12 +70,14 @@ class ReportService:
             server: Any = MockLlamaServer()
             max_retries = self.config.llm_effective.get("max_retries", 1)
             return JsonPipeline(server, max_retries=max_retries)
+        if self.ai_service is not None:
+            return self.ai_service.pipeline(use_mock=False)
         if self._server is None:
             eff = self.config.llm_effective
             opts = LlamaServerOptions(
-                runtime_dir=self.config.resolve_app_path(eff["runtime_dir"]),
+                runtime_dir=self.config.resolve_ai_path(eff["runtime_dir"]),
                 runtime_exe=eff.get("runtime_exe", "llama-server.exe"),
-                model_path=self.config.resolve_app_path(eff["model"]),
+                model_path=self.config.resolve_ai_path(eff["model"]),
                 context_size=int(eff.get("context_size", 4096)),
                 host=eff.get("host", "127.0.0.1"),
                 port_min=int(eff.get("port_min", 39280)),

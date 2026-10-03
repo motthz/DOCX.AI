@@ -1,142 +1,114 @@
-# MaintenanceAI 0.1.0
+# MaintenanceAI
 
-Applicazione desktop Windows 10/11 x64 **100% offline e portable** per la redazione, approvazione ed esportazione di rapporti di manutenzione. Draft generati con AI locale (Qwen3 GGUF tramite llama.cpp CPU, runtime incluso separatamente o distribuibile) e SEMPRE revisionati dall'operatore prima della finalizzazione.
+<img src="src/maintenance_ai/assets/logo.png" width="96" align="right" alt="logo">
+
+Applicazione desktop per Windows 10/11 (x64) per redigere, revisionare ed esportare
+rapporti di manutenzione. L'AI gira **in locale e offline** (llama.cpp + Qwen3):
+i dati non lasciano mai il PC. Ogni bozza generata dall'AI va **sempre** revisionata
+dall'operatore prima dell'esportazione.
+
+---
+
+## Installazione (utente finale)
+
+1. Scarica **`MaintenanceAI-Setup-<versione>.exe`** dalla pagina
+   [Releases](https://github.com/motthz/DOCK.IA/releases/latest).
+2. Avvialo e segui la procedura. Non servono diritti di amministratore:
+   l'app viene installata in `%LOCALAPPDATA%\Programs\MaintenanceAI` e viene creato
+   il collegamento **MaintenanceAI** sul Desktop e nel menu Start.
+3. Al primo avvio clicca su **«AI non installata»** in alto a destra e poi su
+   **Scarica e installa**: runtime llama.cpp e modello Qwen3 vengono scaricati una sola
+   volta (~2 GB, serve Internet solo per questo passaggio).
+
+> Windows SmartScreen può mostrare "PC protetto da Windows" perché l'installer non è
+> firmato digitalmente: clic su **Ulteriori informazioni → Esegui comunque**.
+
+Senza componenti AI l'app funziona comunque: i rapporti vanno compilati a mano
+(i campi restano `NON_SPECIFICATO`). Se sul PC è già attivo **Ollama** con un modello
+installato, viene usato automaticamente.
+
+In alternativa all'installer è disponibile lo ZIP **portable** (estrai e avvia
+`MaintenanceAI.exe`).
+
+Disinstallazione: *Impostazioni → App → App installate → MaintenanceAI*. I dati utente
+in `%LOCALAPPDATA%\MaintenanceAI` vengono conservati.
 
 ---
 
 ## Cosa fa l'app
 
-1. **Moduli adattivi** — carica un file DOCX/XLSX template e l'app crea automaticamente schema JSON + mapping dei placeholder `{{campo}}` / mapping.json celle.
-2. **Storico + documenti di riferimento** — ogni modulo mantiene 03_storico/ (JSON rapporti finalizzati) e 02_documenti_riferimento/ (caricabili come contesto per l'AI).
-3. **AI anti-allucinazione locale** — la `SYSTEM_POLICY` blocca l'invenzione dati; quando l'AI non sa scrive `NON_SPECIFICATO`. Fallback Ollama → llama.cpp Primary 1.7B → llama.cpp 0.6B → Mock.
-4. **Review Dialog obbligatorio** — l'output AI è sempre un *draft* e l'utente vede una scheda verde/giallo/rosso con quality score 0-100, correggibile campo-per-campo, highlight dei `NON_SPECIFICATO`.
-5. **Export 3 formati canonici** per ogni rapporto approvato:
-   - `Rapporto_xxx.json` — fonte canonica dei dati (validato jsonschema)
-   - `Rapporto_xxx.docx` o `.xlsx` — copia deterministica del template riempito
-   - `Rapporto_xxx.pdf` — layout MaintenanceAI con ReportLab (NON richiede Office installato)
-6. **Persistenza robusta** — tutti i dati utente in `%LOCALAPPDATA%\MaintenanceAI\` (db sqlite, logs, exports, workspace/modules); cartella d'installazione è a sola lettura per l'EXE.
-7. **Sicurezza** — `safe_resolve_name` blocca path traversal; limiti ZIP (entries/size/estensioni); blacklist estensioni pericolose `.docm/.xlsm/.exe/.bat/.ps1/.js/.lnk/.vbs`; mask API key nei log; nessuna chiamata di rete fuori da 127.0.0.1.
+1. **Moduli adattivi** — da un template DOCX/XLSX crea automaticamente schema JSON e
+   mapping dei placeholder `{{campo}}`.
+2. **Storico e documenti di riferimento** — usati come contesto per l'AI.
+3. **AI anti-allucinazione** — la policy vieta di inventare dati; se un valore non è noto
+   l'AI scrive `NON_SPECIFICATO`. Catena di backend: llama.cpp (Qwen3 1.7B → 0.6B) →
+   Ollama locale → modalità manuale.
+4. **Revisione obbligatoria** — scheda con quality score e evidenza dei campi mancanti.
+5. **Export** JSON (fonte canonica) + DOCX/XLSX + PDF (ReportLab, Office non richiesto).
+6. **Documenti AI** — creazione, modifica, audit e compilazione da documenti, con regole
+   AI personalizzabili per funzione e per modulo.
+7. **Sicurezza** — protezione path traversal, limiti ZIP, estensioni pericolose
+   bloccate, nessuna connessione di rete fuori da 127.0.0.1 (salvo il download
+   esplicito dei componenti AI).
+
+Dati utente: `%LOCALAPPDATA%\MaintenanceAI\` (database, log, export, workspace moduli,
+runtime e modelli AI). Log degli errori di avvio: `logs\crash.log`.
+
+### Profili AI
+
+| Profilo | Modello | Uso |
+|---|---|---|
+| `compatibility` | Qwen3 0.6B, contesto 2048 | PC lenti / poca RAM |
+| `balanced` (default) | Qwen3 1.7B, contesto 4096 | consigliato |
+| `fastest` | Qwen3 1.7B, 8 thread | CPU con molti core |
+
+Requisiti: Windows 10 22H2+ x64, 4 GB RAM (6 GB consigliati con AI), ~2.5 GB di disco
+con modello.
 
 ---
 
-## Come avviare l'EXE (portable, nessuna installazione)
+## Sviluppo
 
-**Cartella distribuita** (onedir PyInstaller, ~60 MB):
-```
-MaintenanceAI\
-├── MaintenanceAI.exe      ← doppio click = avvio GUI
-├── _internal\             (DLL Python, librerie packate)
-├── config\default.json
-├── LICENSES\
-└── VERSION.txt
-```
-
-- **NON** serve Python / Node / npm / pip / Java / IDE / Office / Ollama / Docker.
-- Doppio click su `MaintenanceAI.exe`.
-- Dati e workspace scritti in `%LOCALAPPDATA%\MaintenanceAI\` (dove l'utente standard ha permessi scrittura).
-- Per vedere se tutto funziona senza aprire la GUI:
-  ```bat
-  MaintenanceAI.exe --self-test --verbose
-  ```
-  Exit code `0` = ambiente e build sono OK.
-
----
-
-## Come eseguire da sorgente (Windows, PowerShell)
-
-Prerequisito singolo: **Python 3.12 x64** installato con Tcl/Tk (default). Poi da PowerShell esegui **in ordine**:
+Prerequisito: Python 3.12 x64. Da PowerShell nella cartella del progetto:
 
 ```powershell
-# 1. Crea venv e installa dipendenze, scarica test fixtures
-powershell -ExecutionPolicy Bypass -File scripts\setup_dev.ps1
-
-# 2. Opzionale: scarica runtime llama.cpp CPU e modelli Qwen3 GGUF in runtime/models
-powershell -ExecutionPolicy Bypass -File scripts\download_runtime.ps1
-
-# 3. Run unit test + self-test
-powershell -ExecutionPolicy Bypass -File scripts\test.ps1
-
-# 4. Avvia GUI da sorgente
-powershell -ExecutionPolicy Bypass -File scripts\run_dev.ps1
-
-# 5. Build EXE onedir (copiare dist\MaintenanceAI\ all'utente finale)
-powershell -ExecutionPolicy Bypass -File scripts\build.ps1
+powershell -ExecutionPolicy Bypass -File scripts\setup_dev.ps1        # venv + dipendenze
+powershell -ExecutionPolicy Bypass -File scripts\run_dev.ps1          # avvia la GUI
+powershell -ExecutionPolicy Bypass -File scripts\test.ps1             # unit test + self-test
+.venv\Scripts\python.exe scripts\smoke_gui.py                          # smoke test GUI
+powershell -ExecutionPolicy Bypass -File scripts\release.ps1  # build + ZIP + installer
 ```
 
-Sviluppo manuale (se vuoi evitare gli script wrapper):
-```powershell
-$env:PYTHONPATH = "src;."
-.\.venv\Scripts\python.exe -m maintenance_ai.main --self-test --verbose
-.\.venv\Scripts\python.exe -m maintenance_ai.main
-```
+`release.ps1` richiede [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+(`winget install JRSoftware.InnoSetup`) e produce in `release\`:
 
----
+- `MaintenanceAI-Setup-<ver>.exe` — installer
+- `MaintenanceAI-<ver>-portable-win64.zip` — versione portable
 
-## Requisiti sistema finale
-
-| Requisito | Versione | Note |
-|-----------|----------|------|
-| OS | Windows 10 22H2+ o Windows 11 x64 | Il mutex single-instance usa Win32 API; DPI-aware chain PMv2/Shcore; **solo x64** (no arm, no 32bit) |
-| RAM | ≥ 4 GB consigliato | Per 1.7B Q8_0 sono ~1.9GB + ~600MB Python EXE + ~1GB di headroom Tkinter/ReportLab |
-| CPU | Qualsiasi x64 moderno | AI runtime è CPU-only llama.cpp; per template/docx grandi o report batch è meglio 4+ core |
-| Spazio disco | ~250 MB | EXE portable 60 MB + runtime llama.cpp 40 MB + modello 1.7B Q8_0 1.9 GB opzionale (se usi AI reale) |
-| Rete | **Non richiesta** | Zero telemetria, zero auto-update, zero API remote. llama-server.exe gira su 127.0.0.1 con API-key casuale per avvio. |
-| Office | **Non richiesto** | DOCX/XLSX editati con python-docx/openpyxl; PDF render con ReportLab (nessun Office render) |
-
----
-
-## Struttura essenziale cartelle
+Le build non sono versionate nel repository: vengono pubblicate come asset delle
+GitHub Release.
 
 ```
-Progetto DOCK.IA\
-├── src\maintenance_ai\       # sorgente produzione (tkinter, sqlite, export, llm pipeline, docintelligence)
-├── tests\                    # unittest 28+ casi + golden_cases.json anti-regressioni modello
-├── scripts\                  # PowerShell setup, dev run, test, build, download runtime, smoke e2e
-├── packaging\MaintenanceAI.spec  # onedir PyInstaller spec
-├── config\default.json       # profilo default (max file size, paths, LLM configs)
-├── dist\MaintenanceAI\       # BUILD FINALE onedir (MaintenanceAI.exe + _internal + config)
-├── .gitignore
-├── README.md
-└── AUDIT_REPORT.md           # report completo audit 40+ test
+src/maintenance_ai/      sorgente (ui/, llm/, docintelligence/, exporters/, parsers/, services/)
+src/maintenance_ai/assets logo e icona (rigenerabili con packaging/make_icon.py)
+tests/                   unit test
+scripts/                 setup, test, build, smoke test
+packaging/               spec PyInstaller, manifest, versione exe, installer Inno Setup
+config/default.json      configurazione predefinita
+examples/modules/        modulo di esempio
 ```
 
-A runtime sul PC utente i DATI sono SEMPRE separati dalla cartella d'installazione:
-```
-%LOCALAPPDATA%\MaintenanceAI\
-├── maintenance.db            # SQLite + migrazioni FTS5
-├── logs\crash.log            # stderr/stdout persistenti post-crash
-├── exports\<timestamp>\      # 3 file finalizzati (JSON + DOCX/XLSX + PDF)
-└── workspace\modules\<slug>\
-    ├── module.json           # metadati + version SemVer
-    ├── schema.json           # JSON schema, edibile manualmente
-    ├── mapping.json          # mapping placeholder → celle DOCX/XLSX
-    ├── 01_modulo_vuoto\      # originale template vergine
-    ├── 02_documenti_riferimento\  # contesto opzionale per l'AI
-    ├── 03_storico\           # JSON rapporti già finalizzati → contesto
-    └── _versions\            # ultime 10 modifiche schemi/mappature
-```
-
----
-
-## Limitazioni reali conosciute
-
-- **AI reale richiede runtime + modello**: il pacchetto EXE portable include il codice per pilotare llama-server.exe; il runtime ufficiale `runtime/llama/` e i file `.gguf` possono essere copiati a parte o scaricati con `scripts/download_runtime.ps1`. Senza di essi l'AI usa il `MockLlamaServer` (genera valori `NON_SPECIFICATO` e placeholder deterministici) — export/import/moduli funzionano comunque.
-- **PDF fidelity DOCX**: ReportLab produce un PDF "standard MaintenanceAI" con il proprio font e layout; non è un rendering pixel-perfect del DOCX/XLSX (come sarebbe se avessi Word installato). Il DOCX/XLSX originale è sempre incluso come output.
-- **MacOS/Linux**: **Non supportati** ufficialmente; il codice è portatile ma la build è target Windows 10/11 x64.
-- **Modelli grandi (>10B)**: non testati e potrebbero saturare la RAM. Il pin ufficiale per v0.1.0 è Qwen3-1.7B-Instruct Q8_0 e Qwen3-0.6B come fallback.
-- **OCR/Scanner**: placeholder vuoti vengono popolati con NON_SPECIFICATO, non c'è OCR integrato in questa release.
-- **Excel formule/macro**: `openpyxl` ha `defusedxml` attivo; macro `.xlsm` e formule sono bloccati dal security filter come previsto.
-
----
-
-## Comandi CLI utili
+### Comandi CLI
 
 ```bat
-MaintenanceAI.exe                 :: Avvio GUI (default)
-MaintenanceAI.exe --self-test     :: Smoke test 14 step, exit 0 se tutto OK
-MaintenanceAI.exe --self-test --verbose :: dettagli ogni step
-MaintenanceAI.exe --config PATH   :: usa file json alternativo invece di config/default.json
-MaintenanceAI.exe --version       :: stampa versione da VERSION.txt / __init__.py
+MaintenanceAI.exe                       :: GUI
+MaintenanceAI.exe --self-test --verbose :: smoke test, exit code 0 = OK
+MaintenanceAI.exe --version
+MaintenanceAI.exe --config PATH         :: configurazione alternativa
 ```
 
-Per ulteriori dettagli di audit e copertura test vedi `AUDIT_REPORT.md`.
+### Limitazioni note
+
+- Il PDF è un layout MaintenanceAI (ReportLab), non una resa pixel-perfect del DOCX/XLSX.
+- Il modello 0.6B è più veloce ma meno affidabile: verificare sempre i valori proposti.
+- Solo Windows x64 è supportato ufficialmente.

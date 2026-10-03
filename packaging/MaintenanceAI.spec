@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(SPECPATH).resolve().parent  # repo root (DOCK.IA, genitore di packaging/)
+ROOT = Path(SPECPATH).resolve().parent  # repo root (genitore di packaging/)
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
@@ -25,6 +25,7 @@ a = Analysis(
         (str(ROOT / "config"), "config"),
         (str(ROOT / "VERSION.txt"), "."),
         (str(ROOT / "LICENSES"), "LICENSES"),
+        (str(SRC / "maintenance_ai" / "assets"), "maintenance_ai/assets"),
     ],
     hiddenimports=[
         "maintenance_ai",
@@ -45,6 +46,8 @@ a = Analysis(
         "maintenance_ai.llm.llama_server",
         "maintenance_ai.llm.prompt_builder",
         "maintenance_ai.llm.json_pipeline",
+        "maintenance_ai.llm.ollama_backend",
+        "maintenance_ai.llm.ai_installer",
         "maintenance_ai.services",
         "maintenance_ai.services.context_service",
         "maintenance_ai.services.report_service",
@@ -53,6 +56,8 @@ a = Analysis(
         "maintenance_ai.ui.main_window",
         "maintenance_ai.ui.review_dialog",
         "maintenance_ai.ui.help_dialog",
+        "maintenance_ai.ui.assets",
+        "maintenance_ai.ui.ai_setup_dialog",
         "docx",
         "openpyxl",
         "reportlab",
@@ -100,6 +105,8 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 MANIFEST_FILE = str(Path(SPECPATH).resolve() / "app.manifest")
+ICON_FILE = str(SRC / "maintenance_ai" / "assets" / "app.ico")
+VERSION_FILE = str(Path(SPECPATH).resolve() / "version_info.txt")
 
 exe = EXE(
     pyz,
@@ -111,13 +118,16 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,  # Console abilitata: se crasha si vede l'errore invece di morire silenziosamente
+    # Applicazione a finestra (nessuna console nera). Gli errori di avvio
+    # finiscono in %LOCALAPPDATA%\MaintenanceAI\logs\crash.log e in una MessageBox.
+    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     manifest=MANIFEST_FILE,
-    # icon=str(ROOT / "packaging" / "app.ico") if (ROOT / "packaging" / "app.ico").exists() else None,
+    icon=ICON_FILE,
+    version=VERSION_FILE,
 )
 
 coll = COLLECT(

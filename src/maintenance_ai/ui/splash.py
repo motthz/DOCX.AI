@@ -24,7 +24,7 @@ class SplashScreen:
         self.top = tk.Toplevel(root)
         self.top.overrideredirect(True)
         self.top.withdraw()
-        w, h = 420, 260
+        w, h = 420, 300
         self.top.geometry(f"{w}x{h}")
         self.top.configure(bg="#1a2236")
         # Center
@@ -39,10 +39,18 @@ class SplashScreen:
             self.top.attributes("-alpha", 0.96)
         except Exception:  # noqa: BLE001
             pass
+        self._logo = None
+        try:
+            from .assets import logo_image
+            self._logo = logo_image(self.top, 64)
+        except Exception:  # noqa: BLE001
+            self._logo = None
+        if self._logo is not None:
+            tk.Label(self.top, image=self._logo, bg="#1a2236").pack(pady=(26, 6))
         tk.Label(self.top, text=title, font=("Segoe UI", 20, "bold"),
-                 bg="#1a2236", fg="#ffffff").pack(pady=(36, 4))
+                 bg="#1a2236", fg="#ffffff").pack(pady=((4 if self._logo else 36), 4))
         tk.Label(self.top, text=subtitle, font=("Segoe UI", 11),
-                 bg="#1a2236", fg="#c8d4ff").pack(pady=(0, 20))
+                 bg="#1a2236", fg="#c8d4ff").pack(pady=(0, 14))
         if ttk is not None:
             style = ttk.Style(self.top)
             try:

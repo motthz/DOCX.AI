@@ -217,7 +217,7 @@ class DocumentCreationDialog(tk.Toplevel):
         if self.modules:
             try:
                 mods = self.modules.list_modules()
-                self.modules_combo["values"] = [m["slug"] for m in mods]
+                self.modules_combo["values"] = [m.slug for m in mods]
             except Exception:  # noqa: BLE001
                 pass
 
@@ -554,9 +554,9 @@ class DocumentModificationDialog(tk.Toplevel):
             vals: List[str] = []
             try:
                 for entry in self.mm.list_modules() or []:
-                    slug = entry["slug"] if isinstance(entry, dict) else str(entry)
+                    slug = entry["slug"] if isinstance(entry, dict) else entry.slug
                     try:
-                        mobj = self.mm.load_module(slug)
+                        mobj = entry if hasattr(entry, "schema") else self.mm.load_module(slug)
                         name = mobj.name if hasattr(mobj, "name") else slug
                         lab = f"{name}  (slug: {slug})"
                         vals.append(lab)
@@ -1286,7 +1286,7 @@ class SmartFillDialog(tk.Toplevel):
                  fg=COLORS["text"], bg=COLORS["card_bg"], width=18, anchor="w").pack(side="left")
         mod_vals = []
         try:
-            mod_vals = [m["slug"] for m in self.mm.list_modules()]
+            mod_vals = [m.slug for m in self.mm.list_modules()]
         except Exception:  # noqa: BLE001
             pass
         self.mod_combo = ttk.Combobox(r1, values=mod_vals, textvariable=self._module_slug_var,

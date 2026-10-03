@@ -65,6 +65,16 @@ class OllamaBackend:
     # ------------------------------------------------------------------
     # Health + API
     # ------------------------------------------------------------------
+    def list_models(self, timeout: float = 2.0) -> list:
+        """Names of the models installed in the local Ollama (empty on error)."""
+        try:
+            req = urllib.request.Request(f"{self.base_url}/api/tags", method="GET")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+            return [m.get("name", "") for m in payload.get("models", []) if m.get("name")]
+        except Exception:  # noqa: BLE001
+            return []
+
     def health_check(self, timeout: float = 2.0) -> bool:
         # Ollama endpoint root / restituisce "Ollama is running"; usiamo /api/tags
         try:

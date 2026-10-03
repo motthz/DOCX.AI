@@ -52,8 +52,8 @@ $Exe = Join-Path $ProjectRoot "dist\MaintenanceAI\MaintenanceAI.exe"
 if (-not (Test-Path $Exe)) { throw "Atteso eseguibile non trovato: $Exe" }
 
 Write-Host "[build] Self-test versione pacchettizzata..." -ForegroundColor Cyan
-$so = Join-Path $ProjectRoot "dl_cache\selftest_dist_stdout.txt"
-$se = Join-Path $ProjectRoot "dl_cache\selftest_dist_stderr.txt"
+$so = Join-Path $env:TEMP "maintenanceai_selftest_stdout.txt"
+$se = Join-Path $env:TEMP "maintenanceai_selftest_stderr.txt"
 Remove-Item $so, $se -ErrorAction SilentlyContinue
 $sp = Start-Process -FilePath $Exe -ArgumentList "--self-test" -Wait -PassThru -RedirectStandardOutput $so -RedirectStandardError $se -WindowStyle Hidden
 Write-Host "[build] Self-test exit code: $($sp.ExitCode)" -ForegroundColor $(if ($sp.ExitCode -eq 0) { "Green" } else { "Red" })

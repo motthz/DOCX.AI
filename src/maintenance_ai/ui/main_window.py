@@ -50,6 +50,8 @@ from .document_dialogs import (
 from .dnd_handler import DragDropHandlerFrame
 from .first_run_wizard import FirstRunWizard
 from .splash import SplashScreen
+from .assets import apply_window_icon, logo_image
+from .ai_setup_dialog import AISetupDialog
 from .theme import (
     COLORS,
     FONTS,
@@ -143,6 +145,9 @@ class MainWindow:
 
         self.root = tk.Tk()
         self.root.title("MaintenanceAI")
+        apply_window_icon(self.root)
+        self._ai_service = getattr(reports, "ai_service", None)
+        self._restore_llm_profile()
 
         # ---- FR9: restore geometry from DB settings, fallback center ----
         self._geom_initial: Optional[str] = None
@@ -508,38 +513,28 @@ class MainWindow:
     # ==================== Header (gradient) ====================
 
     def _build_header(self) -> None:
-        header = GradientCanvas(self.root,
-                                COLORS["slate_900"],
-                                COLORS["primary_800"],
-                                direction="horizontal",
-                                height=78)
+        header = tk.Frame(self.root, bg=COLORS["slate_900"], height=78)
         header.pack(fill="x")
+        GradientCanvas(self.root, COLORS["primary_500"], COLORS["success_400"],
+                       direction="horizontal", height=3).pack(fill="x")
 
-        # Overlay frame on top of the gradient canvas
         inner = tk.Frame(header, bg=COLORS["slate_900"])
-        header.create_window((22, 12), anchor="nw", window=inner,
-                             tags="overlay")
-        # Make width follow canvas
-        def _resize(_e=None):
-            try:
-                w = header.winfo_width() - 44
-                if w < 300: w = 300
-                inner.configure(width=w)
-            except Exception: pass
-        header.bind("<Configure>", _resize, add="+")
+        inner.pack(fill="both", expand=True, padx=22, pady=10)
 
         # Left column: brand
         left = tk.Frame(inner, bg=COLORS["slate_900"])
         left.pack(side="left", fill="y")
 
-        mark = tk.Frame(left, bg=COLORS["slate_900"])
-        mark.pack(side="left")
-        bar1 = tk.Frame(mark, bg=COLORS["primary_400"], width=6, height=42,
-                        bd=0, highlightthickness=0)
-        bar1.pack(side="left")
-        bar2 = tk.Frame(mark, bg=COLORS["success_400"], width=6, height=42,
-                        bd=0, highlightthickness=0)
-        bar2.pack(side="left", padx=(3, 14))
+        self._logo_img = logo_image(self.root, 48)
+        if self._logo_img is not None:
+            tk.Label(left, image=self._logo_img, bg=COLORS["slate_900"],
+                     bd=0).pack(side="left", padx=(0, 14))
+        else:
+            mark = tk.Frame(left, bg=COLORS["slate_900"])
+            mark.pack(side="left")
+            tk.Frame(mark, bg=COLORS["primary_400"], width=6, height=42).pack(side="left")
+            tk.Frame(mark, bg=COLORS["success_400"], width=6,
+                     height=42).pack(side="left", padx=(3, 14))
 
         titles = tk.Frame(left, bg=COLORS["slate_900"])
         titles.pack(side="left")
@@ -615,15 +610,21 @@ class MainWindow:
                  bg=COLORS["slate_900"], fg=COLORS["slate_400"],
                  font=("Segoe UI", 8, "bold")).pack(anchor="e")
         try:
-            profiles = list((self.config.llm_profiles or {}).keys())
+            profiles = list(self.config.available_profiles().keys())
         except Exception:
-            profiles = ["default"]
-        if not profiles: profiles = ["default"]
-        self._profile_var = tk.StringVar(value=profiles[0])
+            profiles = []
+        if not profiles: profiles = ["balanced"]
+        current = self.config.llm_profile if self.config.llm_profile in profiles else profiles[0]
+        self._profile_var = tk.StringVar(value=current)
         self._profile_combo = ttk.Combobox(
             prof_box, textvariable=self._profile_var,
-            values=profiles, state="readonly", width=18)
+            values=profiles, state="readonly", width=16)
         self._profile_combo.pack(anchor="e", pady=(3, 0))
+        self._profile_combo.bind("<<ComboboxSelected>>",
+                                 lambda _e: self._on_profile_changed(), add="+")
+        bind_tooltip(self._profile_combo,
+                     "compatibility = PC lenti (modello 0.6B) · balanced = consigliato · "
+                     "fastest = più thread CPU", delay=450)
 
         # AI status pill (animated when busy)
         pill = tk.Frame(right, bg=COLORS["slate_900"])
@@ -634,7 +635,7 @@ class MainWindow:
         self._ai_pill_bg = COLORS["slate_800"]
         self._ai_pill_frame = tk.Frame(pill, bg=self._ai_pill_bg,
                                        highlightthickness=0, bd=0,
-                                       padx=14, pady=6)
+                                       padx=14, pady=6, cursor="hand2")
         self._ai_pill_frame.pack(anchor="e", pady=(3, 0))
         self._ai_dot_canvas = tk.Canvas(self._ai_pill_frame,
                                         bg=self._ai_pill_bg,
@@ -647,8 +648,13 @@ class MainWindow:
                                        fg=COLORS["slate_200"],
                                        font=("Segoe UI", 10, "bold"))
         self._ai_status_lbl.pack(side="left")
+        for w in (self._ai_pill_frame, self._ai_dot_canvas, self._ai_status_lbl):
+            w.bind("<Button-1>", lambda _e: self._open_ai_setup(), add="+")
+        bind_tooltip(self._ai_pill_frame,
+                     "Stato del motore AI locale. Clic per installare o verificare i componenti AI.",
+                     delay=450)
         self._redraw_ai_dot()
-        self._ai_start_pulse()
+        self.root.after(400, self._refresh_ai_availability)
 
     # -------- AI pill helpers --------
 
@@ -682,11 +688,15 @@ class MainWindow:
             pass
 
     def _ai_start_pulse(self) -> None:
+        # Animate only while busy: an always-on 120 ms timer wastes CPU.
         try:
             self._redraw_ai_dot()
         except Exception:
             pass
-        self._ai_pulse_after = self.root.after(120, self._ai_start_pulse)
+        if self._ai_state == "busy":
+            self._ai_pulse_after = self.root.after(120, self._ai_start_pulse)
+        else:
+            self._ai_pulse_after = None
 
     def _set_ai_state(self, state: str, label: Optional[str] = None) -> None:
         self._ai_state = state
@@ -701,6 +711,76 @@ class MainWindow:
             self._ai_status_lbl.configure(text=text)
         except Exception:
             pass
+        try:
+            self._refresh_status_sections()
+        except Exception:  # noqa: BLE001
+            pass
+        if state == "busy" and self._ai_pulse_after is None:
+            self._ai_start_pulse()
+        else:
+            self._redraw_ai_dot()
+
+    # -------- AI availability / profile --------
+
+    def _restore_llm_profile(self) -> None:
+        try:
+            saved = self.db.get_setting("llm.profile")
+            if saved and saved in self.config.available_profiles():
+                self.config.set_profile(saved)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_profile_changed(self) -> None:
+        name = self._profile_var.get()
+        try:
+            self.config.set_profile(name)
+            self.db.set_setting("llm.profile", name)
+        except Exception as exc:  # noqa: BLE001
+            self._toast(f"Profilo non valido: {exc}", "error", "❌")
+            return
+        self._reset_ai_backend()
+        self._toast(f"Profilo AI: {name}", "info", "🧠")
+        self._refresh_ai_availability()
+
+    def _reset_ai_backend(self) -> None:
+        svc = self._ai_service
+        if svc is None:
+            return
+        threading.Thread(target=svc.reset, daemon=True, name="ai-reset").start()
+
+    def _refresh_ai_availability(self) -> None:
+        """Show in the header whether a real local AI is available."""
+        if self._ai_state == "busy":
+            return
+        try:
+            st = self.config.ai_components_status()
+            ready = st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])
+        except Exception:  # noqa: BLE001
+            ready = False
+        if ready:
+            self._set_ai_state("ok", "AI pronta")
+        else:
+            self._set_ai_state("error", "AI non installata")
+            if not getattr(self, "_ai_hint_shown", False):
+                self._ai_hint_shown = True
+                self.root.after(2500, lambda: self._toast(
+                    "AI locale non ancora installata: clicca su «AI non installata» "
+                    "in alto per scaricarla (una sola volta).", "info", "🧠"))
+
+    def _open_ai_setup(self) -> None:
+        if self._ai_state == "busy":
+            return
+        try:
+            AISetupDialog(self.root, self.config,
+                          on_installed=self._on_ai_installed)
+        except Exception as exc:  # noqa: BLE001
+            LOG.exception("AI setup dialog")
+            self._toast(f"Impossibile aprire la configurazione AI: {exc}", "error", "❌")
+
+    def _on_ai_installed(self) -> None:
+        self._reset_ai_backend()
+        self._refresh_ai_availability()
+        self._toast("Componenti AI installati. L'AI locale è pronta.", "success", "✅")
 
     # ==================== Body (sidebar + notebook) ====================
 
@@ -812,6 +892,17 @@ class MainWindow:
         ttk.Button(doc_col, text="🛡  Regole AI",
                    style="Subtle.TButton",
                    command=self._on_doc_rules_picker).pack(fill="x", pady=2)
+
+        # Re-pack so that the bottom actions get space first and the module
+        # list only takes what is left (on small/HiDPI screens the buttons
+        # were pushed out of the window).
+        for w in (tree_card, btn_col, sep, lbl, doc_col):
+            w.pack_forget()
+        doc_col.pack(side="bottom", fill="x", padx=14, pady=(6, 16))
+        lbl.pack(side="bottom", fill="x", padx=14)
+        sep.pack(side="bottom", fill="x", padx=14, pady=(0, 10))
+        btn_col.pack(side="bottom", fill="x", padx=14, pady=(0, 16))
+        tree_card.pack(side="top", fill="both", expand=True, padx=14, pady=(0, 12))
 
         # ----- Right: Notebook -----
         self._notebook = ttk.Notebook(body, style="Card.TNotebook")
@@ -959,7 +1050,7 @@ class MainWindow:
                     cc.create_oval(2, 2, 58, 58, fill=col50,
                                    outline="", width=0)
                     cc.create_text(31, 31, text=icon,
-                                   font=("Segoe UI", 20, "bold"),
+                                   font=("Segoe UI Emoji", 18),
                                    fill=col)
                 except Exception: pass
             _paint_circle(icon_circle)
@@ -979,7 +1070,7 @@ class MainWindow:
         mid = tk.Frame(frame, bg=COLORS["white"])
         mid.pack(fill="both", expand=True, padx=18, pady=(8, 18))
         for i in range(3):
-            mid.columnconfigure(i, weight=1, uniform="feat", minsize=360)
+            mid.columnconfigure(i, weight=1, uniform="feat")
 
         actions = [
             ("✨", "Crea un nuovo modulo",
@@ -1005,24 +1096,27 @@ class MainWindow:
             card = RoundedCard(mid, padding=18, radius=14, shadow=True,
                                accent=accent)
             card.grid(row=0, column=idx, sticky="nsew", padx=6, pady=6)
-            banner = tk.Canvas(card.content, height=90,
-                               bg=accent_50, bd=0, highlightthickness=0)
-            banner.pack(fill="x")
+            banner = tk.Canvas(card.content, height=self._wp(64), width=self._wp(64),
+                               bg=COLORS["white"], bd=0, highlightthickness=0)
+            banner.pack(anchor="w")
             try:
-                banner.create_text(54, 45, text=ico,
-                                   font=("Segoe UI", 34), fill=accent)
-                banner.create_text(124, 45, text=title,
-                                   anchor="w",
-                                   font=(FONTS["h3"][0], 16, "bold"),
-                                   fill=darken(accent, 0.4))
+                sz = self._wp(64)
+                banner.create_oval(2, 2, sz - 2, sz - 2, fill=accent_50, outline="")
+                banner.create_text(sz // 2, sz // 2, text=ico,
+                                   font=("Segoe UI Emoji", 22), fill=accent)
             except Exception: pass
             tk.Label(card.content, text=title,
                      bg=COLORS["white"], fg=COLORS["slate_900"],
                      font=FONTS["h3"]).pack(anchor="w", pady=(14, 6))
-            tk.Label(card.content, text=desc,
-                     bg=COLORS["white"], fg=COLORS["slate_500"],
-                     font=FONTS["body"], wraplength=self._wp(370),
-                     justify="left").pack(anchor="w")
+            desc_lbl = tk.Label(card.content, text=desc,
+                                bg=COLORS["white"], fg=COLORS["slate_500"],
+                                font=FONTS["body"], wraplength=self._wp(240),
+                                justify="left")
+            desc_lbl.configure(anchor="w")
+            desc_lbl.pack(anchor="w", fill="x")
+            # Re-wrap the description to the real card width.
+            desc_lbl.bind("<Configure>", lambda e, l=desc_lbl: l.configure(
+                wraplength=max(e.width - 4, 120)), add="+")
             cta = ttk.Button(card.content, text=cta_text,
                              style="Accent.TButton", command=cta_cmd)
             cta.pack(anchor="w", pady=(18, 2))
@@ -1962,10 +2056,11 @@ class MainWindow:
         if not labels:
             return
         try:
-            llm_text = {"idle": "AI: Inattivo",
-                        "busy": "AI: Elaborazione…",
-                        "ok": "AI: OK",
-                        "error": "AI: Errore"}.get(self._ai_state, "AI: Inattivo")
+            try:
+                _t = self._ai_status_lbl.cget("text")
+                llm_text = _t if _t.startswith("AI") else "AI: " + _t
+            except Exception:  # noqa: BLE001
+                llm_text = "AI: " + self._ai_state
             labels["llm"].configure(text=llm_text)
         except Exception:  # noqa: BLE001
             pass
@@ -2351,7 +2446,14 @@ class MainWindow:
             self._set_status(
                 f"Errore durante l'estrazione: {outcome.error or 'dati non validi'}")
             return
-        self._set_ai_state("ok", "OK")
+        svc = self._ai_service
+        if svc is not None and not svc.is_real_ai:
+            self._set_ai_state("error", "AI non installata")
+            self._toast("AI locale non installata: i campi sono da compilare a mano. "
+                        "Clicca su 'AI non installata' in alto per installarla.",
+                        "warning", "⚠️")
+        else:
+            self._set_ai_state("ok", "AI pronta")
         self._set_status(
             "Estrazione completata. Apertura finestra di revisione…")
         # Open review dialog, pass module_slug + DB for enum history

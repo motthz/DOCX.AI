@@ -18,8 +18,9 @@ __pycache__/
 # ----- Distribution / packaging -----
 build/
 develop-eggs/
-# NOTA: dist/ NON e' ignorato: include la build distribuibile MaintenanceAI onedir
-# dist/
+# Le build (dist/) e gli installer vengono pubblicati come asset delle
+# GitHub Release, non versionati nel repository.
+dist/
 downloads/
 eggs/
 .eggs/
@@ -34,6 +35,7 @@ wheels/
 *.egg
 release/
 *.spec.bak
+requirements-lock.txt
 
 # ----- Runtime LLM e modelli (binari grandi, distribuiti separatamente) -----
 runtime/
@@ -76,10 +78,8 @@ base_library.zip
 warn-*.txt
 xref-*.html
 
-# ----- File spuri di debug/audit (non tracciare ma tenere in locale se utile) -----
-# NOTA: AUDIT_REPORT.md ufficiale di release e' tracciato; solo AUDIT_ temporanei sono ignorati
+# ----- File spuri di debug/audit -----
 AUDIT_*.md
-!AUDIT_REPORT.md
 debug-*.md
 FEATURE_CATALOG.md
 

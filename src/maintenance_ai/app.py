@@ -126,15 +126,13 @@ class App:
         db = Database(config.db_path())
         mm = ModuleManager(config, db, limits)
         ctx = ContextService(config, db, mm)
-        reports = ReportService(config, db, mm, ctx)
 
         # Document Intelligence shared services
         rules_manager = RulesManager(config, db=db)
         rules_manager.ensure_feature_rules_exist()
         # Retroattivamente: crea rules.txt in ogni modulo esistente sul disco
         try:
-            for m in mm.list_modules():
-                mod = mm.load_module(m["slug"])
+            for mod in mm.list_modules():
                 rules_manager.ensure_module_rules_exist(mod.folder_path)
         except Exception:  # noqa: BLE001
             pass
@@ -144,6 +142,7 @@ class App:
         doc_indexer = DocumentIndexer(db)
         doc_retriever = DocumentRetriever()
         ai_service = AIService(config, db, rules_manager, context=ctx)
+        reports = ReportService(config, db, mm, ctx, ai_service=ai_service)
         doc_generator = DocumentGenerator(config, doc_loader, doc_indexer,
                                           doc_retriever, ai_service)
         doc_modifier = DocumentModifier(config, doc_loader, ai_service)

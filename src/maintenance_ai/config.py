@@ -63,7 +63,7 @@ class Config:
     # Frequently accessed, cached
     app_name: str = "MaintenanceAI"
     language: str = "it-IT"
-    version: str = "0.1.0"
+    version: str = "0.2.0"
 
     llm_profile: str = "balanced"
     llm_effective: Dict[str, Any] = field(default_factory=dict)
@@ -99,7 +99,7 @@ class Config:
             data_root=data_root,
             app_name=app_name,
             language=app_cfg.get("language", "it-IT"),
-            version=app_cfg.get("version", "0.1.0"),
+            version=app_cfg.get("version", "0.2.0"),
         )
         cfg._recompute_llm_profile()
         return cfg
@@ -112,6 +112,41 @@ class Config:
         if p.is_absolute():
             return p
         return self.app_root / p
+
+    def resolve_ai_path(self, relative: str) -> Path:
+        """Resolve runtime/model paths.
+
+        AI components downloaded from inside the app live in the (writable)
+        data dir, while a portable/dev layout may ship them next to the exe.
+        The data dir wins; if nothing exists yet, the data dir path is returned
+        so that error messages and the installer point to the writable place.
+        """
+        if not relative:
+            return self.data_root
+        p = Path(relative)
+        if p.is_absolute():
+            return p
+        for base in (self.data_root, self.app_root):
+            cand = base / p
+            if cand.exists():
+                return cand
+        return self.data_root / p
+
+    def ai_components_status(self) -> Dict[str, Any]:
+        """Return which local AI components are present on disk."""
+        eff = self.llm_effective
+        runtime = self.resolve_ai_path(eff.get("runtime_dir", "runtime/llama")) / eff.get(
+            "runtime_exe", "llama-server.exe")
+        model = self.resolve_ai_path(eff["model"]) if eff.get("model") else None
+        fallback = self.resolve_ai_path(eff["fallback_model"]) if eff.get("fallback_model") else None
+        return {
+            "runtime": runtime,
+            "runtime_ok": runtime.is_file(),
+            "model": model,
+            "model_ok": bool(model and model.is_file()),
+            "fallback": fallback,
+            "fallback_ok": bool(fallback and fallback.is_file()),
+        }
 
     def resolve_data_path(self, relative: str) -> Path:
         if not relative:
@@ -169,6 +204,10 @@ class Config:
             raise ValueError(f"Unknown LLM profile: {name}")
         self.raw["llm"]["profile"] = name
         self._recompute_llm_profile()
+
+    @property
+    def llm_profiles(self) -> Dict[str, Dict[str, Any]]:
+        return self.available_profiles()
 
     def available_profiles(self) -> Dict[str, Dict[str, Any]]:
         return dict(self.raw.get("llm", {}).get("profiles", {}))

@@ -226,7 +226,10 @@ class GradientCanvas(tk.Canvas):
                 self.delete(self._rect_id)
             self._rect_id = self.create_rectangle(
                 -2, -2, w + 2, h + 2, outline="", tags="bg")
-            steps = max(2, w if self._dir == "horizontal" else h)
+            self.delete("band")
+            # 96 bands are visually smooth; one rectangle per pixel made every
+            # window resize redraw thousands of canvas items.
+            steps = max(2, min(96, w if self._dir == "horizontal" else h))
             step_w = w / steps if self._dir == "horizontal" else w
             step_h = h / steps if self._dir == "vertical" else h
             for i in range(steps):
@@ -235,11 +238,11 @@ class GradientCanvas(tk.Canvas):
                 if self._dir == "horizontal":
                     x0 = i * step_w
                     self.create_rectangle(x0, 0, x0 + step_w + 1, h,
-                                          outline="", fill=col)
+                                          outline="", fill=col, tags="band")
                 else:
                     y0 = i * step_h
                     self.create_rectangle(0, y0, w, y0 + step_h + 1,
-                                          outline="", fill=col)
+                                          outline="", fill=col, tags="band")
             self.tag_lower("bg")
         except tk.TclError:
             pass
@@ -287,6 +290,8 @@ class RoundedCard(tk.Frame):
         self._shadow_blur_color2 = lighten(COLORS["slate_700"], 0.86)
         self._shadow_blur_color3 = lighten(COLORS["slate_700"], 0.78)
 
+        # The default Tk canvas size (~380x270) is only a starting point:
+        # _on_content_grow then fits the card to its content (grow AND shrink).
         self.canvas = tk.Canvas(self, bg=outer_bg,
                                 highlightthickness=0, bd=0,
                                 highlightbackground=outer_bg)
@@ -314,15 +319,13 @@ class RoundedCard(tk.Frame):
             shadow_off = self._shadow_offset
             needed_h = (self.content.winfo_reqheight() + pad_total
                         + shadow_off)
-            cur_h = max(self.canvas.winfo_height(), 1)
-            # Only grow; never force-shrink (the packer / grid decides
-            # minimum allocation, we just ensure nothing is clipped).
-            if needed_h > cur_h:
+            # This is the *requested* size: the geometry manager may still
+            # stretch the card (sticky/fill), but never below its content.
+            if int(self.canvas.cget("height")) != needed_h:
                 self.canvas.config(height=needed_h)
             needed_w = (self.content.winfo_reqwidth() + pad_total
                         + shadow_off + (14 if self._accent else 0))
-            cur_w = max(self.canvas.winfo_width(), 1)
-            if needed_w > cur_w:
+            if int(self.canvas.cget("width")) != needed_w:
                 self.canvas.config(width=needed_w)
         except Exception:
             pass

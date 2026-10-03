@@ -52,6 +52,7 @@ def _install_crash_logger() -> Optional[Path]:
     except Exception:
         return None
     log_file = logs_dir / "crash.log"
+    _attach_parent_console()
     fh = None
     try:
         fh = open(log_file, "a", encoding="utf-8")
@@ -108,6 +109,22 @@ def _install_crash_logger() -> Optional[Path]:
         return None
 
 
+def _attach_parent_console() -> None:
+    """Windowed (no-console) build launched from a terminal with CLI flags:
+    reattach to the parent console so --self-test/--version print there."""
+    if not getattr(sys, "frozen", False) or sys.stdout is not None:
+        return
+    if not any(a in sys.argv for a in ("--self-test", "--version", "--help", "-h")):
+        return
+    try:
+        import ctypes
+        if ctypes.windll.kernel32.AttachConsole(-1):  # ATTACH_PARENT_PROCESS
+            sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+            sys.stderr = sys.stdout
+    except Exception:
+        pass
+
+
 _DPI_SUCCESS = False
 
 
@@ -124,6 +141,12 @@ def _enable_dpi_awareness() -> None:
             return
     except Exception:
         return
+    try:
+        # Own taskbar identity: shows the app icon instead of the Python one.
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MaintenanceAI.Desktop")
+    except Exception:
+        pass
     try:
         import ctypes
         user32 = ctypes.windll.user32
@@ -286,11 +309,17 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Dump prompt/schema/raw-output LLM in logs/llm_debug")
     parser.add_argument("--no-gui-test-mode", action="store_true",
                         help=argparse.SUPPRESS)
+    parser.add_argument("--version", action="store_true",
+                        help="Stampa la versione e termina")
     args = parser.parse_args(argv)
+    if args.version:
+        from maintenance_ai import __version__
+        print(f"MaintenanceAI {__version__}")
+        return 0
 
     # 0) Single instance mutex: se già attivo, focus + exit 0
-    proceed = _mutex_and_focus_existing()
-    if not proceed:
+    # (il self-test non apre finestre: non deve essere bloccato da un'istanza GUI aperta)
+    if not args.self_test and not _mutex_and_focus_existing():
         return 0
     # Env var per smoke test
     if _os.environ.get("MAINTENANCE_AI_SMOKE_TEST") == "1":

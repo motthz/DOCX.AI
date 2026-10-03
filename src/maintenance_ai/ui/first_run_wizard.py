@@ -53,7 +53,11 @@ class FirstRunWizard:
         self.master = master
         self.top = tk.Toplevel(master)
         self.top.title("Configura MaintenanceAI — prima esecuzione")
-        self.top.geometry("620x460")
+        try:
+            _scale = max(1.0, float(master.tk.call("tk", "scaling")) / 1.333)
+        except Exception:  # noqa: BLE001
+            _scale = 1.0
+        self.top.geometry(f"{int(620 * min(_scale, 1.5))}x{int(500 * min(_scale, 1.5))}")
         self.top.resizable(False, False)
         self.top.transient(master)
         self.top.grab_set()
@@ -67,12 +71,23 @@ class FirstRunWizard:
 
     # --------------------------------------------------------------
     def _build(self) -> None:
-        header = tk.Frame(self.top, bg="#1e293b", height=90)
+        header = tk.Frame(self.top, bg="#1e293b")
         header.pack(fill="x", side="top")
-        tk.Label(header, text="Benvenuto in MaintenanceAI",
-                 bg="#1e293b", fg="#ffffff", font=("Segoe UI", 16, "bold")).place(x=20, y=22)
-        tk.Label(header, text="Configurazione guidata iniziale",
-                 bg="#1e293b", fg="#93c5fd", font=("Segoe UI", 10)).place(x=20, y=52)
+        # pack (not place with fixed pixels): stays correct at any Windows zoom level
+        self._logo = None
+        try:
+            from .assets import logo_image
+            self._logo = logo_image(self.top, 48)
+        except Exception:  # noqa: BLE001
+            pass
+        if self._logo is not None:
+            tk.Label(header, image=self._logo, bg="#1e293b").pack(side="left", padx=(20, 12), pady=16)
+        titles = tk.Frame(header, bg="#1e293b")
+        titles.pack(side="left", padx=(0 if self._logo else 20, 0), pady=16)
+        tk.Label(titles, text="Benvenuto in MaintenanceAI",
+                 bg="#1e293b", fg="#ffffff", font=("Segoe UI", 16, "bold")).pack(anchor="w")
+        tk.Label(titles, text="Configurazione guidata iniziale",
+                 bg="#1e293b", fg="#93c5fd", font=("Segoe UI", 10)).pack(anchor="w")
         self.progress = ttk.Progressbar(self.top, length=560, mode="determinate", maximum=3)
         self.progress.pack(pady=14)
         self.body = ttk.Frame(self.top, padding=(20, 10))
