@@ -24,7 +24,7 @@ _lang = "it-IT"
 _catalog: Dict[str, str] = {}
 _LOCALES = Path(__file__).resolve().parent.parent / "locales"
 # Prefisso di icone/emoji/spazi da preservare (es. "📝  Crea documento").
-_PREFIX = re.compile(r"^([^\w«(\"'¿¡]*)(.*?)(\s*)$", re.S)
+_PREFIX = re.compile(r"^([^\w«(\"'¿¡{\[]*)(.*?)(\s*)$", re.S)
 
 
 def _load_catalog() -> Dict[str, str]:

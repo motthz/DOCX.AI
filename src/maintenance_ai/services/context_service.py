@@ -30,6 +30,9 @@ def _tokens(text: str) -> List[str]:
     return [t.lower() for t in TOKEN_RE.findall(text or "")]
 
 
+_SHA_MEMO: Dict[Tuple[str, int, int], str] = {}
+
+
 class ContextService:
     def __init__(self, config: Config, db: Database, module_manager: ModuleManager):
         self.config = config
@@ -60,8 +63,14 @@ class ContextService:
         path = Path(path)
         if not path.exists():
             return "", {}
-        size = path.stat().st_size
-        sha = sha256_file(path)
+        st = path.stat()
+        size = st.st_size
+        # hash ricalcolato solo se il file e' cambiato (dimensione o data di modifica)
+        memo_key = (str(path), size, st.st_mtime_ns)
+        sha = _SHA_MEMO.get(memo_key)
+        if sha is None:
+            sha = sha256_file(path)
+            _SHA_MEMO[memo_key] = sha
         cached = self.db.cache_get(sha)
         if cached is not None:
             text, meta = cached
@@ -92,7 +101,15 @@ class ContextService:
             text = data.full_text
             meta = {"placeholders": data.placeholders, "meta": data.meta}
         else:
-            return "", {}
+            loader = getattr(self, "doc_loader", None)
+            if loader is None:
+                return "", {}
+            try:  # PDF, TXT, immagini: DocumentLoader (cache + OCR per le scansioni)
+                loaded = loader.load_file(path, run_ocr=True)
+            except Exception:  # noqa: BLE001
+                return "", {}
+            text = getattr(loaded, "full_text", "") or ""
+            meta = {"loader": True}
         text = text[:500000]
         self.db.cache_store(sha, kind, text, meta)
         if module_id is not None:

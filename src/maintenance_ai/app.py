@@ -152,6 +152,7 @@ class App:
 
         ocr_service = OCRService(config)
         doc_loader = DocumentLoader(config, security_limits=limits, db=db, ocr_service=ocr_service)
+        ctx.doc_loader = doc_loader  # PDF/TXT/scansioni tra i documenti di riferimento
         doc_indexer = DocumentIndexer(db)
         semantic = SemanticSearch(config, db, enabled=bool(settings.get("ai.embeddings")))
         doc_retriever = DocumentRetriever(semantic=semantic)
@@ -256,7 +257,8 @@ class App:
         try:
             db_info = self.db.get_setting("db_test_key")
             self.db.set_setting("db_test_key", "ok")
-            assert self.db.get_setting("db_test_key") == "ok"
+            if self.db.get_setting("db_test_key") != "ok":  # niente assert: la build usa optimize=2
+                raise RuntimeError("lettura/scrittura impostazioni non coerente")
             if db_info is not None:
                 self.db.set_setting("db_test_key", db_info)
             _log("[SELFTEST] DB write/read: OK")

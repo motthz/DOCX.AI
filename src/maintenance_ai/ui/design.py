@@ -30,8 +30,8 @@ C: Dict[str, Color] = {
     "text":          ("#0f172a", "#e8edf5"),
     "text_muted":    ("#475569", "#a3b1c6"),
     "text_faint":    ("#64748b", "#8394ab"),
-    "primary":       ("#2563eb", "#3b82f6"),
-    "primary_hover": ("#1d4ed8", "#2563eb"),
+    "primary":       ("#2563eb", "#2563eb"),  # sfondi/pulsanti; per i testi blu usare "link"
+    "primary_hover": ("#1d4ed8", "#1d4ed8"),
     "primary_soft":  ("#e8efff", "#1a2a4d"),
     "on_primary":    ("#ffffff", "#ffffff"),
     "success":       ("#047857", "#34d399"),
@@ -41,6 +41,7 @@ C: Dict[str, Color] = {
     "danger":        ("#b91c1c", "#f87171"),
     "danger_soft":   ("#fdecec", "#3d1518"),
     "info_soft":     ("#eef4ff", "#16233f"),
+    "link":          ("#2563eb", "#7cb0ff"),
     "header":        ("#0f172a", "#060b16"),
     "header_text":   ("#ffffff", "#ffffff"),
     "header_muted":  ("#cbd5e1", "#94a3b8"),

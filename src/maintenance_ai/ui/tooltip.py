@@ -125,3 +125,41 @@ class Tooltip:
             except Exception:  # noqa: BLE001
                 pass
             self._tip_window = None
+
+
+def bind(widget: tk.Misc, text, *, delay: int = 450) -> None:
+    """Tooltip a tema (chiaro/scuro) su un widget Tk o CustomTkinter."""
+    state: dict = {"after": None, "tip": None}
+
+    def _show() -> None:
+        from .design import col
+        msg = text() if callable(text) else text
+        if not msg:
+            return
+        tip = tk.Toplevel(widget)
+        tip.wm_overrideredirect(True)
+        tip.attributes("-topmost", True)
+        x = widget.winfo_rootx() + 8
+        y = widget.winfo_rooty() + widget.winfo_height() + 6
+        tk.Label(tip, text=msg, justify="left", wraplength=360, bg=col("text"), fg=col("surface"),
+                 font=("Segoe UI", 9), padx=10, pady=6).pack()
+        tip.update_idletasks()
+        sw = widget.winfo_screenwidth()
+        x = min(x, sw - tip.winfo_reqwidth() - 8)
+        tip.geometry(f"+{x}+{y}")
+        state["tip"] = tip
+
+    def _enter(_e=None) -> None:
+        state["after"] = widget.after(delay, _show)
+
+    def _leave(_e=None) -> None:
+        if state["after"]:
+            widget.after_cancel(state["after"])
+            state["after"] = None
+        if state["tip"] is not None:
+            state["tip"].destroy()
+            state["tip"] = None
+
+    widget.bind("<Enter>", _enter, add="+")
+    widget.bind("<Leave>", _leave, add="+")
+    widget.bind("<ButtonPress>", _leave, add="+")

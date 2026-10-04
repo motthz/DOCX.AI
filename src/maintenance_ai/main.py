@@ -253,7 +253,11 @@ def _mutex_and_focus_existing() -> bool:
 
 
 # Install crash logger FIRST, before any imports of our own code.
-_crash_log = _install_crash_logger()
+# (non nei processi figli usati per l'export PDF)
+import multiprocessing as _mp  # noqa: E402
+
+_IS_CHILD = _mp.parent_process() is not None
+_crash_log = None if _IS_CHILD else _install_crash_logger()
 
 # Enable DPI awareness early, before any tkinter import happens (or just
 # before, no harm calling before load since it's a kernel32/user32/shcore
@@ -369,7 +373,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     try:
-        app = App.bootstrap(config_path=args.config, verbose=args.verbose)
+        if args.self_test or args.no_gui_test_mode:
+            app = App.bootstrap(config_path=args.config, verbose=args.verbose)
+        else:
+            from maintenance_ai.ui.splash import run_with_splash
+            app = run_with_splash(lambda: App.bootstrap(config_path=args.config, verbose=args.verbose))
         # Avvisa DPI awareness fallito (logging pronto dopo bootstrap)
         if not _DPI_SUCCESS:
             import logging as _lg
@@ -404,7 +412,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.self_test:
             return app.run_self_test()
         try:
-            from maintenance_ai.ui.main_window import MainWindow
+            from maintenance_ai.ui.shell import MainWindow
         except Exception as exc:  # noqa: BLE001
             msg = f"Impossibile caricare l'interfaccia grafica: {type(exc).__name__}: {exc}"
             print(msg, file=sys.stderr)
@@ -426,20 +434,23 @@ def main(argv: Optional[List[str]] = None) -> int:
             except Exception:
                 pass
             return 1
+        restart_cmd = None
         try:
-            MainWindow(app.config, app.db, app.module_manager,
-                       app.context, app.reports,
-                       rules_manager=app.rules_manager,
-                       doc_generator=app.doc_generator,
-                       doc_modifier=app.doc_modifier,
-                       audit_engine=app.audit_engine,
-                       smart_fill_engine=app.smart_fill_engine,
-                       doc_loader=app.doc_loader).show()
+            win = MainWindow(app)
+            win.show()
+            if getattr(win, "_restart", False):
+                restart_cmd = win.relaunch_command()
         finally:
             try:
                 app.shutdown()
             except Exception:  # noqa: BLE001
                 pass
+        if restart_cmd:
+            if data_lock:
+                data_lock.release()
+                data_lock = None
+            import subprocess
+            subprocess.Popen(restart_cmd, close_fds=True)
         return 0
     finally:
         if data_lock:

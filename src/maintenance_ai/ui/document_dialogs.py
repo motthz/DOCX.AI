@@ -1354,6 +1354,20 @@ class SmartFillDialog(tk.Toplevel):
         self.btn_save.pack(side="right")
 
     # --------------------------------------------------------------
+    def preload(self, files, module_slug: Optional[str] = None) -> None:
+        """Precompila file e modulo (avvio dalla pagina Rapporto)."""
+        self._files_var = [str(f) for f in files]
+        try:
+            self.files_lbl.configure(text=f"{len(self._files_var)} file selezionati")
+        except Exception:  # noqa: BLE001
+            pass
+        if module_slug:
+            self._module_slug_var.set(module_slug)
+            try:
+                self._on_load_module()
+            except Exception:  # noqa: BLE001
+                pass
+
     def _on_load_module(self):
         slug = self._module_slug_var.get().strip()
         if not slug:

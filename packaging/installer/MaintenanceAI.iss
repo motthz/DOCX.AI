@@ -37,6 +37,8 @@ SetupIconFile={#Root}\src\maintenance_ai\assets\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 WizardStyle=modern
+DisableWelcomePage=no
+LicenseFile={#Root}\LICENSE
 WizardImageFile=wizard_large.bmp
 WizardSmallImageFile=wizard_small.bmp
 Compression=lzma2/max
@@ -50,6 +52,22 @@ VersionInfoDescription={#AppName} Setup
 [Languages]
 Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
 Name: "en"; MessagesFile: "compiler:Default.isl"
+
+[CustomMessages]
+it.WelcomeLabel2=Questa procedura installerà [name/ver] sul computer.%n%nMaintenanceAI compila i rapporti di manutenzione con un'intelligenza artificiale che funziona interamente sul tuo PC: nessun dato viene inviato in Internet.%n%nNon servono diritti di amministratore.
+en.WelcomeLabel2=This will install [name/ver] on your computer.%n%nMaintenanceAI fills in maintenance reports with an AI that runs entirely on your PC: no data is sent to the Internet.%n%nNo administrator rights are required.
+it.AiPageTitle=Intelligenza artificiale locale
+en.AiPageTitle=Local artificial intelligence
+it.AiPageDesc=Scegli il modello AI da scaricare al primo avvio (una sola volta).
+en.AiPageDesc=Choose the AI model to download on first launch (only once).
+it.AiPageSub=Il modello viene scaricato da Internet al primo avvio dell'app e poi funziona offline. Potrai cambiarlo in seguito da Impostazioni → Componenti AI.
+en.AiPageSub=The model is downloaded on the app's first launch and then works offline. You can change it later in Settings → AI components.
+it.AiOpt1=Qwen3 1.7B - consigliato (circa 1,8 GB, servono almeno 6 GB di RAM)
+en.AiOpt1=Qwen3 1.7B - recommended (about 1.8 GB, needs at least 6 GB RAM)
+it.AiOpt2=Qwen3 0.6B - per PC lenti o con poca memoria (circa 640 MB)
+en.AiOpt2=Qwen3 0.6B - for slow PCs or little memory (about 640 MB)
+it.AiOpt3=Non ora: deciderò in seguito
+en.AiOpt3=Not now: I will decide later
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -67,3 +85,43 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+var
+  AiPage: TInputOptionWizardPage;
+
+procedure InitializeWizard();
+var
+  Param: String;
+begin
+  AiPage := CreateInputOptionPage(wpSelectTasks, CustomMessage('AiPageTitle'), CustomMessage('AiPageDesc'),
+    CustomMessage('AiPageSub'), True, False);
+  AiPage.Add(CustomMessage('AiOpt1'));
+  AiPage.Add(CustomMessage('AiOpt2'));
+  AiPage.Add(CustomMessage('AiOpt3'));
+  Param := Lowercase(ExpandConstant('{param:AIMODEL|1.7b}'));
+  if Param = '0.6b' then AiPage.SelectedValueIndex := 1
+  else if Param = 'none' then AiPage.SelectedValueIndex := 2
+  else AiPage.SelectedValueIndex := 0;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Model, Dir: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    case AiPage.SelectedValueIndex of
+      0: Model := 'Qwen3-1.7B-Q8_0.gguf';
+      1: Model := 'Qwen3-0.6B-Q8_0.gguf';
+    else
+      Model := '';
+    end;
+    if Model <> '' then
+    begin
+      Dir := ExpandConstant('{localappdata}\MaintenanceAI');
+      ForceDirectories(Dir);
+      SaveStringToFile(Dir + '\ai_request.json', '{"model": "' + Model + '"}', False);
+    end;
+  end;
+end;

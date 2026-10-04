@@ -37,5 +37,7 @@ jobs:
           python -m coverage run -m unittest discover -s tests -v
           python -m coverage run -a -m maintenance_ai.main --self-test
           python -m coverage report --fail-under=45
+      - name: Traduzioni complete
+        run: python packaging/extract_strings.py --check
       - name: Smoke test GUI
         run: python scripts/smoke_gui.py

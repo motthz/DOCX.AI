@@ -1,193 +1,169 @@
-"""Dialog: status + one-click download of the local AI components."""
+"""Componenti AI: stato, hardware e download (runtime CPU/GPU, modelli, ricerca semantica)."""
 
 from __future__ import annotations
 
 import logging
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Callable, Optional
 
+import customtkinter as ctk
+
 from ..config import Config
-from ..llm.ai_installer import MODELS, AIInstaller, InstallCancelled
-from .assets import logo_image
-from .theme import COLORS, FONTS, center_window
+from ..llm import hardware
+from ..llm.ai_installer import EMBEDDING_MODEL, MODELS, AIInstaller, InstallCancelled
+from ..llm.embeddings import EMBED_MODEL_PATH
+from .design import C, font
+from .dialogs.base import Dialog
+from .i18n import t
+from .widgets import Chip, button, label
 
 LOG = logging.getLogger(__name__)
 
 
-class AISetupDialog:
-    def __init__(self, master: tk.Misc, config: Config,
-                 on_installed: Optional[Callable[[], None]] = None):
+class AISetupDialog(Dialog):
+    def __init__(self, master: tk.Misc, config: Config, on_installed: Optional[Callable[[], None]] = None,
+                 auto_model: Optional[str] = None):
+        super().__init__(master, t("Componenti AI"), width=700, height=720, icon_name="cpu",
+                         subtitle=t("L'AI funziona offline: i dati non lasciano mai questo PC. "
+                                    "Il download serve una sola volta."))
         self.config = config
         self.on_installed = on_installed
         self._installer: Optional[AIInstaller] = None
         self._busy = False
+        self.hw = hardware.refresh_memory(hardware.detect())
 
-        self.top = tk.Toplevel(master)
-        self.top.title("MaintenanceAI · Componenti AI")
-        self.top.configure(bg=COLORS["white"])
-        self.top.resizable(False, False)
-        self.top.transient(master)
-        self.top.protocol("WM_DELETE_WINDOW", self._on_close)
-
-        head = tk.Frame(self.top, bg=COLORS["slate_900"])
-        head.pack(fill="x")
-        img = logo_image(self.top, 48)
-        if img is not None:
-            tk.Label(head, image=img, bg=COLORS["slate_900"]).pack(side="left", padx=(18, 12), pady=14)
-        tit = tk.Frame(head, bg=COLORS["slate_900"])
-        tit.pack(side="left", pady=14)
-        tk.Label(tit, text="Motore AI locale", font=FONTS["h3"],
-                 bg=COLORS["slate_900"], fg=COLORS["white"]).pack(anchor="w")
-        tk.Label(tit, text="Funziona offline: i dati non lasciano mai questo PC.",
-                 font=FONTS["body_sm"], bg=COLORS["slate_900"],
-                 fg=COLORS["slate_300"]).pack(anchor="w")
-
-        body = tk.Frame(self.top, bg=COLORS["white"], padx=22, pady=16)
-        body.pack(fill="both", expand=True)
-
-        self._status_frame = tk.Frame(body, bg=COLORS["white"])
-        self._status_frame.pack(fill="x")
+        label(self.body, self.hw.summary(), kind="small", muted=True, wraplength=640).pack(anchor="w")
+        self.status_box = ctk.CTkFrame(self.body, fg_color=C["surface"], corner_radius=10, border_width=1,
+                                       border_color=C["border"])
+        self.status_box.pack(fill="x", pady=(8, 12))
         self._render_status()
 
-        tk.Label(body, text="Modello da installare", font=FONTS["body_bold"],
-                 bg=COLORS["white"], fg=COLORS["text"]).pack(anchor="w", pady=(14, 4))
-        self._model_var = tk.StringVar(value=next(iter(MODELS)))
+        label(self.body, t("Modello da installare"), kind="h4").pack(anchor="w")
+        rec = auto_model if auto_model in MODELS else self.hw.recommended_model()
+        self.model_var = ctk.StringVar(value=rec)
         for name, info in MODELS.items():
-            ttk.Radiobutton(body, text=info["label"], value=name,
-                            variable=self._model_var).pack(anchor="w")
+            text = t(info["label"]) + ("  ·  " + t("consigliato per questo PC") if name == rec else "")
+            ctk.CTkRadioButton(self.body, text=text, value=name, variable=self.model_var,
+                               font=font("body")).pack(anchor="w", pady=2)
 
-        tk.Label(body,
-                 text="Il download (una sola volta) richiede Internet e circa 2 GB di spazio.\n"
-                      "I file vengono salvati in:  " + str(config.data_root),
-                 font=FONTS["body_sm"], bg=COLORS["white"], fg=COLORS["slate_500"],
-                 justify="left").pack(anchor="w", pady=(12, 8))
+        label(self.body, t("Opzioni"), kind="h4").pack(anchor="w", pady=(12, 0))
+        self.gpu_var = ctk.BooleanVar(value=self.hw.vulkan and bool(self.hw.gpus))
+        ctk.CTkCheckBox(self.body, text=t("Accelerazione GPU (Vulkan, ~30 MB in più)"), variable=self.gpu_var,
+                        font=font("body")).pack(anchor="w", pady=2)
+        if not self.hw.vulkan:
+            label(self.body, t("Nessun driver Vulkan rilevato: verrà usata la CPU."), kind="caption",
+                  muted=True).pack(anchor="w", padx=(30, 0))
+        self.emb_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(self.body, text=t(next(iter(EMBEDDING_MODEL.values()))["label"]), variable=self.emb_var,
+                        font=font("body")).pack(anchor="w", pady=2)
+        label(self.body, t("I file vengono salvati in: {p}", p=config.data_root), kind="caption", muted=True,
+              wraplength=640).pack(anchor="w", pady=(10, 4))
 
-        self._progress = ttk.Progressbar(body, length=460, mode="determinate", maximum=1000)
-        self._progress.pack(fill="x", pady=(4, 4))
-        self._msg = tk.Label(body, text="", font=FONTS["body_sm"], bg=COLORS["white"],
-                             fg=COLORS["slate_600"], anchor="w")
-        self._msg.pack(fill="x")
+        self.progress = ctk.CTkProgressBar(self.body, mode="determinate")
+        self.progress.set(0)
+        self.progress.pack(fill="x", pady=(6, 2))
+        self.msg = label(self.body, "", kind="small", muted=True)
+        self.msg.pack(fill="x")
 
-        btns = tk.Frame(body, bg=COLORS["white"])
-        btns.pack(fill="x", pady=(14, 0))
-        self._close_btn = ttk.Button(btns, text="Chiudi", style="Subtle.TButton",
-                                     command=self._on_close)
-        self._close_btn.pack(side="right")
-        self._install_btn = ttk.Button(btns, text="⬇  Scarica e installa",
-                                       style="Accent.TButton", command=self._start)
-        self._install_btn.pack(side="right", padx=(0, 8))
-        if self._ready():
-            self._install_btn.configure(text="⬇  Installa modello selezionato")
-
-        self.top.update_idletasks()
-        center_window(self.top, self.top.winfo_reqwidth(), self.top.winfo_reqheight())
-        self.top.grab_set()
-
-    # ------------------------------------------------------------------
-    def _ready(self) -> bool:
-        st = self.config.ai_components_status()
-        return st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])
+        self.install_btn = button(self.footer, t("Scarica e installa"), self.start, kind="primary",
+                                  icon_name="download")
+        self.install_btn.pack(side="right", padx=(8, 20), pady=12)
+        self.close_btn = button(self.footer, t("Chiudi"), self.cancel)
+        self.close_btn.pack(side="right", pady=12)
+        if auto_model:  # scelta fatta nell'installer: parte subito
+            self.after(800, self.start)
 
     def _render_status(self) -> None:
-        for w in self._status_frame.winfo_children():
+        for w in self.status_box.winfo_children():
             w.destroy()
         st = self.config.ai_components_status()
-        rows = [
-            ("Runtime llama.cpp", st["runtime_ok"]),
-            (f"Modello principale ({st['model'].name if st['model'] else '-'})", st["model_ok"]),
-            (f"Modello leggero ({st['fallback'].name if st['fallback'] else '-'})", st["fallback_ok"]),
-        ]
-        for label, ok in rows:
-            row = tk.Frame(self._status_frame, bg=COLORS["white"])
-            row.pack(fill="x", pady=1)
-            tk.Label(row, text="●", font=FONTS["body_bold"], bg=COLORS["white"],
-                     fg=COLORS["success_500"] if ok else COLORS["slate_300"]).pack(side="left")
-            tk.Label(row, text=f"  {label}", font=FONTS["body"], bg=COLORS["white"],
-                     fg=COLORS["text"]).pack(side="left")
-            tk.Label(row, text="installato" if ok else "mancante", font=FONTS["body_sm"],
-                     bg=COLORS["white"],
-                     fg=COLORS["success_600"] if ok else COLORS["slate_500"]).pack(side="right")
+        gpu_ok = (self.config.resolve_ai_path("runtime/llama-vulkan") / "llama-server.exe").is_file()
+        emb_ok = self.config.resolve_ai_path(EMBED_MODEL_PATH).is_file()
+        rows = [(t("Runtime llama.cpp (CPU)"), st["runtime_ok"]),
+                (t("Runtime GPU (Vulkan)"), gpu_ok),
+                (t("Modello principale · {n}", n=st["model"].name if st["model"] else "-"), st["model_ok"]),
+                (t("Modello leggero · {n}", n=st["fallback"].name if st["fallback"] else "-"), st["fallback_ok"]),
+                (t("Ricerca semantica"), emb_ok)]
+        for text, ok in rows:
+            r = ctk.CTkFrame(self.status_box, fg_color="transparent")
+            r.pack(fill="x", padx=12, pady=3)
+            label(r, text).pack(side="left")
+            Chip(r, t("installato") if ok else t("non installato"), "success" if ok else "neutral").pack(side="right")
 
     def _progress_cb(self, frac: Optional[float], msg: str) -> None:
-        def _ui():
+        def ui():
             try:
                 if frac is None:
-                    if str(self._progress.cget("mode")) != "indeterminate":
-                        self._progress.configure(mode="indeterminate")
-                        self._progress.start(12)
+                    if self.progress.cget("mode") != "indeterminate":
+                        self.progress.configure(mode="indeterminate")
+                        self.progress.start()
                 else:
-                    if str(self._progress.cget("mode")) != "determinate":
-                        self._progress.stop()
-                        self._progress.configure(mode="determinate")
-                    self._progress.configure(value=int(frac * 1000))
-                self._msg.configure(text=msg)
+                    if self.progress.cget("mode") != "determinate":
+                        self.progress.stop()
+                        self.progress.configure(mode="determinate")
+                    self.progress.set(frac)
+                self.msg.configure(text=msg)
             except tk.TclError:
                 pass
         try:
-            self.top.after(0, _ui)
-        except Exception:  # noqa: BLE001
+            self.after(0, ui)
+        except (tk.TclError, RuntimeError):
             pass
 
-    def _start(self) -> None:
+    def start(self) -> None:
         if self._busy:
             return
         self._busy = True
-        self._install_btn.state(["disabled"])
-        self._close_btn.configure(text="Annulla")
+        self.install_btn.configure(state="disabled")
+        self.close_btn.configure(text=t("Annulla"))
         self._installer = AIInstaller(self.config.data_root)
-        model = self._model_var.get()
-        threading.Thread(target=self._worker, args=(model,), daemon=True,
-                         name="ai-install").start()
+        threading.Thread(target=self._worker, args=(self.model_var.get(), self.gpu_var.get(), self.emb_var.get()),
+                         daemon=True, name="ai-install").start()
 
-    def _worker(self, model: str) -> None:
+    def _worker(self, model: str, gpu: bool, emb: bool) -> None:
         try:
             assert self._installer is not None
-            self._installer.install(model, self._progress_cb)
-            self.top.after(0, self._done_ok)
+            self._installer.install(model, self._progress_cb, gpu=gpu, embeddings=emb)
+            self.after(0, self._done_ok)
         except InstallCancelled:
-            self.top.after(0, lambda: self._done_err(None))
+            self.after(0, lambda: self._done_err(None))
         except Exception as exc:  # noqa: BLE001
             LOG.exception("AI install failed")
-            self.top.after(0, lambda e=exc: self._done_err(e))
+            self.after(0, lambda e=exc: self._done_err(e))
 
     def _done_ok(self) -> None:
         self._busy = False
-        self._progress.stop()
-        self._progress.configure(mode="determinate", value=1000)
-        self._msg.configure(text="Installazione completata.")
-        self._close_btn.configure(text="Chiudi")
+        self.progress.stop()
+        self.progress.configure(mode="determinate")
+        self.progress.set(1)
+        self.msg.configure(text=t("Installazione completata."))
+        self.close_btn.configure(text=t("Chiudi"))
+        self.install_btn.configure(state="normal")
         self._render_status()
         if self.on_installed:
             self.on_installed()
 
     def _done_err(self, exc: Optional[BaseException]) -> None:
         self._busy = False
-        self._progress.stop()
-        self._progress.configure(mode="determinate", value=0)
-        self._install_btn.state(["!disabled"])
-        self._close_btn.configure(text="Chiudi")
+        self.progress.stop()
+        self.progress.configure(mode="determinate")
+        self.progress.set(0)
+        self.install_btn.configure(state="normal")
+        self.close_btn.configure(text=t("Chiudi"))
         if exc is None:
-            self._msg.configure(text="Download annullato.")
+            self.msg.configure(text=t("Download annullato."))
             return
-        self._msg.configure(text="Installazione non riuscita.")
-        messagebox.showerror(
-            "Installazione AI non riuscita",
-            f"{exc}\n\nVerifica la connessione a Internet (proxy/firewall aziendali "
-            "possono bloccare GitHub o HuggingFace) e riprova.",
-            parent=self.top)
+        self.msg.configure(text=t("Installazione non riuscita."))
+        messagebox.showerror(t("Installazione AI non riuscita"),
+                             t("{e}\n\nVerifica la connessione a Internet (proxy o firewall aziendali possono "
+                               "bloccare GitHub o HuggingFace) e riprova.", e=exc), parent=self)
 
-    def _on_close(self) -> None:
+    def cancel(self) -> None:
         if self._busy and self._installer is not None:
-            if not messagebox.askyesno("Annullare il download?",
-                                       "Il download è in corso. Vuoi annullarlo?",
-                                       parent=self.top):
-                return
-            self._installer.cancel()
+            if messagebox.askyesno(t("Annullare il download?"), t("Il download è in corso. Vuoi annullarlo?"),
+                                   parent=self):
+                self._installer.cancel()
             return
-        try:
-            self.top.grab_release()
-        except tk.TclError:
-            pass
-        self.top.destroy()
+        super().cancel()

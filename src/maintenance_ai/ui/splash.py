@@ -1,107 +1,90 @@
-"""Splash screen: 400x300 override-redirect centered, hides after MainWindow ready.
+"""Splash animato all'avvio: logo, anello rotante e dissolvenza.
 
-Guarantees minimum 1s display (prevents flicker when start is too fast).
+L'inizializzazione (config, database, servizi) gira in un thread mentre lo
+splash anima nel thread principale; poi lo splash si chiude in dissolvenza.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 import tkinter as tk
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
-try:
-    from tkinter import ttk
-except Exception:  # noqa: BLE001
-    ttk = None  # type: ignore
+from .assets import asset_path
+
+BG = "#0f172a"
 
 
-class SplashScreen:
-    def __init__(self, root: tk.Misc, *, title: str = "MaintenanceAI",
-                 subtitle: str = "Caricamento…",
-                 min_display_ms: int = 1000):
-        self.min_display_ms = int(min_display_ms)
-        self._start = time.monotonic()
-        self.top = tk.Toplevel(root)
-        self.top.overrideredirect(True)
-        self.top.withdraw()
-        w, h = 420, 300
-        self.top.geometry(f"{w}x{h}")
-        self.top.configure(bg="#1a2236")
-        # Center
-        self.top.update_idletasks()
-        sw = self.top.winfo_screenwidth()
-        sh = self.top.winfo_screenheight()
-        x = max(0, (sw - w) // 2)
-        y = max(0, (sh - h) // 2)
-        self.top.geometry(f"{w}x{h}+{x}+{y}")
-        self.top.attributes("-topmost", True)
+def run_with_splash(work: Callable[[], Any], *, subtitle: str = "Avvio in corso…") -> Any:
+    """Esegue ``work`` in background mostrando lo splash; ritorna il suo risultato
+    (o rilancia la sua eccezione)."""
+    result: dict = {}
+
+    def target() -> None:
         try:
-            self.top.attributes("-alpha", 0.96)
-        except Exception:  # noqa: BLE001
+            result["value"] = work()
+        except BaseException as exc:  # noqa: BLE001
+            result["error"] = exc
+
+    th = threading.Thread(target=target, daemon=True, name="bootstrap")
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        th.start()
+        th.join()
+        if "error" in result:
+            raise result["error"]
+        return result.get("value")
+    root.overrideredirect(True)
+    root.configure(bg=BG)
+    w, h = 380, 300
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 3}")
+    root.attributes("-topmost", True)
+    try:
+        root.attributes("-alpha", 0.0)
+    except tk.TclError:
+        pass
+    c = tk.Canvas(root, width=w, height=h, bg=BG, highlightthickness=0)
+    c.pack()
+    logo: Optional[tk.PhotoImage] = None
+    try:
+        logo = tk.PhotoImage(file=str(asset_path("logo.png"))).subsample(2, 2)
+        c.create_image(w // 2, 118, image=logo)
+    except tk.TclError:
+        pass
+    arc = c.create_arc(w // 2 - 86, 118 - 86, w // 2 + 86, 118 + 86, start=90, extent=70,
+                       style="arc", outline="#34d399", width=4)
+    c.create_text(w // 2, 236, text="MaintenanceAI", fill="#ffffff", font=("Segoe UI", 18, "bold"))
+    c.create_text(w // 2, 266, text=subtitle, fill="#94a3b8", font=("Segoe UI", 10))
+    start = time.monotonic()
+    state = {"alpha": 0.0, "closing": False}
+
+    def tick() -> None:
+        t = time.monotonic() - start
+        c.itemconfigure(arc, start=(90 - t * 300) % 360, extent=60 + 50 * abs(((t * 0.8) % 2) - 1))
+        a = state["alpha"]
+        if state["closing"]:
+            a = max(0.0, a - 0.12)
+        elif a < 1.0:
+            a = min(1.0, a + 0.08)
+        state["alpha"] = a
+        try:
+            root.attributes("-alpha", a)
+        except tk.TclError:
             pass
-        self._logo = None
-        try:
-            from .assets import logo_image
-            self._logo = logo_image(self.top, 64)
-        except Exception:  # noqa: BLE001
-            self._logo = None
-        if self._logo is not None:
-            tk.Label(self.top, image=self._logo, bg="#1a2236").pack(pady=(26, 6))
-        tk.Label(self.top, text=title, font=("Segoe UI", 20, "bold"),
-                 bg="#1a2236", fg="#ffffff").pack(pady=((4 if self._logo else 36), 4))
-        tk.Label(self.top, text=subtitle, font=("Segoe UI", 11),
-                 bg="#1a2236", fg="#c8d4ff").pack(pady=(0, 14))
-        if ttk is not None:
-            style = ttk.Style(self.top)
-            try:
-                style.theme_use("clam")
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                style.configure("Splash.Horizontal.TProgressbar",
-                                background="#6ea8ff", troughcolor="#2a3860",
-                                borderwidth=0, thickness=8)
-            except Exception:  # noqa: BLE001
-                pass
-            self.progress = ttk.Progressbar(self.top, mode="indeterminate",
-                                            length=260, style="Splash.Horizontal.TProgressbar")
-        else:
-            self.progress = None  # type: ignore
-        if self.progress is not None:
-            self.progress.pack(pady=4)
-            self.progress.start(10)
-        tk.Label(self.top,
-                 text="Portable offline maintenance report generator",
-                 font=("Segoe UI", 9), bg="#1a2236", fg="#7f8db0").pack(side="bottom", pady=16)
+        if not th.is_alive() and not state["closing"] and t > 0.6:
+            state["closing"] = True
+        if state["closing"] and a <= 0.0:
+            root.destroy()
+            return
+        root.after(16, tick)
 
-    def show(self) -> None:
-        try:
-            self.top.deiconify()
-            self.top.lift()
-        except Exception:  # noqa: BLE001
-            pass
-
-    def dismiss(self, callback: Optional[Callable[[], None]] = None) -> None:
-        elapsed_ms = int((time.monotonic() - self._start) * 1000)
-        remaining = max(0, self.min_display_ms - elapsed_ms)
-
-        def _finish():
-            try:
-                if self.progress is not None:
-                    self.progress.stop()
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                self.top.destroy()
-            except Exception:  # noqa: BLE001
-                pass
-            if callback:
-                try:
-                    callback()
-                except Exception:  # noqa: BLE001
-                    pass
-
-        if remaining <= 0:
-            _finish()
-        else:
-            self.top.after(remaining, _finish)
+    th.start()
+    root.after(0, tick)
+    root.mainloop()
+    th.join()
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")

@@ -20,7 +20,7 @@ _BTN = {
     "ghost":     dict(fg_color="transparent", hover_color=C["selection"], text_color=C["text"],
                       border_width=0),
     "danger":    dict(fg_color=C["danger"], hover_color=("#991b1b", "#ef4444"), text_color=("#ffffff", "#1a0606"),
-                      border_width=0),
+                      text_color_disabled=("#fca5a5", "#7f1d1d"), border_width=0),
     "success":   dict(fg_color=C["success"], hover_color=("#065f46", "#10b981"), text_color=("#ffffff", "#04210f"),
                       border_width=0),
 }
@@ -73,14 +73,14 @@ def _autowrap(label: ctk.CTkLabel, container: tk.Misc, margin: int = 8) -> None:
 def label(parent, text: str = "", *, kind: str = "body", muted: bool = False, **kw) -> ctk.CTkLabel:
     kw.setdefault("anchor", "w")
     kw.setdefault("justify", "left")
-    return ctk.CTkLabel(parent, text=text, font=font(kind),
-                        text_color=C["text_muted"] if muted else C["text"], **kw)
+    kw.setdefault("text_color", C["text_muted"] if muted else C["text"])
+    return ctk.CTkLabel(parent, text=text, font=font(kind), **kw)
 
 
 class Chip(ctk.CTkLabel):
     TONES = {
         "neutral": (C["surface_alt"], C["text_muted"]),
-        "info":    (C["info_soft"], C["primary"]),
+        "info":    (C["info_soft"], C["link"]),
         "success": (C["success_soft"], C["success"]),
         "warning": (C["warning_soft"], C["warning"]),
         "danger":  (C["danger_soft"], C["danger"]),
@@ -151,6 +151,7 @@ class TabBar(ctk.CTkFrame):
                               font=font("body_b"), height=38, corner_radius=8, width=0,
                               command=lambda k=key: self.select(k))
             b.pack(side="left", padx=(0, 4))
+            b.bind("<Configure>", lambda e: self._place_bar(animate=False), add="+")
             self._buttons[key] = b
         self._track = tk.Canvas(self, height=3, highlightthickness=0, bd=0, bg=col("bg"))
         self._track.pack(fill="x")
@@ -166,7 +167,7 @@ class TabBar(ctk.CTkFrame):
             return
         self.current = key
         for k, b in self._buttons.items():
-            b.configure(text_color=C["primary"] if k == key else C["text_muted"])
+            b.configure(text_color=C["link"] if k == key else C["text_muted"])
         self._place_bar(animate=True)
         if notify:
             self._on_select(key)
@@ -191,6 +192,9 @@ class TabBar(ctk.CTkFrame):
             self._track.coords(self._bar, x1, 0, x2, 3)
             return
         sx1, _, sx2, _ = self._track.coords(self._bar)
+        if sx2 - sx1 < 2:  # primo posizionamento: nessuna animazione da zero
+            self._track.coords(self._bar, x1, 0, x2, 3)
+            return
 
         def step(i: int = 1, n: int = 8):
             k = 1 - (1 - i / n) ** 3  # ease-out
@@ -207,7 +211,7 @@ class Stepper(ctk.CTkFrame):
     """Indicatore di avanzamento per fasi (in attesa / in corso / ok / errore)."""
 
     STATE_ICON = {"todo": "circle-dot", "run": "loader-circle", "ok": "circle-check", "err": "circle-x"}
-    STATE_COLOR = {"todo": C["text_faint"], "run": C["primary"], "ok": C["success"], "err": C["danger"]}
+    STATE_COLOR = {"todo": C["text_faint"], "run": C["link"], "ok": C["success"], "err": C["danger"]}
 
     def __init__(self, parent, steps: Sequence[str], **kw):
         kw.setdefault("fg_color", "transparent")
@@ -268,7 +272,7 @@ class Toasts:
                 self._close(top)
                 action[1]()
             ctk.CTkButton(frame, text=action[0], command=_act, width=0, height=28, font=font("small_b"),
-                          fg_color=C["primary_soft"], text_color=C["primary"], hover_color=C["selection"]
+                          fg_color=C["primary_soft"], text_color=C["link"], hover_color=C["selection"]
                           ).pack(side="left", padx=(0, 10))
             duration_ms = max(duration_ms, 7000)
         top.bind("<Button-1>", lambda e: self._close(top))

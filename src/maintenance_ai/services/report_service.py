@@ -42,6 +42,35 @@ class DraftOutcome:
             self.source_doc_hashes = []
 
 
+_PDF_POOL: Any = None
+
+
+def _export_pdf_isolated(pdf_path: Path, data: Dict[str, Any], schema: Dict[str, Any], **kw: Any) -> None:
+    """Genera il PDF in un processo separato: ReportLab e' CPU-bound e tiene il GIL,
+    in un thread bloccherebbe l'interfaccia. Se il processo non e' disponibile
+    (es. ambiente limitato) ripiega sull'esecuzione diretta."""
+    global _PDF_POOL
+    try:
+        import concurrent.futures as cf
+        import multiprocessing as mp
+        if _PDF_POOL is None:
+            _PDF_POOL = cf.ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"))
+        _PDF_POOL.submit(export_pdf, pdf_path, data, schema, **kw).result(timeout=300)
+        return
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).info("PDF nel processo principale (%s)", exc)
+        _PDF_POOL = None
+    export_pdf(pdf_path, data, schema, **kw)
+
+
+def shutdown_pdf_pool() -> None:
+    global _PDF_POOL
+    if _PDF_POOL is not None:
+        _PDF_POOL.shutdown(wait=False, cancel_futures=True)
+        _PDF_POOL = None
+
+
 class ReportService:
     def __init__(
         self,
@@ -95,6 +124,7 @@ class ReportService:
         return JsonPipeline(server, max_retries=max_retries)
 
     def shutdown(self) -> None:
+        shutdown_pdf_pool()
         try:
             if self._server is not None:
                 self._server.stop()
@@ -248,9 +278,8 @@ class ReportService:
         review_notes = row.get("review_notes") or ""
         photos = [(Path(a["path"]), a.get("caption") or "") for a in self.db.list_attachments(report_id)
                   if Path(a["path"]).is_file()]
-        export_pdf(pdf_path, data, mod.schema,
-                   report_id=f"#{report_id}", module_name=mod.name,
-                   review_notes=review_notes, photos=photos)
+        _export_pdf_isolated(pdf_path, data, mod.schema, report_id=f"#{report_id}", module_name=mod.name,
+                             review_notes=review_notes, photos=photos)
         if photos:
             photo_dir = base / "foto"
             photo_dir.mkdir(exist_ok=True)
