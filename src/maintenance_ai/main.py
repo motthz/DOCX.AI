@@ -338,6 +338,21 @@ def _acquire_data_lock():
         return None
 
 
+def _run_gui_smoke(lang: str) -> int:
+    """Smoke test dell'interfaccia sulla build (cartella dati temporanea)."""
+    import shutil
+    import tempfile
+    tmp = Path(tempfile.mkdtemp(prefix="mai_gui_"))
+    _os.environ["MAINTENANCE_AI_DATA_DIR"] = str(tmp)
+    from maintenance_ai.ui import gui_smoke
+    app = App.bootstrap()
+    try:
+        return gui_smoke.run(app, lang=lang)
+    finally:
+        app.shutdown()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="MaintenanceAI")
     parser.add_argument("--self-test", action="store_true",
@@ -352,7 +367,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help=argparse.SUPPRESS)
     parser.add_argument("--version", action="store_true",
                         help="Stampa la versione e termina")
+    parser.add_argument("--gui-smoke", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--lang", default="it-IT", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.gui_smoke:
+        return _run_gui_smoke(args.lang)
     if args.version:
         from maintenance_ai import __version__
         print(f"MaintenanceAI {__version__}")

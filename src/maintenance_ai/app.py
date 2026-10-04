@@ -397,10 +397,11 @@ class App:
             _log(f"[SELFTEST] XLSX export + mapping (campi applicati: {applied}): OK")
 
             # PDF exporter
-            from .exporters.pdf_exporter import export_pdf
+            # stesso percorso dell'app: PDF generato in un processo separato
+            from .services.report_service import _export_pdf_isolated
             pdf_path = scratch / "out.pdf"
-            export_pdf(pdf_path, values, schema_docx, report_id="selftest",
-                       module_name="Selftest")
+            _export_pdf_isolated(pdf_path, values, schema_docx, report_id="selftest",
+                                 module_name="Selftest")
             if not pdf_path.exists() or pdf_path.stat().st_size < 2000:
                 raise AssertionError("export_pdf non ha prodotto un file valido")
             _log(f"[SELFTEST] PDF export: OK ({pdf_path.stat().st_size} bytes)")

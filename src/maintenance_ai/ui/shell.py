@@ -379,8 +379,21 @@ class MainWindow:
         if self.db.get_setting("first_run_done") is None:
             from .first_run_wizard import FirstRunWizard
             default_ws = self.config.data_root / "workspace"
-            if not FirstRunWizard(self.root, default_workspace=default_ws, config=self.config,
-                                  db=self.db).run():
+            lang_before = self.settings.get("ui.lang")
+            wiz = FirstRunWizard(self.root, default_workspace=default_ws, config=self.config, db=self.db)
+            if not wiz.run():
+                return
+            # applica davvero le scelte della procedura guidata (lingua, cartella dati)
+            from ..datadir import set_configured_data_dir
+            chosen = Path(wiz.workspace.get()).expanduser()
+            if chosen.name.lower() == "workspace":
+                chosen = chosen.parent
+            needs_restart = self.settings.get("ui.lang") != lang_before
+            if chosen.resolve() != self.config.data_root.resolve():
+                set_configured_data_dir(chosen)
+                needs_restart = True
+            if needs_restart:
+                self.restart()
                 return
         requested = self._installer_ai_request()
         if requested:

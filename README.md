@@ -2,113 +2,84 @@
 
 <img src="src/maintenance_ai/assets/logo.png" width="96" align="right" alt="logo">
 
-Applicazione desktop per Windows 10/11 (x64) per redigere, revisionare ed esportare
-rapporti di manutenzione. L'AI gira **in locale e offline** (llama.cpp + Qwen3):
-i dati non lasciano mai il PC. Ogni bozza generata dall'AI va **sempre** revisionata
-dall'operatore prima dell'esportazione.
+[![CI](https://github.com/motthz/MaintenanceAI/actions/workflows/ci.yml/badge.svg)](https://github.com/motthz/MaintenanceAI/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/motthz/MaintenanceAI)](https://github.com/motthz/MaintenanceAI/releases/latest)
 
----
+Applicazione desktop per Windows 10/11 (x64) che compila i **rapporti di manutenzione** a
+partire da una descrizione scritta a parole tue. L'AI gira **in locale e offline**
+(llama.cpp + Qwen3): i dati non lasciano mai il PC. Ogni bozza viene **sempre revisionata
+e approvata** dall'operatore prima dell'esportazione.
 
-## Installazione (utente finale)
+![MaintenanceAI](docs/img/home.png)
+
+## Installazione
 
 1. Scarica **`MaintenanceAI-Setup-<versione>.exe`** dalla pagina
-   [Releases](https://github.com/motthz/MaintenanceAI/releases/latest).
-2. Avvialo e segui la procedura. Non servono diritti di amministratore:
-   l'app viene installata in `%LOCALAPPDATA%\Programs\MaintenanceAI` e viene creato
-   il collegamento **MaintenanceAI** sul Desktop e nel menu Start.
-3. Al primo avvio clicca su **«AI non installata»** in alto a destra e poi su
-   **Scarica e installa**: runtime llama.cpp e modello Qwen3 vengono scaricati una sola
-   volta (~2 GB, serve Internet solo per questo passaggio).
+   [Releases](https://github.com/motthz/MaintenanceAI/releases/latest) e avvialo
+   (non servono diritti di amministratore).
+2. Scegli il modello AI da scaricare al primo avvio (o "non ora").
+3. Avvia **MaintenanceAI** dal collegamento sul Desktop.
 
 > Windows SmartScreen può mostrare "PC protetto da Windows" perché l'installer non è
-> firmato digitalmente: clic su **Ulteriori informazioni → Esegui comunque**.
+> firmato digitalmente: *Ulteriori informazioni → Esegui comunque*.
 
-Senza componenti AI l'app funziona comunque: i rapporti vanno compilati a mano
-(i campi restano `NON_SPECIFICATO`). Se sul PC è già attivo **Ollama** con un modello
-installato, viene usato automaticamente.
+Disponibile anche lo ZIP **portable**. Per la distribuzione in azienda (Intune, GPO,
+installazione silenziosa) vedi [docs/distribuzione-aziendale.md](docs/distribuzione-aziendale.md).
 
-In alternativa all'installer è disponibile lo ZIP **portable** (estrai e avvia
-`MaintenanceAI.exe`).
+## Funzioni principali
 
-Disinstallazione: *Impostazioni → App → App installate → MaintenanceAI*. I dati utente
-in `%LOCALAPPDATA%\MaintenanceAI` vengono conservati.
+- **Rapporto da descrizione**: l'AI compila i campi del tuo modello DOCX/XLSX; foto incluse nel PDF.
+- **Revisione affiancata alle fonti** con evidenza dei valori non presenti nella descrizione
+  (anti-allucinazione), "migliora testo" e salvataggio automatico.
+- **Export** PDF + DOCX/XLSX compilato + JSON; anteprima PDF, stampa, email.
+- **Storico** con ricerca globale, filtri, duplicazione, versioni, export Excel, import CSV/Excel.
+- **Documenti AI**: creazione, modifica, audit, compilazione da documenti, OCR delle scansioni.
+- **Editor visuale del template**, regole AI per funzione e per modulo.
+- **Backup/ripristino**, cartella dati anche di rete, tema chiaro/scuro, italiano/inglese.
+- **AI locale**: GPU Vulkan opzionale, ricerca semantica, controllo RAM, spegnimento per inattività.
 
----
+Guida completa: [docs/guida-utente.md](docs/guida-utente.md) ·
+[English user guide](docs/user-guide.md) (anche dentro l'app con `F1`).
 
-## Cosa fa l'app
+## Requisiti
 
-1. **Moduli adattivi** — da un template DOCX/XLSX crea automaticamente schema JSON e
-   mapping dei placeholder `{{campo}}`.
-2. **Storico e documenti di riferimento** — usati come contesto per l'AI.
-3. **AI anti-allucinazione** — la policy vieta di inventare dati; se un valore non è noto
-   l'AI scrive `NON_SPECIFICATO`. Catena di backend: llama.cpp (Qwen3 1.7B → 0.6B) →
-   Ollama locale → modalità manuale.
-4. **Revisione obbligatoria** — scheda con quality score e evidenza dei campi mancanti.
-5. **Export** JSON (fonte canonica) + DOCX/XLSX + PDF (ReportLab, Office non richiesto).
-6. **Documenti AI** — creazione, modifica, audit e compilazione da documenti, con regole
-   AI personalizzabili per funzione e per modulo.
-7. **Sicurezza** — protezione path traversal, limiti ZIP, estensioni pericolose
-   bloccate, nessuna connessione di rete fuori da 127.0.0.1 (salvo il download
-   esplicito dei componenti AI).
-
-Dati utente: `%LOCALAPPDATA%\MaintenanceAI\` (database, log, export, workspace moduli,
-runtime e modelli AI). Log degli errori di avvio: `logs\crash.log`.
-
-### Profili AI
-
-| Profilo | Modello | Uso |
+| | Minimo | Consigliato |
 |---|---|---|
-| `compatibility` | Qwen3 0.6B, contesto 2048 | PC lenti / poca RAM |
-| `balanced` (default) | Qwen3 1.7B, contesto 4096 | consigliato |
-| `fastest` | Qwen3 1.7B, 8 thread | CPU con molti core |
-
-Requisiti: Windows 10 22H2+ x64, 4 GB RAM (6 GB consigliati con AI), ~2.5 GB di disco
-con modello.
-
----
+| Sistema | Windows 10 22H2 x64 | Windows 11 |
+| RAM | 4 GB (senza AI o modello 0.6B) | 8 GB (modello 1.7B) |
+| Disco | 300 MB + 0,7–2 GB per l'AI | SSD |
+| GPU | non necessaria | scheda con driver Vulkan |
+| Internet | solo per scaricare l'AI una volta | |
 
 ## Sviluppo
 
-Prerequisito: Python 3.12 x64. Da PowerShell nella cartella del progetto:
+Prerequisito: Python 3.12 x64. Tieni il repository **fuori da OneDrive/Dropbox**.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup_dev.ps1        # venv + dipendenze
-powershell -ExecutionPolicy Bypass -File scripts\run_dev.ps1          # avvia la GUI
-powershell -ExecutionPolicy Bypass -File scripts\test.ps1             # unit test + self-test
-.venv\Scripts\python.exe scripts\smoke_gui.py                          # smoke test GUI
-powershell -ExecutionPolicy Bypass -File scripts\release.ps1  # build + ZIP + installer
+powershell -ExecutionPolicy Bypass -File scripts\setup_dev.ps1   # venv, dipendenze con hash, pre-commit
+powershell -ExecutionPolicy Bypass -File scripts\run_dev.ps1     # avvia la GUI
+powershell -ExecutionPolicy Bypass -File scripts\test.ps1        # unit test + self-test + copertura
+.venv\Scripts\python.exe scripts\smoke_gui.py                     # smoke test GUI (--dark, --lang en-US, --shots DIR)
+powershell -ExecutionPolicy Bypass -File scripts\release.ps1     # exe, ZIP portable e installer in release\
 ```
 
-`release.ps1` richiede [Inno Setup 6](https://jrsoftware.org/isinfo.php)
-(`winget install JRSoftware.InnoSetup`) e produce in `release\`:
-
-- `MaintenanceAI-Setup-<ver>.exe` — installer
-- `MaintenanceAI-<ver>-portable-win64.zip` — versione portable
-
-Le build non sono versionate nel repository: vengono pubblicate come asset delle
-GitHub Release.
+Il rilascio è automatico: aggiorna `__version__` in `src/maintenance_ai/__init__.py` e il
+`CHANGELOG.md`, poi `git tag vX.Y.Z && git push --tags`. Dettagli in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```
-src/maintenance_ai/      sorgente (ui/, llm/, docintelligence/, exporters/, parsers/, services/)
-src/maintenance_ai/assets logo e icona (rigenerabili con packaging/make_icon.py)
-tests/                   unit test
-scripts/                 setup, test, build, smoke test
-packaging/               spec PyInstaller, manifest, versione exe, installer Inno Setup
-config/default.json      configurazione predefinita
-examples/modules/        modulo di esempio
+src/maintenance_ai/
+  ui/            interfaccia (shell, pagine, dialoghi, design system, traduzioni)
+  llm/           llama.cpp, Ollama, pipeline JSON, grounding, embedding, hardware, installer AI
+  services/      rapporti, contesto, impostazioni, backup, import, diagnostica, pulizia
+  docintelligence/  creazione/modifica/audit documenti, OCR, regole AI
+  exporters/     PDF, DOCX, XLSX, riepilogo Excel
+  locales/       catalogo inglese
+tests/           unit test (inclusa migrazione di un DB della v0.1.0)
+packaging/       PyInstaller, installer Inno Setup, icone, licenze, versione
+docs/            guida utente IT/EN, distribuzione aziendale
 ```
 
-### Comandi CLI
+## Licenza
 
-```bat
-MaintenanceAI.exe                       :: GUI
-MaintenanceAI.exe --self-test --verbose :: smoke test, exit code 0 = OK
-MaintenanceAI.exe --version
-MaintenanceAI.exe --config PATH         :: configurazione alternativa
-```
-
-### Limitazioni note
-
-- Il PDF è un layout MaintenanceAI (ReportLab), non una resa pixel-perfect del DOCX/XLSX.
-- Il modello 0.6B è più veloce ma meno affidabile: verificare sempre i valori proposti.
-- Solo Windows x64 è supportato ufficialmente.
+Software proprietario, tutti i diritti riservati: vedi [LICENSE](LICENSE). I componenti di
+terze parti mantengono le proprie licenze ([LICENSES/](LICENSES/README.txt)).

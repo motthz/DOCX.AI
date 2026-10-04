@@ -250,7 +250,7 @@ class FirstRunWizard:
         try:
             if self.db is not None:
                 try:
-                    self.db.set_setting("ui.language", self.lang.get())
+                    self.db.set_setting("ui.lang", self.lang.get())
                     if self.workspace.get():
                         self.db.set_setting("workspace.folder", self.workspace.get())
                 except Exception:  # noqa: BLE001

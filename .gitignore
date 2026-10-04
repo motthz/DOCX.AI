@@ -92,3 +92,8 @@ Specifica*.pdf
 owasp_audit.py
 journey_audit.py
 functional_audit.py
+
+# ----- Copertura -----
+.coverage
+.coverage.*
+htmlcov/

@@ -62,9 +62,8 @@ def export_summary(rows: List[Dict[str, Any]], dest: Path, *, title: str = "") -
     ws.freeze_panes = "B2"
     ws.auto_filter.ref = ws.dimensions
     for i, h in enumerate(headers, 1):
-        width = max(len(str(h)), *(len(str(row[i - 1].value or ""))
-                                   for row in ws.iter_rows(min_row=2, max_col=i, min_col=i)), 10) \
-            if ws.max_row > 1 else len(str(h)) + 4
+        lengths = [len(str(c.value or "")) for (c,) in ws.iter_rows(min_row=2, min_col=i, max_col=i)]
+        width = max([len(str(h)), 10] + lengths)
         ws.column_dimensions[get_column_letter(i)].width = min(60, width + 2)
 
     sm = wb.create_sheet("Riepilogo")
