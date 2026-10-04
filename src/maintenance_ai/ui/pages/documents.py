@@ -35,7 +35,7 @@ class DocumentsPage(ctk.CTkFrame):
              self.edit),
             ("file-search", t("Audit documenti"), t("Cerca contraddizioni, date incoerenti, dati mancanti e revisioni non allineate."),
              self.audit),
-            ("puzzle", t("Compila da documenti"), t("Compila un modulo leggendo i dati da rapportini, check list e scansioni."),
+            ("puzzle", t("Compila da documenti"), t("Compila un modulo leggendo i dati da altri documenti, tabelle e scansioni."),
              self.smart_fill),
             ("scan-text", t("Testo da scansione (OCR)"), t("Estrai il testo da foto o PDF scansionati con l'OCR di Windows."),
              self.ocr),

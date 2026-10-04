@@ -23,13 +23,13 @@ class Tour:
         tb = win.tabbar._buttons
         self.steps: List[Tuple[Callable[[], tk.Misc], str, str]] = [
             (lambda: win.sidebar, t("I tuoi moduli"),
-             t("Qui trovi i modelli di rapporto. Un modulo nasce da un tuo DOCX/XLSX con i campi {{nome_campo}}.")),
-            (lambda: tb["report"], t("Nuovo rapporto"),
-             t("Descrivi l'intervento a parole tue (anche con foto): l'AI compila i campi del modulo.")),
+             t("Qui trovi i modelli dei tuoi documenti. Un modulo nasce da un tuo DOCX/XLSX con i campi {{nome_campo}}.")),
+            (lambda: tb["report"], t("Nuovo documento"),
+             t("Scrivi le informazioni a parole tue (anche con foto o documenti): l'AI compila i campi del modulo.")),
             (lambda: win._ai_btn, t("Motore AI locale"),
              t("Lo stato dell'AI. Al primo uso clicca qui per scaricare il modello: poi funziona offline.")),
             (lambda: tb["history"], t("Storico"),
-             t("Cerca, filtra, duplica, confronta versioni ed esporta in Excel tutti i rapporti.")),
+             t("Cerca, filtra, duplica, confronta versioni ed esporta in Excel tutti i documenti.")),
             (lambda: tb["settings"], t("Impostazioni"),
              t("Tema, lingua, dimensione del testo, backup, cartella dati condivisa e opzioni AI.")),
             (lambda: win._theme_btn, t("Tutto pronto!"),

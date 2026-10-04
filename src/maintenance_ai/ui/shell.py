@@ -28,7 +28,7 @@ LOG = logging.getLogger(__name__)
 
 PAGES = [
     ("home", "Home", "house"),
-    ("report", "Rapporto", "file-text"),
+    ("report", "Compila", "file-text"),
     ("history", "Storico", "history"),
     ("module", "Modulo", "package"),
     ("documents", "Documenti AI", "sparkles"),
@@ -141,7 +141,7 @@ class MainWindow:
         titles.pack(side="left")
         ctk.CTkLabel(titles, text="MaintenanceAI", font=font("h3"), text_color=C["header_text"]
                      ).pack(anchor="w")
-        ctk.CTkLabel(titles, text=t("Rapporti di manutenzione · AI locale · Offline"), font=font("caption"),
+        ctk.CTkLabel(titles, text=t("Compilazione documenti con AI locale · Offline"), font=font("caption"),
                      text_color=C["header_muted"]).pack(anchor="w")
 
         right = ctk.CTkFrame(hdr, fg_color="transparent")

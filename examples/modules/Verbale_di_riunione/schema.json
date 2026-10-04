@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Verbale di riunione",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "oggetto": {
+      "type": "string",
+      "description": "Titolo o oggetto della riunione"
+    },
+    "data_riunione": {
+      "type": "string",
+      "format": "date",
+      "description": "Data della riunione (AAAA-MM-GG)"
+    },
+    "luogo": {
+      "type": "string",
+      "description": "Luogo o piattaforma (es. sala A, Teams)"
+    },
+    "partecipanti": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Nomi dei partecipanti"
+    },
+    "redattore": {
+      "type": "string",
+      "description": "Chi redige il verbale"
+    },
+    "argomenti": {
+      "type": "string",
+      "description": "Argomenti discussi, in forma sintetica"
+    },
+    "decisioni": {
+      "type": "string",
+      "description": "Decisioni prese"
+    },
+    "azioni": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "attivita": {
+            "type": "string"
+          },
+          "responsabile": {
+            "type": "string"
+          },
+          "scadenza": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Attività da svolgere con responsabile e scadenza"
+    },
+    "prossimo_incontro": {
+      "type": "string",
+      "description": "Data del prossimo incontro, se indicata"
+    }
+  },
+  "required": [
+    "oggetto",
+    "data_riunione",
+    "partecipanti",
+    "decisioni"
+  ]
+}

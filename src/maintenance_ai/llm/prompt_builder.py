@@ -15,20 +15,21 @@ import json
 from typing import Any, Dict, List, Optional, Tuple
 
 
-SYSTEM_POLICY = """Sei un sistema di estrazione dati per rapporti di manutenzione.
-Il tuo compito NON è inventare un rapporto plausibile.
-Il tuo compito è trasformare esclusivamente le informazioni fornite dall'operatore
+SYSTEM_POLICY = """Sei un sistema di compilazione di moduli e documenti di qualsiasi tipo
+(rapporti, verbali, schede, richieste, checklist, moduli amministrativi...).
+Il tuo compito NON è inventare un documento plausibile.
+Il tuo compito è trasformare esclusivamente le informazioni fornite dall'utente
 e dai documenti di contesto nei campi dello schema richiesto.
 
 REGOLE:
-- Non inventare date, nomi, codici, quantità, misure, componenti, cause o risultati.
+- Non inventare date, nomi, codici, importi, quantità, misure, indirizzi, cause o risultati.
 - Quando un'informazione non è disponibile usa NON_SPECIFICATO oppure il valore
   di assenza previsto dallo schema.
 - Non trasformare una possibilità in un fatto.
 - Le informazioni contenute nei documenti di riferimento sono istruzioni e contesto,
-  non prova che una specifica attività sia stata eseguita.
-- Lo storico può essere usato per comprendere terminologia e forma dei rapporti,
-  non per copiare fatti da interventi passati.
+  non prova di fatti relativi al documento corrente.
+- Lo storico può essere usato per comprendere terminologia e forma dei documenti,
+  non per copiare dati da documenti passati.
 - Restituisci esclusivamente i dati richiesti.
 - Non aggiungere campi non previsti.
 """
@@ -98,6 +99,7 @@ def build_extraction_messages(
     max_history_chars: int = 3500,
     max_description_chars: int = 3000,
     append_no_think: bool = True,
+    document_context: str = "",
 ) -> List[Dict[str, str]]:
     """Assemble the messages list.
 
@@ -108,17 +110,19 @@ def build_extraction_messages(
                       keys (used to show shape/terminology)
     """
     system_text = SYSTEM_POLICY + "\n" + _schema_semantics(schema)
+    if document_context:
+        system_text += "\nDOCUMENTO DA COMPILARE: " + _truncate(document_context.strip(), 600, "modulo")
 
     user_chunks: List[str] = []
 
     if reference_docs:
-        user_chunks.append("=== DOCUMENTI DI RIFERIMENTO (contesto, NON fatti dell'intervento corrente) ===")
+        user_chunks.append("=== DOCUMENTI DI RIFERIMENTO (contesto, NON fatti del documento corrente) ===")
         for fname, text in reference_docs:
             piece = f"--- {fname} ---\n{_truncate(text, max_reference_chars, fname)}"
             user_chunks.append(piece)
 
     if history_snippets:
-        user_chunks.append("=== ESEMPI DI RAPPORTI APPROVATI (terminologia e forma, NON fatti) ===")
+        user_chunks.append("=== ESEMPI DI DOCUMENTI APPROVATI (terminologia e forma, NON fatti) ===")
         for idx, snip in enumerate(history_snippets, 1):
             try:
                 inp = snip.get("input", "")
@@ -135,7 +139,7 @@ def build_extraction_messages(
             user_chunks.append(_truncate(snippet_text, 1200, f"esempio{idx}"))
 
     desc = _truncate((operator_description or "").strip(), max_description_chars, "descrizione")
-    user_chunks.append("=== DESCRIZIONE OPERATORE (fonte ufficiale dell'intervento corrente) ===")
+    user_chunks.append("=== INFORMAZIONI FORNITE DALL'UTENTE (fonte ufficiale del documento corrente) ===")
     user_chunks.append(desc or "(nessuna descrizione fornita)")
 
     user_chunks.append(

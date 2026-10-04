@@ -95,9 +95,11 @@ def safe_slug(name: str, fallback: str = "module") -> str:
     cleaned = name.strip()
     if not cleaned:
         return fallback
-    for bad in '<>:"/\\|?*':
+    for bad in '<>:"/\\|?*\'’`':
         cleaned = cleaned.replace(bad, "_")
     cleaned = cleaned.replace(" ", "_")
+    while "__" in cleaned:
+        cleaned = cleaned.replace("__", "_")
     cleaned = cleaned.rstrip(". ")
     return cleaned or fallback
 

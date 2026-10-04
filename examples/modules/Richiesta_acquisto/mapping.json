@@ -1,0 +1,42 @@
+{
+  "richiedente": {
+    "type": "cell",
+    "sheet": "Richiesta",
+    "cell": "B3"
+  },
+  "reparto": {
+    "type": "cell",
+    "sheet": "Richiesta",
+    "cell": "B4"
+  },
+  "data_richiesta": {
+    "type": "cell",
+    "sheet": "Richiesta",
+    "cell": "B5"
+  },
+  "fornitore": {
+    "type": "cell",
+    "sheet": "Richiesta",
+    "cell": "B6"
+  },
+  "articoli": {
+    "type": "cell",
+    "sheet": "Richiesta",
+    "cell": "B7"
+  },
+  "importo_stimato": {
+    "type": "cell",
+    "sheet": "Richiesta",
+    "cell": "B8"
+  },
+  "urgenza": {
+    "type": "cell",
+    "sheet": "Richiesta",
+    "cell": "B9"
+  },
+  "motivazione": {
+    "type": "cell",
+    "sheet": "Richiesta",
+    "cell": "B10"
+  }
+}

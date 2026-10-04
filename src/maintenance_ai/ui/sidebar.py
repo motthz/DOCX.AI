@@ -85,7 +85,7 @@ class Sidebar(ctk.CTkFrame):
         mods = self.win.modules
         if not mods:
             EmptyState(self.listbox, "package", t("Nessun modulo"),
-                       t("Un modulo è il modello di rapporto (DOCX o XLSX) che l'AI compilerà."),
+                       t("Un modulo è il modello di documento (DOCX o XLSX) che l'AI compilerà."),
                        action=(t("Crea il primo modulo"), self.new_module)).pack(fill="x", pady=10)
             return
         q = self.search.get().strip().lower()
@@ -123,7 +123,7 @@ class Sidebar(ctk.CTkFrame):
             parts.append(t("{n} completati", n=done))
         if not tpl_ok:
             parts.append(t("template mancante"))
-        meta = ctk.CTkLabel(txt, text=" · ".join(parts) or t("nessun rapporto"), font=font("caption"),
+        meta = ctk.CTkLabel(txt, text=" · ".join(parts) or t("nessun documento"), font=font("caption"),
                             text_color=C["danger"] if not tpl_ok else C["text_muted"], anchor="w")
         meta.pack(fill="x")
         for w in (row, ic, txt, name, meta):

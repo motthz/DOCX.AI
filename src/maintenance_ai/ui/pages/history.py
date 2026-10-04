@@ -32,7 +32,7 @@ class HistoryPage(ctk.CTkFrame):
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x")
-        label(head, t("Storico rapporti"), kind="h2").pack(side="left")
+        label(head, t("Storico documenti"), kind="h2").pack(side="left")
         self.count_lbl = label(head, "", muted=True)
         self.count_lbl.pack(side="left", padx=12, pady=(6, 0))
         button(head, t("Importa CSV/Excel"), self.import_table, icon_name="file-input").pack(side="right")
@@ -41,25 +41,28 @@ class HistoryPage(ctk.CTkFrame):
         filt = Card(self, padding=12)
         filt.pack(fill="x", pady=(10, 8))
         f = filt.body
-        self.query = ctk.CTkEntry(f, height=34, placeholder_text=t("Cerca in descrizioni e dati dei rapporti…  (Ctrl+F)"))
+        self.query = ctk.CTkEntry(f, height=34, placeholder_text=t("Cerca nei documenti compilati…  (Ctrl+F)"))
         self.query.grid(row=0, column=0, columnspan=4, sticky="ew", padx=(0, 8))
         self.status = ctk.CTkSegmentedButton(f, values=[t(lbl) for _k, lbl in STATUS], command=lambda v: self.reload())
         self.status.set(t("Tutti"))
         self.status.grid(row=0, column=4, columnspan=2, sticky="e")
-        self.module = ctk.CTkOptionMenu(f, values=[t("Tutti i moduli")], command=lambda v: self.reload(), height=30)
+        self.module = ctk.CTkOptionMenu(f, values=[t("Tutti i moduli")], height=30,
+                                        command=lambda v: (self._fill_fields(), self.reload()))
         self.module.grid(row=1, column=0, sticky="ew", pady=(8, 0), padx=(0, 8))
         self.date_from = ctk.CTkEntry(f, height=30, placeholder_text=t("Dal (gg/mm/aaaa)"), width=130)
         self.date_from.grid(row=1, column=1, sticky="ew", pady=(8, 0), padx=(0, 8))
         self.date_to = ctk.CTkEntry(f, height=30, placeholder_text=t("Al (gg/mm/aaaa)"), width=130)
         self.date_to.grid(row=1, column=2, sticky="ew", pady=(8, 0), padx=(0, 8))
-        self.tech = ctk.CTkEntry(f, height=30, placeholder_text=t("Tecnico"), width=150)
-        self.tech.grid(row=1, column=3, sticky="ew", pady=(8, 0), padx=(0, 8))
-        self.plant = ctk.CTkEntry(f, height=30, placeholder_text=t("Impianto / reparto / macchina"), width=190)
-        self.plant.grid(row=1, column=4, sticky="ew", pady=(8, 0), padx=(0, 8))
+        # filtro generico su un campo del modulo (es. "cliente", "tecnico", "importo"...)
+        self.field_menu = ctk.CTkOptionMenu(f, values=[t("Qualsiasi campo")], height=30, width=170,
+                                            command=lambda v: self.reload())
+        self.field_menu.grid(row=1, column=3, sticky="ew", pady=(8, 0), padx=(0, 8))
+        self.field_value = ctk.CTkEntry(f, height=30, placeholder_text=t("Valore del campo"), width=190)
+        self.field_value.grid(row=1, column=4, sticky="ew", pady=(8, 0), padx=(0, 8))
         button(f, t("Azzera"), self.clear_filters, kind="ghost", height=30).grid(row=1, column=5, pady=(8, 0))
         for c in range(5):
             f.columnconfigure(c, weight=1)
-        for e in (self.query, self.date_from, self.date_to, self.tech, self.plant):
+        for e in (self.query, self.date_from, self.date_to, self.field_value):
             e.bind("<KeyRelease>", lambda ev: self._schedule(), add="+")
 
         table = Card(self, padding=6)
@@ -81,8 +84,8 @@ class HistoryPage(ctk.CTkFrame):
         self.tree.bind("<Button-3>", self._context_menu, add="+")
         self.tree.bind("<<TreeviewSelect>>", lambda e: self._update_actions(), add="+")
         self.tree.bind("<Delete>", lambda e: self.delete_selected(), add="+")
-        self.empty = EmptyState(table.body, "history", t("Nessun rapporto trovato"),
-                                t("Crea un rapporto dalla scheda Rapporto o modifica i filtri di ricerca."))
+        self.empty = EmptyState(table.body, "history", t("Nessun documento trovato"),
+                                t("Compila un documento dalla scheda Compila o modifica i filtri di ricerca."))
 
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.pack(fill="x", pady=(8, 0))
@@ -123,10 +126,34 @@ class HistoryPage(ctk.CTkFrame):
         self.module.configure(values=names)
         if self.module.get() not in names:
             self.module.set(names[0])
+        self._fill_fields()
+
+    def _fill_fields(self) -> None:
+        """Campi selezionabili: quelli del modulo scelto, oppure di tutti i moduli."""
+        mod = next((m for m in self.win.modules if m.name == self.module.get()), None)
+        mods = [mod] if mod else self.win.modules
+        names: list = []
+        for m in mods:
+            for k in (m.schema or {}).get("properties", {}):
+                if k not in names:
+                    names.append(k)
+        self._field_keys = {k.replace("_", " ").capitalize(): k for k in names}
+        values = [t("Qualsiasi campo")] + list(self._field_keys)
+        self.field_menu.configure(values=values)
+        if self.field_menu.get() not in values:
+            self.field_menu.set(values[0])
+
+    def _field_filter(self) -> dict:
+        value = self.field_value.get().strip()
+        if not value:
+            return {}
+        key = getattr(self, "_field_keys", {}).get(self.field_menu.get(), "")
+        return {key: value}  # chiave vuota = cerca il valore in qualsiasi campo
 
     def clear_filters(self) -> None:
-        for e in (self.query, self.date_from, self.date_to, self.tech, self.plant):
+        for e in (self.query, self.date_from, self.date_to, self.field_value):
             e.delete(0, "end")
+        self.field_menu.set(t("Qualsiasi campo"))
         self.status.set(t("Tutti"))
         self.module.set(t("Tutti i moduli"))
         self.reload()
@@ -154,7 +181,7 @@ class HistoryPage(ctk.CTkFrame):
         return dict(query=self.query.get(), status=None if status == "all" else status,
                     module_id=mod.id if mod else None, date_from=self._iso(self.date_from.get()),
                     date_to=self._iso(self.date_to.get()),
-                    field_filters={"tecnico": self.tech.get(), "impianto": self.plant.get()})
+                    field_filters=self._field_filter())
 
     def reload(self) -> None:
         self.rows, self.total = self.win.db.search_reports(limit=PAGE_SIZE, offset=0, **self._filters())
@@ -173,7 +200,7 @@ class HistoryPage(ctk.CTkFrame):
             self.tree.insert("", "end", iid=str(r["id"]), tags=(r.get("status"),), values=(
                 r["id"], r.get("module"), t(STATUS_LABEL.get(r.get("status"), r.get("status") or "")),
                 (r.get("created_at") or "")[:16].replace("T", " "), desc[:160]))
-        self.count_lbl.configure(text=t("{n} di {total} rapporti", n=len(self.rows), total=self.total))
+        self.count_lbl.configure(text=t("{n} di {total} documenti", n=len(self.rows), total=self.total))
         if self.total > len(self.rows):
             self.more_btn.pack(side="left")
         else:
@@ -215,7 +242,7 @@ class HistoryPage(ctk.CTkFrame):
             return
         pdf = sel[0].get("output_pdf_path")
         if not pdf or not Path(pdf).is_file():
-            self.win.toast(t("Questo rapporto non ha ancora un PDF: approvalo per esportarlo."), "info")
+            self.win.toast(t("Questo documento non ha ancora un PDF: approvalo per esportarlo."), "info")
             return
         from ..dialogs.pdf_preview import PdfPreview
         PdfPreview(self.win.root, Path(pdf), win=self.win)
@@ -240,12 +267,12 @@ class HistoryPage(ctk.CTkFrame):
             return
         mod = next((m for m in self.win.modules if m.id == r.get("module_id")), None)
         if mod is None:
-            self.win.toast(t("Il modulo di questo rapporto non esiste più."), "error")
+            self.win.toast(t("Il modulo di questo documento non esiste più."), "error")
             return
         from ..dialogs.review import ReviewDialog
         data = json.loads(r.get("final_json") or r.get("draft_json") or "{}")
         dlg = ReviewDialog(self.win, mod, None, data, description=r.get("input_description") or "",
-                           notes=r.get("review_notes") or "", title=t("Modifica rapporto #{id}", id=r["id"]),
+                           notes=r.get("review_notes") or "", title=t("Modifica documento #{id}", id=r["id"]),
                            approve_text=t("Salva nuova versione e riesporta"))
         result = dlg.wait()
         if result is None:
@@ -281,13 +308,13 @@ class HistoryPage(ctk.CTkFrame):
     def delete_selected(self) -> None:
         sel = self._selected()
         if not sel or not messagebox.askyesno(
-                t("Elimina rapporti"), t("Eliminare {n} rapporti dallo storico? I file già esportati restano su disco.",
+                t("Elimina documenti"), t("Eliminare {n} documenti dallo storico? I file già esportati restano su disco.",
                                          n=len(sel)), parent=self.win.root, icon="warning"):
             return
         for r in sel:
             self.win.db.delete_report(r["id"])
         self.win.emit("reports")
-        self.win.toast(t("{n} rapporti eliminati.", n=len(sel)), "success")
+        self.win.toast(t("{n} documenti eliminati.", n=len(sel)), "success")
 
     def export_excel(self, selected: bool = False) -> None:
         if selected:
@@ -296,7 +323,7 @@ class HistoryPage(ctk.CTkFrame):
             rows, _n = self.win.db.search_reports(limit=100000, **self._filters())
         rows = [r for r in rows if r]
         if not rows:
-            self.win.toast(t("Nessun rapporto da esportare con i filtri attuali."), "warning")
+            self.win.toast(t("Nessun documento da esportare con i filtri attuali."), "warning")
             return
         dest = filedialog.asksaveasfilename(
             parent=self.win.root, defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")],
@@ -306,8 +333,8 @@ class HistoryPage(ctk.CTkFrame):
         from ...exporters.summary_xlsx import export_summary
         f = self._filters()
         period = " - ".join(x for x in (f["date_from"], f["date_to"]) if x)
-        export_summary(rows, Path(dest), title=t("Riepilogo rapporti {p}", p=period).strip())
-        self.win.toast(t("Esportati {n} rapporti in Excel.", n=len(rows)), "success",
+        export_summary(rows, Path(dest), title=t("Riepilogo documenti {p}", p=period).strip())
+        self.win.toast(t("Esportati {n} documenti in Excel.", n=len(rows)), "success",
                        action=(t("Apri"), lambda: os.startfile(dest)))
 
     def import_table(self) -> None:

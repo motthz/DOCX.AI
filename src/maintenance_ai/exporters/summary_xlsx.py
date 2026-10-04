@@ -48,8 +48,8 @@ def export_summary(rows: List[Dict[str, Any]], dest: Path, *, title: str = "") -
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Rapporti"
-    base_cols = ["ID", "Modulo", "Stato", "Creato", "Approvato", "Descrizione intervento"]
+    ws.title = "Documenti"
+    base_cols = ["ID", "Modulo", "Stato", "Creato", "Approvato", "Informazioni fornite"]
     headers = base_cols + [f.replace("_", " ").capitalize() for f in fields]
     ws.append(headers)
     for r, data in zip(rows, data_rows):
@@ -67,16 +67,16 @@ def export_summary(rows: List[Dict[str, Any]], dest: Path, *, title: str = "") -
         ws.column_dimensions[get_column_letter(i)].width = min(60, width + 2)
 
     sm = wb.create_sheet("Riepilogo")
-    sm.append([title or "Riepilogo rapporti"])
+    sm.append([title or "Riepilogo documenti"])
     sm["A1"].font = Font(bold=True, size=14)
     sm.append([])
-    sm.append(["Totale rapporti", len(rows)])
+    sm.append(["Totale documenti", len(rows)])
     sm.append([])
-    sm.append(["Modulo", "Rapporti"])
+    sm.append(["Modulo", "Documenti"])
     for mod, n in Counter(r.get("module") or "-" for r in rows).most_common():
         sm.append([mod, n])
     sm.append([])
-    sm.append(["Stato", "Rapporti"])
+    sm.append(["Stato", "Documenti"])
     for st, n in Counter(STATUS_IT.get(r.get("status", ""), r.get("status")) for r in rows).most_common():
         sm.append([st, n])
     sm.column_dimensions["A"].width = 40

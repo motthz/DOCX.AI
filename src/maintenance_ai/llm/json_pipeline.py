@@ -339,6 +339,7 @@ class JsonPipeline:
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         temperature: Optional[float] = None,
         on_token: Optional[Callable[[str], None]] = None,
+        document_context: str = "",
     ) -> ExtractionResult:
         """``temperature``: temperatura del primo tentativo (i retry la alzano un po').
         ``on_token``: se il backend supporta lo streaming riceve il testo generato."""
@@ -370,6 +371,7 @@ class JsonPipeline:
                 reference_docs=reference_docs,
                 history_snippets=history_snippets,
                 append_no_think=not isinstance(server, MockLlamaServer) or True,
+                document_context=document_context,
             )
             max_tokens = self._estimate_max_tokens(schema)
 
@@ -398,6 +400,7 @@ class JsonPipeline:
                         reference_docs=use_refs,
                         history_snippets=history_snippets[: max(0, len(history_snippets) // 2)],
                         append_no_think=not isinstance(server, MockLlamaServer) or True,
+                document_context=document_context,
                     )
                     if last_error:
                         use_messages = self._append_repair_messages(use_messages, "", last_error)

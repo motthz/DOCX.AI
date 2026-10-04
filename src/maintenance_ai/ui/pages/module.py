@@ -42,7 +42,12 @@ class ModulePage(ctk.CTkFrame):
         label(head, mod.name, kind="h1").pack(side="left")
         Chip(head, f"v{mod.version}", "info").pack(side="left", padx=10, pady=(6, 0))
         label(self.page, mod.description or t("Nessuna descrizione."), muted=True, wraplength=900).pack(
-            fill="x", pady=(2, 12))
+            fill="x", pady=(2, 4))
+        dt = ctk.CTkFrame(self.page, fg_color="transparent")
+        dt.pack(fill="x", pady=(0, 12))
+        label(dt, t("Tipo di documento: {t}", t=mod.document_type or t("non indicato")), kind="small",
+              muted=True).pack(side="left")
+        button(dt, t("Cambia"), self.edit_doc_type, kind="ghost", height=26).pack(side="left", padx=6)
 
         counts = self.win.db.count_reports_by_module().get(mod.id or -1, {})
         tpl_ok = bool(mod.template_path) and Path(mod.template_path).exists()
@@ -96,7 +101,7 @@ class ModulePage(ctk.CTkFrame):
         label(tb, t("Cartelle"), kind="h4").pack(anchor="w", pady=(14, 6))
         for text, path in ((t("Cartella del modulo"), mod.folder_path),
                            (t("Documenti di riferimento"), mod.reference_folder()),
-                           (t("Storico rapporti"), mod.history_folder())):
+                           (t("Storico documenti"), mod.history_folder())):
             button(tb, text, lambda p=path: self._open(p), icon_name="folder-open", kind="ghost",
                    anchor="w").pack(fill="x", pady=1)
         button(tb, t("Archivia modulo"), self.archive, icon_name="archive", kind="ghost",
@@ -106,6 +111,16 @@ class ModulePage(ctk.CTkFrame):
     def _open(self, p: Path) -> None:
         Path(p).mkdir(parents=True, exist_ok=True)
         os.startfile(str(p))  # type: ignore[attr-defined]
+
+    def edit_doc_type(self) -> None:
+        mod = self.win.selected
+        dlg = ctk.CTkInputDialog(title=t("Tipo di documento"),
+                                 text=t("Che documento compila questo modulo? (es. verbale di riunione, "
+                                        "richiesta d'acquisto). L'AI lo usa come contesto."))
+        value = dlg.get_input()
+        if value is not None:
+            self.win.mm.set_document_type(mod.slug, value)
+            self.win.refresh_modules(quiet=True)
 
     def edit_template(self) -> None:
         mod = self.win.selected
@@ -157,7 +172,7 @@ class ModulePage(ctk.CTkFrame):
 
     def archive(self) -> None:
         mod = self.win.selected
-        if messagebox.askyesno(t("Archivia modulo"), t("Archiviare «{n}»? Non comparirà più nell'elenco; i rapporti "
+        if messagebox.askyesno(t("Archivia modulo"), t("Archiviare «{n}»? Non comparirà più nell'elenco; i documenti "
                                                        "restano nello storico.", n=mod.name), parent=self.win.root):
             self.win.mm.archive_module(mod.slug)
             self.win.selected = None

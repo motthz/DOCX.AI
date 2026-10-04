@@ -129,7 +129,7 @@ class SettingsPage(ctk.CTkFrame):
                      "ai.gpu", [(t("Automatica"), "auto"), (t("Sempre CPU"), "off"), (t("Forza GPU"), "on")],
                      on_change=lambda v: self._reset_ai())
         self._switch(b, t("Precarica il modello all'avvio"),
-                     t("La prima bozza è subito pronta; usa RAM anche se non generi rapporti."), "ai.preload")
+                     t("La prima bozza è subito pronta; usa RAM anche se non compili documenti."), "ai.preload")
         self._option(b, t("Spegni il motore AI se inattivo"),
                      t("Libera la RAM dopo un periodo senza richieste; si riavvia da solo quando serve."),
                      "ai.idle_minutes", [(t("dopo 5 minuti"), 5), (t("dopo 15 minuti"), 15),
@@ -183,7 +183,7 @@ class SettingsPage(ctk.CTkFrame):
         right = self._row(b, t("Tour guidato"), t("Rivedi la presentazione delle funzioni principali."))
         button(right, t("Avvia tour"), self.win.start_tour, icon_name="play").pack()
         right = self._row(b, t("Pacchetto diagnostico"),
-                          t("Log e informazioni tecniche, senza rapporti né documenti. Salvato sul Desktop."))
+                          t("Log e informazioni tecniche, senza i tuoi documenti. Salvato sul Desktop."))
         button(right, t("Crea"), self.diag, icon_name="life-buoy").pack()
         right = self._row(b, t("Segnala un problema"),
                           t("Apre la pagina di segnalazione con versione e sistema già compilati."))
@@ -208,17 +208,17 @@ class SettingsPage(ctk.CTkFrame):
 
     def _shortcuts(self) -> None:
         text = "\n".join([
-            "Ctrl+1…6   " + t("vai alle schede (Home, Rapporto, Storico, Modulo, Documenti, Impostazioni)"),
+            "Ctrl+1…6   " + t("vai alle schede (Home, Compila, Storico, Modulo, Documenti AI, Impostazioni)"),
             "Ctrl+Tab   " + t("scheda successiva"),
             "Ctrl+N     " + t("nuovo modulo"),
-            "Ctrl+E     " + t("genera la bozza del rapporto"),
+            "Ctrl+E     " + t("genera la bozza del documento"),
             "Ctrl+F     " + t("cerca nello storico"),
             "Ctrl+B     " + t("mostra/nascondi la barra laterale"),
             "Ctrl+,     " + t("impostazioni"),
             "F1         " + t("guida"),
             "F5         " + t("ricarica i moduli"),
             "Esc        " + t("chiude la finestra di dialogo"),
-            "Canc       " + t("elimina i rapporti selezionati (Storico)"),
+            "Canc       " + t("elimina i documenti selezionati (Storico)"),
         ])
         messagebox.showinfo(t("Scorciatoie da tastiera"), text, parent=self.win.root)
 

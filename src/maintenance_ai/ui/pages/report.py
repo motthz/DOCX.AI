@@ -1,4 +1,4 @@
-"""Rapporto: descrizione dell'intervento -> bozza AI -> revisione -> esportazione."""
+"""Compila: informazioni dell'utente -> bozza AI -> revisione -> esportazione."""
 
 from __future__ import annotations
 
@@ -46,15 +46,15 @@ class ReportPage(ctk.CTkFrame):
         b = main.body
         top = ctk.CTkFrame(b, fg_color="transparent")
         top.pack(fill="x")
-        label(top, t("Nuovo rapporto"), kind="h2").pack(side="left")
+        label(top, t("Nuovo documento"), kind="h2").pack(side="left")
         self.module_chip = Chip(top, "—", "info")
         self.module_chip.pack(side="left", padx=10)
         self.quality = Chip(top, "", "neutral")
         self.quality.pack(side="right")
 
-        self.mode = ctk.CTkSegmentedButton(b, values=[t("Descrivi l'intervento"), t("Da documenti")],
+        self.mode = ctk.CTkSegmentedButton(b, values=[t("Scrivi le informazioni"), t("Da documenti")],
                                            command=self._switch_mode, font=font("body_b"), height=32)
-        self.mode.set(t("Descrivi l'intervento"))
+        self.mode.set(t("Scrivi le informazioni"))
         self.mode.pack(anchor="w", pady=(12, 10))
 
         self.input_host = ctk.CTkFrame(b, fg_color="transparent")
@@ -63,9 +63,9 @@ class ReportPage(ctk.CTkFrame):
         self.desc = ctk.CTkTextbox(self.desc_frame, height=170, wrap="word", font=font("body"),
                                    border_width=1, border_color=C["border"], fg_color=C["surface"])
         self.desc.pack(fill="both", expand=True)
-        self._placeholder = t("Esempio: «Il 2 ottobre il tecnico Mario Rossi ha sostituito la cinghia del "
-                              "compressore C-12 nel reparto verniciatura. Prova di funzionamento ok, "
-                              "nessuna anomalia residua.» Più dettagli dai, più campi vengono compilati.")
+        self._placeholder = t("Scrivi tutto ciò che il documento deve contenere, a parole tue. Esempi: «Riunione del 2 ottobre con "
+                              "Rossi e Bianchi: approvato il budget di 12.000 €, prossimo incontro il 15» oppure «Il tecnico Rossi ha sostituito la cinghia del compressore C-12, prova ok». "
+                              "Più dettagli dai, più campi vengono compilati.")
         self._show_placeholder()
         self.desc.bind("<FocusIn>", lambda e: self._hide_placeholder(), add="+")
         self.desc.bind("<FocusOut>", lambda e: self._show_placeholder(), add="+")
@@ -85,7 +85,7 @@ class ReportPage(ctk.CTkFrame):
         separator(b).pack(fill="x", pady=12)
         prow = ctk.CTkFrame(b, fg_color="transparent")
         prow.pack(fill="x")
-        label(prow, t("Foto dell'intervento"), kind="h4").pack(side="left")
+        label(prow, t("Foto e immagini"), kind="h4").pack(side="left")
         button(prow, t("Fotocamera"), self._open_camera, icon_name="camera", kind="ghost", height=30).pack(
             side="right")
         button(prow, t("Aggiungi foto"), self._add_photos, icon_name="images", kind="ghost", height=30).pack(
@@ -96,7 +96,7 @@ class ReportPage(ctk.CTkFrame):
 
         # azione
         separator(b).pack(fill="x", pady=12)
-        self.go_btn = button(b, t("Genera bozza con AI   (Ctrl+E)"), self.generate, kind="primary",
+        self.go_btn = button(b, t("Compila con AI   (Ctrl+E)"), self.generate, kind="primary",
                              icon_name="sparkles", height=44)
         self.go_btn.pack(fill="x")
         self.stepper = Stepper(b, [t("Contesto"), t("AI"), t("Verifica fonti"), t("Revisione"), t("Export")])
@@ -119,8 +119,8 @@ class ReportPage(ctk.CTkFrame):
         for var, title, sub in (
                 (self.use_refs, t("Documenti di riferimento"),
                  t("Procedure e checklist del modulo come istruzioni per l'AI.")),
-                (self.use_hist, t("Storico interventi"),
-                 t("I rapporti passati insegnano forma e terminologia; i dati non vengono copiati.")),
+                (self.use_hist, t("Storico del modulo"),
+                 t("I documenti già approvati insegnano forma e terminologia; i dati non vengono copiati.")),
                 (self.grounding, t("Controllo delle fonti"),
                  t("Evidenzia in revisione i valori che non compaiono nella descrizione."))):
             box = ctk.CTkFrame(s, fg_color="transparent")
@@ -197,7 +197,7 @@ class ReportPage(ctk.CTkFrame):
         (self.docs_frame if docs else self.desc_frame).pack(fill="both", expand=True)
         if docs:
             self._render_docs()
-        self.go_btn.configure(text=t("Compila da documenti") if docs else t("Genera bozza con AI   (Ctrl+E)"))
+        self.go_btn.configure(text=t("Compila da documenti") if docs else t("Compila con AI   (Ctrl+E)"))
 
     def _toggle_live(self) -> None:
         if self.live_toggle.get():
@@ -219,7 +219,7 @@ class ReportPage(ctk.CTkFrame):
         for w in self.docs_list.winfo_children():
             w.destroy()
         if not self.doc_files:
-            label(self.docs_list, t("Nessun documento: aggiungi rapportini, check list o scansioni."),
+            label(self.docs_list, t("Nessun documento: aggiungi file, tabelle o scansioni da cui leggere i dati."),
                   muted=True).pack(pady=12)
         for p in self.doc_files:
             r = ctk.CTkFrame(self.docs_list, fg_color="transparent")
@@ -232,7 +232,7 @@ class ReportPage(ctk.CTkFrame):
 
     # ------------------------------------------------------------------ foto
     def _add_photos(self) -> None:
-        files = filedialog.askopenfilenames(parent=self.win.root, title=t("Foto dell'intervento"),
+        files = filedialog.askopenfilenames(parent=self.win.root, title=t("Foto e immagini"),
                                             filetypes=[(t("Immagini"), "*.jpg *.jpeg *.png *.webp *.bmp")])
         for f in files:
             p = Path(f)
@@ -262,7 +262,7 @@ class ReportPage(ctk.CTkFrame):
             w.destroy()
         self._thumbs.clear()
         if not self.photos:
-            label(self.photo_strip, t("Nessuna foto: verranno inserite nel PDF del rapporto."), kind="small",
+            label(self.photo_strip, t("Nessuna foto: verranno inserite nel PDF del documento."), kind="small",
                   muted=True).pack(anchor="w")
             return
         for p in self.photos:
@@ -292,7 +292,7 @@ class ReportPage(ctk.CTkFrame):
             return
         desc = self._text()
         if len(desc) < 10:
-            self.win.toast(t("Scrivi almeno una frase sull'intervento (10 caratteri)."), "warning")
+            self.win.toast(t("Scrivi almeno una frase con le informazioni (10 caratteri)."), "warning")
             self.desc.focus_set()
             return
         self.busy = True
@@ -352,14 +352,14 @@ class ReportPage(ctk.CTkFrame):
     def _fail(self, msg: str) -> None:
         self.busy = False
         self.stepper.set(1, "err")
-        self.go_btn.configure(state="normal", text=t("Genera bozza con AI   (Ctrl+E)"))
+        self.go_btn.configure(state="normal", text=t("Compila con AI   (Ctrl+E)"))
         self.win.set_ai_state("error", t("AI: errore"))
         self.win.toast(t("Estrazione non riuscita: {e}", e=msg), "error")
         self.after(4000, self.win.refresh_ai)
 
     def _after_draft(self, mod, outcome, desc: str, sources: List[str]) -> None:
         self.busy = False
-        self.go_btn.configure(state="normal", text=t("Genera bozza con AI   (Ctrl+E)"))
+        self.go_btn.configure(state="normal", text=t("Compila con AI   (Ctrl+E)"))
         self.win.refresh_ai()
         if not outcome.data:
             self._fail(outcome.error or t("dati non validi"))

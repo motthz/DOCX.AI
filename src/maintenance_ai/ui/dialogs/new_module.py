@@ -15,11 +15,17 @@ from ..widgets import button, label
 from .base import Dialog
 
 
+# suggerimenti: il campo e' libero, l'AI usa il testo come contesto
+DOC_TYPES = ["Rapporto di intervento", "Verbale di riunione", "Richiesta d'acquisto", "Offerta commerciale",
+             "Checklist di controllo", "Modulo di consegna", "Scheda cliente", "Nota spese",
+             "Relazione tecnica", "Modulo HR", "Non conformità", "Certificato"]
+
+
 class NewModuleDialog(Dialog):
     def __init__(self, win: Any):
         super().__init__(win.root, t("Nuovo modulo"), width=760, height=600, icon_name="file-plus",
-                         subtitle=t("Un modulo è un modello di rapporto: l'AI ne compila i campi "
-                                    "{{come_questo}} partendo dalla descrizione dell'intervento."))
+                         subtitle=t("Un modulo è il modello di un documento (rapporto, verbale, scheda, richiesta…): l'AI ne compila i campi "
+                                    "{{come_questo}} partendo dalle informazioni che fornisci."))
         self.win = win
         self.template: Optional[Path] = None
         self.mode = ctk.StringVar(value="template")
@@ -31,7 +37,7 @@ class NewModuleDialog(Dialog):
         self._cards = {}
         for col, (key, ic, title, desc) in enumerate((
                 ("template", "layout-template", t("Da un mio file (DOCX/XLSX)"),
-                 t("Usa un rapporto esistente con i campi {{nome_campo}}: schema e mappatura vengono creati da soli.")),
+                 t("Usa un tuo documento con i campi {{nome_campo}}: schema e mappatura vengono creati da soli.")),
                 ("empty", "file-plus", t("Modulo vuoto"),
                  t("Parti da zero con uno schema minimo; potrai aggiungere template e campi dopo.")))):
             card = ctk.CTkFrame(modes, fg_color=C["surface"], border_width=2, border_color=C["border"],
@@ -56,11 +62,15 @@ class NewModuleDialog(Dialog):
         self.file_lbl.pack(side="left", padx=10)
 
         label(form, t("Nome *"), kind="body_b").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=6)
-        self.name = ctk.CTkEntry(form, height=34, placeholder_text=t("es. Rapporto intervento compressori"))
+        self.name = ctk.CTkEntry(form, height=34, placeholder_text=t("es. Verbale di riunione, Richiesta d'acquisto, Rapporto intervento"))
         self.name.grid(row=1, column=1, sticky="ew", pady=6)
         label(form, t("Descrizione"), kind="body_b").grid(row=2, column=0, sticky="nw", padx=(0, 12), pady=6)
         self.desc = ctk.CTkTextbox(form, height=80, border_width=1, border_color=C["border"])
         self.desc.grid(row=2, column=1, sticky="ew", pady=6)
+        label(form, t("Tipo di documento"), kind="body_b").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=6)
+        self.doc_type = ctk.CTkComboBox(form, height=34, values=DOC_TYPES)
+        self.doc_type.set("")
+        self.doc_type.grid(row=4, column=1, sticky="ew", pady=6)
         label(form, t("Codice (opzionale)"), kind="body_b").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=6)
         self.slug = ctk.CTkEntry(form, height=34, placeholder_text=t("generato dal nome se vuoto"))
         self.slug.grid(row=3, column=1, sticky="ew", pady=6)
@@ -114,6 +124,8 @@ class NewModuleDialog(Dialog):
             self.create_btn.configure(state="normal")
             self.win.toast(t("Creazione non riuscita: {e}", e=exc), "error")
             return
+        if self.doc_type.get().strip():
+            mod = self.win.mm.set_document_type(mod.slug, self.doc_type.get())
         try:
             self.win.app.rules_manager.ensure_module_rules_exist(mod.folder_path)
         except Exception:  # noqa: BLE001
@@ -123,4 +135,4 @@ class NewModuleDialog(Dialog):
         self.win.select_module(mod.slug)
         self.win.show_page("module")
         self.win.toast(t("Modulo creato: {name}", name=mod.name), "success",
-                       action=(t("Nuovo rapporto"), lambda: self.win.show_page("report")))
+                       action=(t("Nuovo documento"), lambda: self.win.show_page("report")))

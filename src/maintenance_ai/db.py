@@ -945,9 +945,9 @@ class Database:
                        module_id: Optional[int] = None, date_from: Optional[str] = None,
                        date_to: Optional[str] = None, field_filters: Optional[Dict[str, str]] = None,
                        limit: int = 100, offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
-        """Ricerca nello storico. ``field_filters`` = {frammento_nome_campo: valore}: es.
-        {"tecnico": "rossi"} trova i rapporti con un campo il cui nome contiene "tecnico"
-        (o "operatore"/"firma", vedi FIELD_ALIASES) e il cui valore contiene "rossi".
+        """Ricerca nello storico. ``field_filters`` = {nome_campo: valore}: trova i documenti
+        con un campo il cui nome contiene la chiave e il cui valore contiene il testo
+        (chiave vuota = qualsiasi campo). Alcune chiavi hanno sinonimi (FIELD_ALIASES).
         Ritorna (righe della pagina, totale)."""
         clauses: List[str] = []
         params: List[Any] = []

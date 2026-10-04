@@ -67,6 +67,20 @@ class LoadedModule:
     def history_folder(self) -> Path:
         return self.folder_path / SUBFOLDERS[2]
 
+    @property
+    def document_type(self) -> str:
+        """Tipo di documento (es. "verbale di riunione"), facoltativo, da module.json."""
+        return str((self.metadata or {}).get("document_type") or "")
+
+    def ai_context(self) -> str:
+        """Contesto del modulo passato all'AI: nome, tipo e descrizione."""
+        parts = [self.name]
+        if self.document_type:
+            parts.append(f"tipo: {self.document_type}")
+        if self.description:
+            parts.append(self.description)
+        return " · ".join(parts)
+
 
 class ModuleManager:
     def __init__(self, config: Config, db: Database, limits: Optional[SecurityLimits] = None):
@@ -657,6 +671,14 @@ class ModuleManager:
     # ------------------------------------------------------------------
     # Import / export ZIP
     # ------------------------------------------------------------------
+    def set_document_type(self, slug: str, document_type: str) -> LoadedModule:
+        """Imposta il tipo di documento (contesto per l'AI) in module.json."""
+        mod = self.load_module(slug)
+        data = json.loads(mod.module_json_path.read_text(encoding="utf-8"))
+        data["document_type"] = (document_type or "").strip()
+        mod.module_json_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        return self.load_module(slug)
+
     def import_module_zip(self, zip_path: Path) -> LoadedModule:
         zip_path = Path(zip_path)
         # Use a temp folder inside workspace to allow a clean rename after validation
@@ -741,10 +763,12 @@ class ModuleManager:
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "tipo_intervento": {"type": "string", "const": slug},
+                "titolo": {"type": "string", "description": "Titolo o oggetto del documento"},
+                "data": {"type": "string", "format": "date", "description": "Data di riferimento (AAAA-MM-GG)"},
+                "descrizione": {"type": "string", "description": "Contenuto principale"},
                 "note": {"type": "string"},
             },
-            "required": ["tipo_intervento"],
+            "required": ["titolo"],
         }
 
     def _create_blank_template(self, path: Path, template_type: str, schema: Dict[str, Any]) -> None:
@@ -753,7 +777,7 @@ class ModuleManager:
         if template_type == "docx":
             import docx
             doc = docx.Document()
-            doc.add_heading("Modello manutenzione", level=1)
+            doc.add_heading(str(schema.get("title") or "Modulo"), level=1)
             table = doc.add_table(rows=len(keys) + 1, cols=2, style="Table Grid")
             table.cell(0, 0).text = "Campo"
             table.cell(0, 1).text = "Valore"
@@ -766,7 +790,7 @@ class ModuleManager:
             from openpyxl import Workbook as XlWb
             wb = XlWb()
             ws = wb.active
-            ws.title = "Rapporto"
+            ws.title = "Modulo"
             ws["A1"] = "Campo"
             ws["B1"] = "Valore"
             for i, key in enumerate(keys, start=2):

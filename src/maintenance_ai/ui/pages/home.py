@@ -28,7 +28,7 @@ class HomePage(ctk.CTkFrame):
 
         ctk.CTkLabel(page, text=_greeting(), font=font("display"), text_color=C["text"], anchor="w").pack(
             fill="x")
-        label(page, t("Descrivi l'intervento: l'AI compila il rapporto, tu controlli e approvi."),
+        label(page, t("Scrivi le informazioni a parole tue: l'AI compila il modulo, tu controlli e approvi."),
               muted=True).pack(fill="x", pady=(2, 16))
 
         stats = ctk.CTkFrame(page, fg_color="transparent")
@@ -37,7 +37,7 @@ class HomePage(ctk.CTkFrame):
         self.cards = {
             "modules": StatCard(stats, "package", t("Moduli"), C["link"]),
             "drafts": StatCard(stats, "pencil", t("Bozze aperte"), C["warning"]),
-            "done": StatCard(stats, "circle-check", t("Rapporti completati"), C["success"]),
+            "done": StatCard(stats, "circle-check", t("Documenti completati"), C["success"]),
             "month": StatCard(stats, "calendar", t("Questo mese"), C["text"]),
         }
         for i, c in enumerate(self.cards.values()):
@@ -47,10 +47,10 @@ class HomePage(ctk.CTkFrame):
         quick.pack(fill="x", pady=(18, 0))
         quick.columnconfigure((0, 1, 2, 3), weight=1, uniform="q")
         actions = [
-            ("sparkles", t("Nuovo rapporto"), t("Descrivi l'intervento e lascia lavorare l'AI"),
+            ("sparkles", t("Nuovo documento"), t("Scrivi le informazioni e lascia lavorare l'AI"),
              lambda: win.show_page("report")),
-            ("file-plus", t("Nuovo modulo"), t("Da un tuo rapporto DOCX o XLSX"), lambda: win.sidebar.new_module()),
-            ("file-input", t("Importa interventi"), t("Da file CSV o Excel"),
+            ("file-plus", t("Nuovo modulo"), t("Da un tuo documento DOCX o XLSX"), lambda: win.sidebar.new_module()),
+            ("file-input", t("Importa da tabella"), t("Da file CSV o Excel"),
              lambda: (win.show_page("history"), win.page("history").import_table())),
             ("archive", t("Backup"), t("Salva tutti i dati in un file"),
              lambda: win.page("settings").backup_now()),
@@ -133,7 +133,7 @@ class HomePage(ctk.CTkFrame):
         ready = st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])
         ai = self.win.ai
         if not ready:
-            label(body, t("L'AI locale non è ancora installata. Senza AI puoi comunque compilare i rapporti a mano."),
+            label(body, t("L'AI locale non è ancora installata. Senza AI puoi comunque compilare i documenti a mano."),
                   muted=True, wraplength=320).pack(fill="x", pady=(4, 10))
             button(body, t("Installa AI (una volta)"), self.win.open_ai_setup, kind="primary",
                    icon_name="download").pack(anchor="w")

@@ -3,7 +3,7 @@
 Uso nel codice nuovo::
 
     from .i18n import t
-    ttk.Label(text=t("Nuovo rapporto"))
+    ttk.Label(text=t("Nuovo documento"))
     t("Caricati {n} moduli", n=3)
 
 Il testo italiano e' la chiave; ``locales/en.json`` contiene le traduzioni.

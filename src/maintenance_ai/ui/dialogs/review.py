@@ -115,7 +115,7 @@ class ReviewDialog(Dialog):
         # ----------------------------------------------------------- footer
         self.saved_lbl = label(self.footer, "", kind="caption", muted=True)
         self.saved_lbl.pack(side="left", padx=20)
-        button(self.footer, approve_text or t("Approva e genera il rapporto"), self._approve, kind="primary",
+        button(self.footer, approve_text or t("Approva e genera il documento"), self._approve, kind="primary",
                icon_name="check").pack(side="right", padx=(8, 20), pady=12)
         button(self.footer, t("Salva bozza"), lambda: self._autosave(force=True), icon_name="save").pack(
             side="right", pady=12)
@@ -335,7 +335,7 @@ class ReviewDialog(Dialog):
 
         def work():
             try:
-                out = self.win.ai.improve_text(text, title)
+                out = self.win.ai.improve_text(text, title, document=self.mod.ai_context())
                 self.after(0, lambda: self._improved(box, text, out))
             except Exception as exc:  # noqa: BLE001
                 self.after(0, lambda e=exc: (box.configure(state="normal"),

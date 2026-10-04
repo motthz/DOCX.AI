@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Richiesta d'acquisto",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "richiedente": {
+      "type": "string",
+      "description": "Nome di chi fa la richiesta"
+    },
+    "reparto": {
+      "type": "string",
+      "description": "Reparto o ufficio"
+    },
+    "data_richiesta": {
+      "type": "string",
+      "format": "date",
+      "description": "Data della richiesta (AAAA-MM-GG)"
+    },
+    "fornitore": {
+      "type": "string",
+      "description": "Fornitore proposto, se indicato"
+    },
+    "articoli": {
+      "type": "string",
+      "description": "Articoli o servizi con quantità"
+    },
+    "importo_stimato": {
+      "type": "string",
+      "description": "Importo stimato in euro"
+    },
+    "urgenza": {
+      "type": "string",
+      "enum": [
+        "bassa",
+        "media",
+        "alta"
+      ],
+      "description": "Urgenza della richiesta"
+    },
+    "motivazione": {
+      "type": "string",
+      "description": "Perché serve l'acquisto"
+    }
+  },
+  "required": [
+    "richiedente",
+    "articoli",
+    "motivazione"
+  ]
+}

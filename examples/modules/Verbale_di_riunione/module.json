@@ -1,0 +1,23 @@
+{
+  "name": "Verbale di riunione",
+  "slug": "Verbale_di_riunione",
+  "version": "1.0.1",
+  "description": "Verbale di una riunione: partecipanti, argomenti, decisioni e azioni.",
+  "template_type": "docx",
+  "created_at": "2026-10-04T18:36:48",
+  "_adaptive": {
+    "source_template": "verbale.docx",
+    "placeholders_detected": [
+      "argomenti",
+      "azioni",
+      "data_riunione",
+      "decisioni",
+      "luogo",
+      "oggetto",
+      "partecipanti",
+      "prossimo_incontro",
+      "redattore"
+    ]
+  },
+  "document_type": "verbale di riunione"
+}

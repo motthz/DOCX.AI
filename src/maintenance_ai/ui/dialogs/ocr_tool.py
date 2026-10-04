@@ -29,7 +29,7 @@ class OcrDialog(Dialog):
                                   border_color=C["border"])
         self.out.pack(fill="both", expand=True, pady=(10, 0))
         button(self.footer, t("Copia testo"), self.copy, icon_name="copy").pack(side="right", padx=(8, 20), pady=12)
-        button(self.footer, t("Usa come descrizione del rapporto"), self.to_report, icon_name="file-text").pack(
+        button(self.footer, t("Usa come informazioni del documento"), self.to_report, icon_name="file-text").pack(
             side="right", pady=12)
         button(self.footer, t("Chiudi"), self.close, kind="ghost").pack(side="right", padx=8, pady=12)
 

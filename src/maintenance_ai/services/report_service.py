@@ -177,6 +177,7 @@ class ReportService:
             history_snippets=history,
             temperature=temperature,
             on_token=on_token,
+            document_context=mod.ai_context(),
         )
         _tick(3, "Salvataggio bozza nel DB…")
         report_id = self.db.create_report(

@@ -20,11 +20,11 @@ from .base import Dialog
 class ExportDoneDialog(Dialog):
     def __init__(self, win: Any, mod, json_p: Path, doc_p: Optional[Path], pdf_p: Path,
                  on_new: Optional[Callable] = None):
-        super().__init__(win.root, t("Rapporto esportato"), width=680, height=500, icon_name="circle-check",
+        super().__init__(win.root, t("Documento esportato"), width=680, height=500, icon_name="circle-check",
                          subtitle=f"{mod.name} · {Path(json_p).parent.name}")
         self.win = win
         self.folder = Path(json_p).parent
-        rows = [(t("PDF del rapporto"), pdf_p, "file-down"),
+        rows = [(t("PDF del documento"), pdf_p, "file-down"),
                 (t("Documento da template"), doc_p, "file-spreadsheet" if doc_p and doc_p.suffix == ".xlsx"
                  else "file-text"),
                 (t("Dati approvati (JSON)"), json_p, "file-json")]
@@ -50,10 +50,10 @@ class ExportDoneDialog(Dialog):
         label(self.body, t("Il PDF include le eventuali foto allegate; il JSON è la fonte ufficiale dei dati."),
               kind="caption", muted=True).pack(anchor="w", pady=(14, 0))
 
-        button(self.footer, t("Nuovo rapporto"), lambda: (self.close(), on_new and on_new()),
+        button(self.footer, t("Nuovo documento"), lambda: (self.close(), on_new and on_new()),
                kind="primary", icon_name="plus").pack(side="right", padx=(8, 20), pady=12)
         button(self.footer, t("Chiudi"), self.close).pack(side="right", pady=12)
-        win.toast(t("Rapporto esportato."), "success", action=(t("Apri PDF"), lambda: os.startfile(str(pdf_p))))
+        win.toast(t("Documento esportato."), "success", action=(t("Apri PDF"), lambda: os.startfile(str(pdf_p))))
 
     def _preview(self, pdf_p: Path) -> None:
         from .pdf_preview import PdfPreview
@@ -62,8 +62,8 @@ class ExportDoneDialog(Dialog):
 
     def _mail(self, mod, pdf_p: Path) -> None:
         """Apre il client di posta con oggetto e testo; il PDF va allegato dalla cartella aperta."""
-        subject = urllib.parse.quote(t("Rapporto di manutenzione - {name}", name=mod.name))
-        body = urllib.parse.quote(t("In allegato il rapporto di manutenzione.\nFile: {f}", f=Path(pdf_p).name))
+        subject = urllib.parse.quote(mod.name)
+        body = urllib.parse.quote(t("In allegato il documento.\nFile: {f}", f=Path(pdf_p).name))
         webbrowser.open(f"mailto:?subject={subject}&body={body}")
         os.startfile(str(self.folder))
         self.win.toast(t("Trascina il PDF dalla cartella nella nuova email."), "info")

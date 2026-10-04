@@ -94,8 +94,8 @@ class TableTests(AppTestCase):
         rows, _n = self.app.db.search_reports(limit=1000)
         out = export_summary(rows, self.tmp / "riepilogo.xlsx", title="Test")
         wb = load_workbook(out)
-        self.assertEqual(wb.sheetnames, ["Rapporti", "Riepilogo"])
-        self.assertEqual(wb["Rapporti"].max_row, len(rows) + 1)
+        self.assertEqual(wb.sheetnames, ["Documenti", "Riepilogo"])
+        self.assertEqual(wb["Documenti"].max_row, len(rows) + 1)
 
     def test_csv_import(self):
         from maintenance_ai.services import import_service

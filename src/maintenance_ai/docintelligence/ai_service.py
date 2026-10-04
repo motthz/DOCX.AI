@@ -341,15 +341,16 @@ class AIService:
         return self._pipeline is not None and self.is_real_ai
 
     # ---- migliora testo (revisione) ----
-    def improve_text(self, text: str, field_label: str = "", *, on_delta=None) -> str:
+    def improve_text(self, text: str, field_label: str = "", *, on_delta=None, document: str = "") -> str:
         """Riscrive un testo in forma tecnica e chiara SENZA aggiungere fatti."""
         system = (
-            "Sei un redattore tecnico di rapporti di manutenzione. Riscrivi il testo dell'utente "
-            "in italiano tecnico, chiaro e conciso. REGOLE: non aggiungere fatti, numeri, date, "
+            "Sei un redattore professionale di documenti aziendali. Riscrivi il testo dell'utente "
+            "in italiano chiaro, preciso e adatto al tipo di documento. REGOLE: non aggiungere fatti, numeri, date, "
             "nomi, codici o cause che non sono nel testo; non togliere informazioni; correggi "
             "grammatica e terminologia; usa frasi brevi. Rispondi SOLO con il testo riscritto."
         )
-        user = (f"Campo: {field_label}\n" if field_label else "") + f"Testo:\n{text}\n\n/no_think"
+        user = ((f"Documento: {document}\n" if document else "") + (f"Campo: {field_label}\n" if field_label else "")
+                + f"Testo:\n{text}\n\n/no_think")
         pipe = self.pipeline()
         self.touch()
         resp = pipe.chat([{"role": "system", "content": system}, {"role": "user", "content": user}],

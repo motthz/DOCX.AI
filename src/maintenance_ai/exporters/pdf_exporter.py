@@ -186,7 +186,7 @@ def export_pdf(
         rightMargin=2 * cm,
         topMargin=1.8 * cm,
         bottomMargin=1.8 * cm,
-        title=f"Rapporto {module_name or 'manutenzione'}",
+        title=module_name or "Documento",
         author="MaintenanceAI",
         subject=report_id or "",
     )
@@ -206,7 +206,7 @@ def export_pdf(
 
     # Header
     story.append(Paragraph(
-        f"Rapporto di {module_name or 'Manutenzione'}",
+        module_name or "Documento",
         h1,
     ))
     pieces = []

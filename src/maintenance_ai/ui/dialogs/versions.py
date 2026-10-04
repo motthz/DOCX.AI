@@ -22,7 +22,7 @@ def _fmt(v: Any) -> str:
 
 class VersionsDialog(Dialog):
     def __init__(self, win: Any, report_id: int):
-        super().__init__(win.root, t("Versioni del rapporto #{id}", id=report_id), width=980, height=680,
+        super().__init__(win.root, t("Versioni del documento #{id}", id=report_id), width=980, height=680,
                          icon_name="git-compare",
                          subtitle=t("Ogni approvazione o modifica salva una versione. Seleziona una versione "
                                     "per vedere cosa cambia rispetto a quella attuale."))
@@ -81,10 +81,10 @@ class VersionsDialog(Dialog):
     def restore(self) -> None:
         if not self.selected or not messagebox.askyesno(
                 t("Ripristina versione"),
-                t("Ripristinare la versione {n}? Verrà salvata come nuova versione e il rapporto dovrà essere riesportato.",
+                t("Ripristinare la versione {n}? Verrà salvata come nuova versione e il documento dovrà essere riesportato.",
                   n=self.selected["version"]), parent=self):
             return
         self.win.reports.restore_version(self.report_id, self.selected)
         self.win.emit("reports")
-        self.win.toast(t("Versione ripristinata. Apri il rapporto per riesportarlo."), "success")
+        self.win.toast(t("Versione ripristinata. Apri il documento per riesportarlo."), "success")
         self.close()
