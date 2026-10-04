@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from . import __version__
+
 
 APP_DIR_ENV_VAR = "MAINTENANCE_AI_APP_DIR"
 DATA_DIR_ENV_VAR = "MAINTENANCE_AI_DATA_DIR"
@@ -63,7 +65,7 @@ class Config:
     # Frequently accessed, cached
     app_name: str = "MaintenanceAI"
     language: str = "it-IT"
-    version: str = "0.2.0"
+    version: str = __version__
 
     llm_profile: str = "balanced"
     llm_effective: Dict[str, Any] = field(default_factory=dict)
@@ -99,7 +101,7 @@ class Config:
             data_root=data_root,
             app_name=app_name,
             language=app_cfg.get("language", "it-IT"),
-            version=app_cfg.get("version", "0.2.0"),
+            version=__version__,  # unica fonte: maintenance_ai/__init__.py
         )
         cfg._recompute_llm_profile()
         return cfg

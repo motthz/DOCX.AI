@@ -11,14 +11,13 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
     HRFlowable,
     Paragraph,
@@ -125,7 +124,6 @@ def _build_list_table(title: str, value: Any) -> List[Any]:
         story.append(tbl)
     else:
         rows = [["#", "Elemento"]]
-        pending_split: List[Any] = []
         for idx, row in enumerate(value, 1):
             rows.append([str(idx), _format_value(row)])
             if idx > 0 and idx % 200 == 0:

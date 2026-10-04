@@ -7,10 +7,9 @@ it to the currently selected mapping row.
 
 from __future__ import annotations
 
-import json
 import tkinter as tk
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 try:
     from tkinter import ttk

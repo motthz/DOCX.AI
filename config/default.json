@@ -1,7 +1,6 @@
 {
   "app": {
     "name": "MaintenanceAI",
-    "version": "0.2.0",
     "language": "it-IT",
     "data_dir_env": "%LOCALAPPDATA%/MaintenanceAI"
   },
@@ -45,8 +44,24 @@
     "max_input_file_mb": 25,
     "max_archive_uncompressed_mb": 100,
     "max_archive_entries": 5000,
-    "allowed_extensions_input": [".docx", ".xlsx", ".pdf", ".txt", ".jpg", ".jpeg", ".png"],
-    "blocked_extensions": [".docm", ".xlsm", ".exe", ".bat", ".ps1", ".js", ".lnk"]
+    "allowed_extensions_input": [
+      ".docx",
+      ".xlsx",
+      ".pdf",
+      ".txt",
+      ".jpg",
+      ".jpeg",
+      ".png"
+    ],
+    "blocked_extensions": [
+      ".docm",
+      ".xlsm",
+      ".exe",
+      ".bat",
+      ".ps1",
+      ".js",
+      ".lnk"
+    ]
   },
   "db": {
     "filename": "maintenance_ai.db",

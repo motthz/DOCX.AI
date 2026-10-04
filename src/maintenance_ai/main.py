@@ -27,10 +27,6 @@ def _install_crash_logger() -> Optional[Path]:
     we guarantee that every crash leaves a readable traceback even if no
     messagebox pops up.
     """
-    try:
-        base = Path(__file__).resolve()
-    except NameError:
-        base = Path(sys.argv[0]).resolve() if sys.argv else Path.cwd()
     # Try to mirror Config resolution: %LOCALAPPDATA%/MaintenanceAI
     data_dir: Optional[Path] = None
     try:

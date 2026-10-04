@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 try:
     from defusedxml.common import DTDForbidden, EntitiesForbidden
@@ -94,8 +94,8 @@ def apply_mapping(
     """
     applied: List[str] = []
     sheets: Dict[str, Worksheet] = {ws.title: ws for ws in wb.worksheets}
-    for field, spec in mapping.items():
-        if field not in values or not isinstance(spec, dict):
+    for fld, spec in mapping.items():
+        if fld not in values or not isinstance(spec, dict):
             continue
         sheet_name = spec.get("sheet")
         cell_ref = spec.get("cell") or ""
@@ -112,7 +112,7 @@ def apply_mapping(
         typ = spec.get("type", "cell")
         if not cell_ref:
             continue
-        value = values[field]
+        value = values[fld]
         if typ == "joined_cell":
             sep = spec.get("separator", "\n")
             if isinstance(value, list):
@@ -122,5 +122,5 @@ def apply_mapping(
             sheet[cell_ref] = text
         else:
             sheet[cell_ref] = _cell_value_for_write(value)
-        applied.append(field)
+        applied.append(fld)
     return applied

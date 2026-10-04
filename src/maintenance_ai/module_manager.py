@@ -34,7 +34,6 @@ from .security import (
     pack_folder_to_zip,
     safe_resolve_name,
     safe_slug,
-    sha256_file,
 )
 from .config import Config
 from .db import Database
@@ -532,7 +531,7 @@ class ModuleManager:
         m = json.loads(module_json_path.read_text(encoding="utf-8"))
         tt = m.get("template_type", "docx")
         template_path = self._find_template(dest, tt)
-        mid = self.db.upsert_module(
+        self.db.upsert_module(
             slug=slug,
             name=m.get("name", slug),
             version=m.get("version", "1.0.0"),
@@ -753,9 +752,8 @@ class ModuleManager:
         keys = list(props.keys())
         if template_type == "docx":
             import docx
-            from docx.shared import Pt
             doc = docx.Document()
-            title = doc.add_heading("Modello manutenzione", level=1)
+            doc.add_heading("Modello manutenzione", level=1)
             table = doc.add_table(rows=len(keys) + 1, cols=2, style="Table Grid")
             table.cell(0, 0).text = "Campo"
             table.cell(0, 1).text = "Valore"

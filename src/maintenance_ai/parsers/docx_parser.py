@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 try:
     from defusedxml import ElementTree as DET
@@ -21,8 +21,7 @@ except Exception:  # pragma: no cover - defusedxml always installed per requirem
 
 import docx
 from docx.document import Document as DocxDocument
-from docx.oxml.ns import qn
-from docx.table import _Cell, Table
+from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 

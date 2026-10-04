@@ -8,24 +8,19 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
-import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
-from ..config import Config
-from ..db import Database
 from ..docintelligence import (
-    AIService,
     AuditEngine,
-    AuditFinding,
     AuditReport,
     DocumentGenerator,
     DocumentLoader,
     DocumentModifier,
-    GeneratedDocument,
     ModifiedDocument,
     ModificationRequest,
     RulesManager,
@@ -34,7 +29,7 @@ from ..docintelligence import (
     SourceRef,
 )
 from ..module_manager import LoadedModule, ModuleManager
-from .theme import COLORS, FONTS, GradientCanvas, RoundedCard, ModernTheme, apply_theme, make_scrollable_frame, center_window
+from .theme import COLORS, FONTS, GradientCanvas, RoundedCard, ModernTheme, apply_theme, center_window
 
 
 LOG = logging.getLogger(__name__)

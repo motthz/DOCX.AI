@@ -7,7 +7,6 @@ The tests are designed to FAIL before the fix and PASS after.
 from __future__ import annotations
 
 import shutil
-import sqlite3
 import sys
 import tempfile
 import threading
@@ -218,7 +217,6 @@ class TestAudit002And009ModuleCreateAtomic(unittest.TestCase):
     def test_create_module_from_template_duplicate_raises_security_error(self) -> None:
         self.mm.create_module("First", "docx", slug="dup-tpl")
         import docx
-        from docx.shared import Pt
         tpl = self._tmp / "t.docx"
         d = docx.Document()
         p = d.add_paragraph()

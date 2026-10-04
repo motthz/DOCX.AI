@@ -422,11 +422,6 @@ class Database:
             )
             return int(cur.lastrowid)
 
-    def list_modules(self) -> List[Dict[str, Any]]:
-        with self._lock:
-            cur = self._conn.execute("SELECT * FROM modules ORDER BY name ASC")
-            return [_row_to_dict(r) for r in cur.fetchall()]
-
     def get_module(self, slug: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             cur = self._conn.execute("SELECT * FROM modules WHERE slug = ?", (slug,))
@@ -505,36 +500,6 @@ class Database:
         values = list(fields.values()) + [report_id]
         with self.transaction() as conn:
             conn.execute(f"UPDATE reports SET {sets} WHERE id = ?", values)
-
-    def list_reports(
-        self,
-        module_id: Optional[int] = None,
-        status: Optional[str] = None,
-        limit: int = 200,
-    ) -> List[Dict[str, Any]]:
-        clauses: List[str] = []
-        params: List[Any] = []
-        if module_id is not None:
-            clauses.append("r.module_id = ?")
-            params.append(module_id)
-        if status:
-            clauses.append("r.status = ?")
-            params.append(status)
-        sql = (
-            "SELECT r.*, "
-            "COALESCE(m.name, m.slug, 'Modulo sconosciuto') AS module, "
-            "COALESCE(r.output_json_path, r.output_pdf_path, '') AS stamp, "
-            "r.created_at AS created "
-            "FROM reports r "
-            "LEFT JOIN modules m ON m.id = r.module_id"
-        )
-        if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY r.created_at DESC LIMIT ?"
-        params.append(limit)
-        with self._lock:
-            cur = self._conn.execute(sql, params)
-            return [_row_to_dict(r) for r in cur.fetchall()]
 
     def get_report(self, report_id: int) -> Optional[Dict[str, Any]]:
         with self._lock:

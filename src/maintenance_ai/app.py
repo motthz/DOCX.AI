@@ -18,7 +18,6 @@ from typing import Optional
 from .config import Config
 from .db import Database
 from .llm.llama_server import MockLlamaServer
-from .llm.json_pipeline import JsonPipeline
 from .module_manager import ModuleManager
 from .security import SecurityLimits
 from .services.context_service import ContextService
@@ -188,17 +187,14 @@ class App:
         The self-test:
           1. Proves config loads and DB works with a temporary in-memory
              duplicate (still hits same DB class).
-          2. Creates/disposes a scratch module under ``exports_root/selftest``
+          2. Creates/disposes a scratch module in a temporary directory
              to validate ModuleManager, parsers and exporters on both DOCX
              and XLSX.
           3. Runs a JsonPipeline with MockLlamaServer to prove the prompt
              build + schema validation + defaults pipeline all wire up.
         """
-        import io
-        import json
         import shutil
         import tempfile
-        from pathlib import Path as _P
 
         def _log(msg: str) -> None:
             try:
@@ -225,10 +221,9 @@ class App:
             _log(f"[SELFTEST] FAIL {failures[-1]}")
 
         # 2. Scratch workspace inside exports/selftest
-        scratch = self.config.exports_root() / "selftest"
-        if scratch.exists():
-            shutil.rmtree(scratch, ignore_errors=True)
-        scratch.mkdir(parents=True, exist_ok=True)
+        # Scratch dirs live in %TEMP%: the self-test never writes into user exports.
+        import tempfile
+        scratch = Path(tempfile.mkdtemp(prefix="mai_selftest_"))
         # Build a lightweight DB-backed ModuleManager rooted at scratch for the test
         try:
             from .db import Database as _DB
@@ -411,10 +406,7 @@ class App:
 
         # Document Intelligence (mock)
         try:
-            scratch2 = self.config.exports_root() / "selftest_di"
-            if scratch2.exists():
-                shutil.rmtree(scratch2, ignore_errors=True)
-            scratch2.mkdir(parents=True, exist_ok=True)
+            scratch2 = Path(tempfile.mkdtemp(prefix="mai_selftest_di_"))
 
             # Rules manager
             rm = RulesManager(scratch2 / "data")
@@ -478,7 +470,6 @@ class App:
             _log("[SELFTEST] DocumentLoader+Indexer+Retriever (TXT): OK")
 
             # Smart Fill mock (use_mock=True) senza conflitti → riempie
-            import copy
             from .module_manager import LoadedModule
             schema_dummy = {
                 "type": "object",

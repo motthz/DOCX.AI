@@ -12,7 +12,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config import Config
 from ..db import Database
@@ -230,7 +230,7 @@ class ReportService:
             elif mod.template_type == "xlsx":
                 doc_path = base / f"{base.name}.xlsx"
                 export_xlsx(mod.template_path, doc_path, mod.mapping or {}, data)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             doc_path = None
             # Log an error column? Keep as string for UI.
             self.db.update_report(report_id, status="approved")

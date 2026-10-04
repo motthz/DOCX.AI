@@ -16,9 +16,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
-from ..config import Config
 
 
 LOG = logging.getLogger(__name__)
@@ -119,7 +118,6 @@ class OCRService:
             if _os.name != "nt":
                 self._windows_ocr_available = False
                 return False
-            import ctypes
             try:
                 # Try WinRT via win32ctypes - it's already in venv
                 from win32ctypes.core.compat import get_osfhandle  # noqa: F401
@@ -170,7 +168,6 @@ class OCRService:
         """Return (possibly) rotated PIL image corrected for skew angle."""
         try:
             from PIL import Image
-            import math as _m
             img = pil_image
             if img is None:
                 return pil_image
@@ -278,25 +275,32 @@ class OCRService:
         page = OCRPage(page_index=idx, ocr_engine="windows_ocr", used=True)
         ps_code = r"""
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | ? { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | ? { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+Function Await($WinRtTask, $ResultType) {
+    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+    $netTask = $asTask.Invoke($null, @($WinRtTask))
+    $netTask.Wait(-1) | Out-Null
+    $netTask.Result
+}
 [Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime] | Out-Null
+[Windows.Storage.Streams.IRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime] | Out-Null
 [Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
+[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
 [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
+[Windows.Media.Ocr.OcrResult,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
 $imgPath = '__IMG_PATH__'
-$file = [Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath)
-$file = $asTask.Invoke($null, @($file)).Result
-$stream = $file.OpenAsync([Windows.Storage.FileAccessMode]::Read)
-$stream = $asTask.Invoke($null, @($stream)).Result
-$decoder = [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)
-$decoder = $asTask.Invoke($null, @($decoder)).Result
-$bmp = $decoder.GetSoftwareBitmapAsync()
-$bmp = $asTask.Invoke($null, @($bmp)).Result
+$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath)) ([Windows.Storage.StorageFile])
+$stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bmp = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
 $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if ($engine -eq $null) { $engine = [Windows.Media.Ocr.OcrEngine]::Create(([Windows.Globalization.Language]::new('it-IT'))) }
-$result = $engine.RecognizeAsync($bmp)
-$result = $asTask.Invoke($null, @($result)).Result
-Write-Output $result.Text
+if ($engine -eq $null) { $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('it-IT')) }
+if ($engine -eq $null) { throw 'Nessuna lingua OCR installata in Windows' }
+$result = Await ($engine.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])
+$stream.Dispose()
+foreach ($line in $result.Lines) { Write-Output $line.Text }
 """
         try:
             safe_path = str(Path(path).resolve()).replace("'", "''")
@@ -306,6 +310,8 @@ Write-Output $result.Text
                  "-Command", code],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=120,
                 creationflags=0x08000000 if hasattr(sys, "frozen") or os.name == "nt" else 0,
             )

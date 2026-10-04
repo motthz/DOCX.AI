@@ -16,7 +16,6 @@ Fornisce:
 from __future__ import annotations
 
 import logging
-import mimetypes
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -29,11 +28,10 @@ from ..security import (
     SecurityError,
     SecurityLimits,
     sha256_file,
-    validate_extension,
     validate_file_size,
 )
 from .ocr_service import OCRService
-from .pdf_parser import PDFExtraction, PDFParser, PDFPage
+from .pdf_parser import PDFExtraction, PDFParser
 
 
 LOG = logging.getLogger(__name__)

@@ -12,7 +12,7 @@ Builds the ``system`` + ``user`` messages sent to the LLM, including:
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 SYSTEM_POLICY = """Sei un sistema di estrazione dati per rapporti di manutenzione.
@@ -69,9 +69,9 @@ def _schema_semantics(schema: Dict[str, Any]) -> str:
         if suffix:
             piece += f" [{suffix}]"
         lines.append(piece)
-    required = schema.get("required", []) or []
-    if required:
-        lines.append("Campi obbligatori: " + ", ".join(required))
+    required_fields = schema.get("required", []) or []
+    if required_fields:
+        lines.append("Campi obbligatori: " + ", ".join(required_fields))
     return "\n".join(lines)
 
 

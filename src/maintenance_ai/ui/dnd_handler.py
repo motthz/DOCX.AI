@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
-from typing import Callable, List, Optional, Set, Tuple
+from typing import Callable, List, Optional, Set
 
 try:
     from tkinter import ttk

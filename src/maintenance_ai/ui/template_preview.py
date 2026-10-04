@@ -7,10 +7,8 @@
 
 from __future__ import annotations
 
-import os
 import tkinter as tk
 from pathlib import Path
-from typing import Optional
 
 try:
     from tkinter import ttk

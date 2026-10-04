@@ -19,14 +19,14 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config import Config
 from ..exporters.pdf_exporter import export_pdf
 from .ai_service import AIResult, AIService
 from .document_indexer import Chunk, DocumentIndexer
 from .document_loader import DocumentLoader, LoadedDocument
-from .document_retriever import DocumentRetriever, RetrievedChunk
+from .document_retriever import DocumentRetriever
 from .source_tracker import SourceRef
 
 

@@ -12,7 +12,6 @@ Responsible for:
 
 from __future__ import annotations
 
-import copy
 import json
 import logging as _logmod
 import os
@@ -20,13 +19,13 @@ import re
 import shutil
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import jsonschema
 
-from .llama_server import LlamaServer, MockLlamaServer
+from .llama_server import MockLlamaServer
 from .prompt_builder import build_extraction_messages
 from . import quality_scorer as _qs
 
@@ -343,7 +342,7 @@ class JsonPipeline:
         reference_docs = list(reference_docs or [])
         history_snippets = list(history_snippets or [])
 
-        dump_dir = _prepare_debug_dump(self.debug_root) if self._do_debug else None
+        dump_dir = _prepare_debug_dump(self.debug_root) if (self._do_debug and self.debug_root) else None
         _write_debug(dump_dir, "01_schema.json", schema)
         _write_debug(dump_dir, "02_operator.txt", operator_description)
         _write_debug(dump_dir, "03_reference_docs.txt", "\n\n==== DOCUMENTO ====\n".join(

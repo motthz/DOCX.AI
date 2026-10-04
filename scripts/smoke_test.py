@@ -105,7 +105,7 @@ def main(argv: list[str]) -> int:
         exe = project_root / "dist" / "MaintenanceAI" / "MaintenanceAI.exe"
     if not exe.exists():
         print(f"[smoke] EXE non trovato: {exe}", file=sys.stderr)
-        print(f"[smoke] Esegui prima scripts/build.ps1", file=sys.stderr)
+        print("[smoke] Esegui prima scripts/build.ps1", file=sys.stderr)
         return EXIT_FAIL
     exe = exe.resolve()
 

@@ -1,0 +1,37 @@
+[project]
+name = "maintenanceai"
+description = "Rapporti di manutenzione con AI locale e offline (Windows)"
+requires-python = ">=3.12"
+dynamic = ["version"]
+license = { file = "LICENSE" }
+
+[tool.setuptools.dynamic]
+version = { attr = "maintenance_ai.__version__" }
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = [".venv", "build", "dist", "release"]
+
+[tool.ruff.lint]
+# Errori reali (sintassi, nomi non definiti, import inutili, variabili inutilizzate)
+# piu' bugbear per i pattern pericolosi. Lo stile resta libero.
+select = ["E9", "F", "B006", "B008", "B023"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+follow_imports = "silent"
+files = ["src/maintenance_ai/llm", "src/maintenance_ai/services", "src/maintenance_ai/config.py"]
+
+[tool.coverage.run]
+source = ["src/maintenance_ai"]
+branch = true
+omit = ["src/maintenance_ai/ui/*", "src/maintenance_ai/__main__.py"]
+
+[tool.coverage.report]
+skip_empty = true
+show_missing = false

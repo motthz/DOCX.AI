@@ -24,7 +24,7 @@ from ..module_manager import LoadedModule
 from .ai_service import AIResult, AIService
 from .document_indexer import Chunk, DocumentIndexer
 from .document_loader import DocumentLoader, LoadedDocument
-from .document_retriever import DocumentRetriever, RetrievedChunk
+from .document_retriever import DocumentRetriever
 from .source_tracker import SourceRef
 
 
@@ -292,7 +292,6 @@ class DocumentGenerator:
         if make_docx:
             try:
                 import docx  # type: ignore
-                from docx.shared import Pt
                 out_docx = output_dir / f"{base_name}.docx"
                 # Se template fornito, copiarlo; altrimenti nuovo documento vuoto
                 if generated.template_used and Path(generated.template_used).is_file():

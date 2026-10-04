@@ -17,6 +17,10 @@ foreach ($folder in @("build", "dist")) {
     if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+# 0b. File di versione (unica fonte: src/maintenance_ai/__init__.py)
+& $venvPython (Join-Path $ProjectRoot "packaging\gen_version.py")
+if ($LASTEXITCODE -ne 0) { throw "gen_version fallito" }
+
 # 1. Test obbligatori prima della build
 Write-Host "[build] Esecuzione test..." -ForegroundColor Cyan
 & (Join-Path $ProjectRoot "scripts\test.ps1")
@@ -41,9 +45,9 @@ foreach ($rel in @("config", "LICENSES")) {
         Copy-Item -Path $src -Destination $dst -Recurse -Force
     }
 }
-foreach ($f in @("VERSION.txt")) {
+foreach ($f in @("build\VERSION.txt")) {
     $src = Join-Path $ProjectRoot $f
-    $dst = Join-Path $DistDir $f
+    $dst = Join-Path $DistDir (Split-Path $f -Leaf)
     if (Test-Path $src) { Copy-Item -Path $src -Destination $dst -Force }
 }
 

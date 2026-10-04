@@ -1,4 +1,4 @@
-"""GUI smoke test: builds the MainWindow on an isolated data dir, visits every
+r"""GUI smoke test: builds the MainWindow on an isolated data dir, visits every
 tab, opens every dialog and fails on any Tk callback exception.
 
     .venv\\Scripts\\python.exe scripts\\smoke_gui.py

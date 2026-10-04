@@ -203,7 +203,6 @@ class FirstRunWizard:
             _append("[*] Avvio self-test di sistema…")
             if self.config is not None and self.db is not None:
                 # Try import
-                from ..app import App
                 # Use the already-running config/db? We run simple DB smoke here.
                 try:
                     val = str(self.db.get_setting("wizard_selftest_key"))

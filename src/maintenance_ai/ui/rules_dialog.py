@@ -10,7 +10,6 @@ Editor testuale per regole feature o modulo:
 from __future__ import annotations
 
 import logging
-import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk

@@ -1,4 +1,4 @@
-"""Generate the MaintenanceAI logo/icon set (run once, outputs are committed).
+r"""Generate the MaintenanceAI logo/icon set (run once, outputs are committed).
 
     .venv\\Scripts\\python.exe packaging\\make_icon.py
 

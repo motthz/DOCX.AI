@@ -7,15 +7,12 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional
 
 from .theme import (
     COLORS,
     FONTS,
     FONT_FAMILY,
     GradientCanvas,
-    RoundedCard,
-    ModernTheme,
     apply_theme,
     center_window,
 )

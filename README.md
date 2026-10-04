@@ -12,7 +12,7 @@ dall'operatore prima dell'esportazione.
 ## Installazione (utente finale)
 
 1. Scarica **`MaintenanceAI-Setup-<versione>.exe`** dalla pagina
-   [Releases](https://github.com/motthz/DOCK.IA/releases/latest).
+   [Releases](https://github.com/motthz/MaintenanceAI/releases/latest).
 2. Avvialo e segui la procedura. Non servono diritti di amministratore:
    l'app viene installata in `%LOCALAPPDATA%\Programs\MaintenanceAI` e viene creato
    il collegamento **MaintenanceAI** sul Desktop e nel menu Start.

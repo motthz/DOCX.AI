@@ -7,7 +7,6 @@ Before saving, prevalidates via jsonschema Draft7Validator.check_schema.
 
 from __future__ import annotations
 
-import json
 import tkinter as tk
 from typing import Any, Dict, List, Optional
 

@@ -10,13 +10,12 @@ Goals:
 from __future__ import annotations
 
 import hashlib
-import io
 import os
 import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 _BLOCKED_NAME_TOKENS: Tuple[str, ...] = (

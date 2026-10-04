@@ -13,7 +13,7 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..config import Config
 from ..db import Database
@@ -84,7 +84,7 @@ class ContextService:
             meta = {"placeholders": data.placeholders, "meta": data.meta}
         elif ext == ".xlsx":
             wb = xlsx_load(path)
-            data = xlsx_extract(wb)
+            data = xlsx_extract(wb)  # type: ignore[assignment]
             try:
                 wb.close()
             except Exception:  # noqa: BLE001

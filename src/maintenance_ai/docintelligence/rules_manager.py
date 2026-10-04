@@ -27,8 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..config import Config
-from ..security import safe_resolve_name, safe_slug, SecurityError
+from ..security import safe_resolve_name, SecurityError
 
 
 LEGACY_FEATURE_FILES: Dict[str, str] = {

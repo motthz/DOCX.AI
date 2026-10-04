@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import colorsys
 import sys
 import tkinter as tk
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 if sys.version_info >= (3, 9):
-    from collections.abc import MutableMapping
+    pass
 else:
-    from typing import MutableMapping
+    pass
 
 try:
     from tkinter import ttk

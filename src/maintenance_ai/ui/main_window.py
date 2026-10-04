@@ -16,7 +16,6 @@ Improvements over the basic version:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import subprocess
@@ -32,14 +31,11 @@ LOG = logging.getLogger(__name__)
 
 from ..config import Config
 from ..db import Database
-from ..llm.llama_server import MockLlamaServer
-from ..llm.json_pipeline import JsonPipeline
 from ..module_manager import LoadedModule, ModuleManager
-from ..security import SecurityError, SecurityLimits
 from ..services.context_service import ContextService
 from ..services.report_service import DraftOutcome, ReportService
 from .help_dialog import run_help
-from .review_dialog import ReviewDialog, run_review
+from .review_dialog import run_review
 from .rules_dialog import RulesEditorDialog, FEATURE_LABELS_IT
 from .document_dialogs import (
     DocumentCreationDialog,
@@ -60,8 +56,6 @@ from .theme import (
     HoverAnimator,
     ModernTheme,
     RoundedCard,
-    ScrollFrame,
-    ToastManager,
     apply_theme,
     bind_tooltip,
     center_window,
@@ -681,7 +675,6 @@ class MainWindow:
                              t)
         try:
             c.delete("all")
-            bg = c.cget("background")
             outer = lighten(col, 0.55) if self._ai_state == "busy" else darken(col, 0.3)
             c.create_oval(1, 1, 13, 13, outline=outer, fill=col, width=2)
         except Exception:
@@ -1044,7 +1037,7 @@ class MainWindow:
                                     bg=COLORS["white"],
                                     highlightthickness=0, bd=0)
             icon_circle.pack(side="left")
-            def _paint_circle(cc, col=accent, col50=accent_50):
+            def _paint_circle(cc, col=accent, col50=accent_50, icon=icon):
                 try:
                     cc.delete("all")
                     cc.create_oval(2, 2, 58, 58, fill=col50,
@@ -2419,7 +2412,7 @@ class MainWindow:
                 mod, desc, on_progress=_on_prog)
             self.root.after(0, lambda: self._after_extract(mod, outcome))
         except Exception as e:
-            self.root.after(0, lambda: self._after_extract_error(e))
+            self.root.after(0, lambda err=e: self._after_extract_error(err))
 
     def _on_create_draft_progress(self, step: int, total: int, msg: str) -> None:
         try:
@@ -2511,7 +2504,7 @@ class MainWindow:
             self.root.after(0, lambda: self._after_finalize_ok(
                 mod, approved, stamp, paths))
         except Exception as e:
-            self.root.after(0, lambda: self._after_finalize_err(e))
+            self.root.after(0, lambda err=e: self._after_finalize_err(err))
 
     def _after_finalize_ok(self, mod: LoadedModule, approved,
                            stamp: Path, paths: Dict[str, Path]):

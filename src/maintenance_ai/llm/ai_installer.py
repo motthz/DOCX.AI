@@ -24,14 +24,14 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 LOG = logging.getLogger(__name__)
 
 LLAMA_RELEASES_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 PREFERRED_LLAMA_TAG = "b10655"
 
-MODELS = {
+MODELS: Dict[str, Dict[str, Any]] = {
     "Qwen3-1.7B-Q8_0.gguf": {
         "url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf",
         "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",

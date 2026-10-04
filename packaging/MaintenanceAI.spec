@@ -23,7 +23,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(ROOT / "config"), "config"),
-        (str(ROOT / "VERSION.txt"), "."),
+        (str(ROOT / "build" / "VERSION.txt"), "."),
         (str(ROOT / "LICENSES"), "LICENSES"),
         (str(SRC / "maintenance_ai" / "assets"), "maintenance_ai/assets"),
     ],
@@ -106,7 +106,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 MANIFEST_FILE = str(Path(SPECPATH).resolve() / "app.manifest")
 ICON_FILE = str(SRC / "maintenance_ai" / "assets" / "app.ico")
-VERSION_FILE = str(Path(SPECPATH).resolve() / "version_info.txt")
+VERSION_FILE = str(ROOT / "build" / "version_info.txt")  # da packaging/gen_version.py
 
 exe = EXE(
     pyz,

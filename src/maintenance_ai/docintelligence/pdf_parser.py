@@ -18,9 +18,9 @@ import io
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
-from .ocr_service import OCRExtraction, OCRPage, OCRService, OCRWord
+from .ocr_service import OCRPage, OCRService
 
 
 LOG = logging.getLogger(__name__)

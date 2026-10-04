@@ -1,0 +1,5 @@
+Modelli Qwen3 (Qwen/Qwen3-1.7B-GGUF, Qwen/Qwen3-0.6B-GGUF)
+Copyright (c) Alibaba Cloud. Distribuiti con licenza Apache License 2.0:
+https://www.apache.org/licenses/LICENSE-2.0
+I modelli NON sono inclusi nell'installer: vengono scaricati dall'utente
+dalla finestra "Componenti AI" direttamente da HuggingFace.
