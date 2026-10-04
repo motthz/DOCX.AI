@@ -15,13 +15,25 @@ jobs:
       PYTHONUTF8: "1"
       SKIP_COVERAGE_GATE: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Release gia' pubblicata con gli asset?
+        id: check
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $n = gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets -q ".assets | length" 2>$null
+          if ($n -and [int]$n -gt 0) { "skip=true" >> $env:GITHUB_OUTPUT } else { "skip=false" >> $env:GITHUB_OUTPUT }
+          $global:LASTEXITCODE = 0  # release inesistente: gh esce con 1, non e' un errore
+      - uses: actions/checkout@v5
+        if: steps.check.outputs.skip != 'true'
+      - uses: actions/setup-python@v6
+        if: steps.check.outputs.skip != 'true'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements*.txt
       - name: Ambiente di build
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
           python -m venv .venv
@@ -30,14 +42,17 @@ jobs:
           .venv\Scripts\python.exe -m pip install --require-hashes -r requirements-dev.txt
           choco install innosetup -y --no-progress
       - name: Build, ZIP portable e installer
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File scripts\release.ps1
       - name: Note di rilascio dal CHANGELOG
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
           $ver = "${{ github.ref_name }}".TrimStart("v")
           .venv\Scripts\python.exe scripts\changelog_section.py $ver > release_notes.md
       - name: Pubblica release
+        if: steps.check.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           body_path: release_notes.md
