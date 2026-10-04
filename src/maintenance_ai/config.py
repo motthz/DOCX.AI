@@ -50,6 +50,10 @@ def _default_data_dir(app_name: str) -> Path:
     env = os.environ.get(DATA_DIR_ENV_VAR)
     if env:
         return Path(env).resolve()
+    from .datadir import configured_data_dir
+    chosen = configured_data_dir()
+    if chosen is not None:
+        return chosen
     localapp = os.environ.get("LOCALAPPDATA")
     if localapp:
         return Path(localapp) / app_name

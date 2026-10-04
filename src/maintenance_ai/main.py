@@ -293,6 +293,47 @@ _project_root_for_src_run()
 from maintenance_ai.app import App  # noqa: E402
 
 
+def _acquire_data_lock():
+    """Lock della cartella dati (utile se condivisa in rete tra piu' PC).
+
+    Ritorna il lock, None se non applicabile, False se l'utente rinuncia.
+    """
+    try:
+        from maintenance_ai.config import _default_data_dir
+        from maintenance_ai.datadir import DataDirLock, DataDirLocked
+        root = _default_data_dir("MaintenanceAI")
+        root.mkdir(parents=True, exist_ok=True)
+        lock = DataDirLock(root)
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        lock.acquire()
+        return lock
+    except DataDirLocked as exc:
+        info = exc.info
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            r = tk.Tk()
+            r.withdraw()
+            go = messagebox.askyesno(
+                "MaintenanceAI - cartella dati in uso",
+                f"La cartella dati\n{root}\nrisulta aperta su un altro PC:\n\n"
+                f"   {info.host} (utente {info.user}), ultimo segnale {int(info.age_s)} s fa.\n\n"
+                "Aprirla contemporaneamente da due PC può danneggiare il database.\n"
+                "Aprire comunque (solo se sei sicuro che l'altro PC l'abbia chiusa)?",
+                icon="warning")
+            r.destroy()
+        except Exception:  # noqa: BLE001
+            go = False
+        if not go:
+            return False
+        lock.acquire(force=True)
+        return lock
+    except OSError:
+        return None
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="MaintenanceAI")
     parser.add_argument("--self-test", action="store_true",
@@ -322,6 +363,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.no_gui_test_mode = True
     if _os.environ.get("MAINTENANCE_AI_DEBUG_LLM") == "1":
         args.debug_llm = True
+
+    data_lock = None if args.self_test else _acquire_data_lock()
+    if data_lock is False:
+        return 0
 
     try:
         app = App.bootstrap(config_path=args.config, verbose=args.verbose)
@@ -397,7 +442,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 pass
         return 0
     finally:
-        pass
+        if data_lock:
+            data_lock.release()
 
 
 if __name__ == "__main__":

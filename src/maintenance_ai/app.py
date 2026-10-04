@@ -222,7 +222,6 @@ class App:
 
         # 2. Scratch workspace inside exports/selftest
         # Scratch dirs live in %TEMP%: the self-test never writes into user exports.
-        import tempfile
         scratch = Path(tempfile.mkdtemp(prefix="mai_selftest_"))
         # Build a lightweight DB-backed ModuleManager rooted at scratch for the test
         try:

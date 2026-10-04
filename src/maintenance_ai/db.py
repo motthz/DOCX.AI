@@ -247,10 +247,18 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.execute("PRAGMA foreign_keys = ON")
+            # WAL non funziona su condivisioni di rete (SMB): li' usa DELETE.
+            from .datadir import is_network_path
+            mode = "DELETE" if is_network_path(self.db_path) else "WAL"
             try:
-                self._conn.execute("PRAGMA journal_mode = WAL")
+                self._conn.execute(f"PRAGMA journal_mode = {mode}")
             except sqlite3.Error:
                 pass
+            if mode == "DELETE":
+                try:
+                    self._conn.execute("PRAGMA mmap_size = 0")
+                except sqlite3.Error:
+                    pass
             try:
                 self._conn.execute("PRAGMA synchronous = NORMAL")
             except sqlite3.Error:
@@ -267,10 +275,11 @@ class Database:
                 self._conn.execute("PRAGMA temp_store = MEMORY")
             except sqlite3.Error:
                 pass
-            try:
-                self._conn.execute("PRAGMA mmap_size = 1073741824")
-            except sqlite3.Error:
-                pass
+            if mode == "WAL":
+                try:
+                    self._conn.execute("PRAGMA mmap_size = 1073741824")
+                except sqlite3.Error:
+                    pass
             self._ensure_migrations()
             self._ensure_fts5()
 
