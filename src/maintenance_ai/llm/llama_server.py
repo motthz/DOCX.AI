@@ -72,6 +72,10 @@ class LlamaServerOptions:
     thread_override: Optional[int] = None
     # Used for stdout/stderr redirection when --log-disable is not available
     capture_logs: bool = True
+    # Layer del modello da caricare in GPU (runtime Vulkan/CUDA); 0 = solo CPU
+    gpu_layers: int = 0
+    # Server di embedding (ricerca semantica) invece che di chat
+    embedding: bool = False
 
     def executable_path(self) -> Path:
         return Path(self.runtime_dir) / self.runtime_exe
@@ -136,6 +140,10 @@ class LlamaServer:
             "--ctx-size", str(max(512, int(opts.context_size))),
             "--threads", str(_cpu_threads(opts.thread_override)),
         ]
+        if opts.gpu_layers:
+            cmd += ["--n-gpu-layers", str(int(opts.gpu_layers))]
+        if opts.embedding:
+            cmd += ["--embedding", "--pooling", "last"]
         if opts.no_webui:
             cmd.append("--no-webui")
         # Disable MMAP/MLock where not applicable: keep defaults, they work on CPU
@@ -357,6 +365,65 @@ class LlamaServer:
             raise RuntimeError(
                 f"Risposta LLM non è JSON valido: {exc}. Testo: {raw[:800]}"
             ) from exc
+
+
+    def chat_completions_stream(self, messages: list, *, on_delta, temperature: float = 0.1,
+                                max_tokens: int = 1200, json_schema: Optional[Dict[str, Any]] = None,
+                                timeout: float = 600.0, extra: Optional[Dict[str, Any]] = None
+                                ) -> Dict[str, Any]:
+        """Come chat_completions ma in streaming (SSE): ``on_delta(testo)`` riceve
+        ogni frammento generato. Ritorna una risposta nello stesso formato."""
+        payload: Dict[str, Any] = {"messages": messages, "temperature": float(temperature),
+                                   "max_tokens": int(max_tokens), "stream": True}
+        model_name = getattr(getattr(self, "options", None), "model", None)
+        if isinstance(model_name, str):  # Ollama richiede il nome del modello
+            payload["model"] = model_name
+        if json_schema:
+            payload["response_format"] = {"type": "json_object", "schema": json_schema}
+            payload["json_schema"] = json_schema
+        if extra:
+            payload.update(extra)
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(f"{self.base_url}/v1/chat/completions", data=body,
+                                     headers=self._headers({"Content-Length": str(len(body))}), method="POST")
+        parts: list = []
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                for raw_line in resp:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    for ch in chunk.get("choices") or []:
+                        delta = (ch.get("delta") or {}).get("content")
+                        if delta:
+                            parts.append(delta)
+                            try:
+                                on_delta(delta)
+                            except Exception:  # noqa: BLE001
+                                pass
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+            raise RuntimeError(f"LLM HTTP {exc.code}: {detail[:1200]}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"LLM non raggiungibile: {exc}") from exc
+        return {"choices": [{"message": {"content": "".join(parts)}}], "usage": {}}
+
+    def embeddings(self, texts: list, *, timeout: float = 300.0) -> list:
+        """POST /v1/embeddings: un vettore per testo (server avviato con embedding=True)."""
+        body = json.dumps({"input": texts}, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(f"{self.base_url}/v1/embeddings", data=body,
+                                     headers=self._headers({"Content-Length": str(len(body))}), method="POST")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        items = sorted(payload.get("data", []), key=lambda d: d.get("index", 0))
+        return [d["embedding"] for d in items]
 
 
 # Exposed for tests: an in-process mock

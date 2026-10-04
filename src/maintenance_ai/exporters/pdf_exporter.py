@@ -170,7 +170,9 @@ def export_pdf(
     report_id: str = "",
     module_name: str = "",
     review_notes: str = "",
+    photos: List[Tuple[Path, str]] | None = None,
 ) -> Path:
+    """Esporta il rapporto in PDF. ``photos`` = [(percorso immagine, didascalia)]."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -265,6 +267,9 @@ def export_pdf(
                                spaceAfter=3),
             ))
 
+    if photos:
+        story.extend(_build_photo_section(photos, styles))
+
     # Footer note
     story.append(Spacer(1, 0.6 * cm))
     story.append(Paragraph(
@@ -282,3 +287,39 @@ def export_pdf(
              len(story), module_name or "-")
     doc.build(story)
     return output_path
+
+
+def _build_photo_section(photos: List[Tuple[Path, str]], styles: Any) -> List[Any]:
+    """Foto allegate: due per riga, ridimensionate e con didascalia."""
+    from reportlab.platypus import Image as RLImage
+
+    out: List[Any] = [PageBreak(), Paragraph(
+        "<b>Documentazione fotografica</b>",
+        ParagraphStyle("PhotoTitle", parent=styles["Heading2"], fontSize=13,
+                       textColor=colors.HexColor("#0d3b66"), spaceAfter=8))]
+    cap_style = ParagraphStyle("Caption", fontSize=8, leading=10, alignment=TA_CENTER,
+                               textColor=colors.HexColor("#334155"))
+    max_w, max_h = 8.2 * cm, 7.0 * cm
+    cells: List[Any] = []
+    for idx, (path, caption) in enumerate(photos, 1):
+        try:
+            from PIL import Image as PILImage
+            with PILImage.open(path) as im:
+                w, h = im.size
+            scale = min(max_w / w, max_h / h)
+            img = RLImage(str(path), width=w * scale, height=h * scale)
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("Foto non inseribile nel PDF (%s): %s", path, exc)
+            continue
+        cells.append([img, Paragraph(f"Foto {idx}" + (f" - {caption}" if caption else ""), cap_style)])
+    rows = []
+    for i in range(0, len(cells), 2):
+        pair = cells[i:i + 2]
+        rows.append([c[0] for c in pair] + [""] * (2 - len(pair)))
+        rows.append([c[1] for c in pair] + [""] * (2 - len(pair)))
+    if rows:
+        tbl = Table(rows, colWidths=(8.5 * cm, 8.5 * cm))
+        tbl.setStyle([("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                      ("BOTTOMPADDING", (0, 0), (-1, -1), 6)])
+        out.append(tbl)
+    return out

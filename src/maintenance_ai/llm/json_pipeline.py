@@ -337,7 +337,11 @@ class JsonPipeline:
         history_snippets: Optional[List[Dict[str, Any]]] = None,
         extra: Optional[Dict[str, Any]] = None,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
+        temperature: Optional[float] = None,
+        on_token: Optional[Callable[[str], None]] = None,
     ) -> ExtractionResult:
+        """``temperature``: temperatura del primo tentativo (i retry la alzano un po').
+        ``on_token``: se il backend supporta lo streaming riceve il testo generato."""
         logger = _logmod.getLogger(__name__)
         reference_docs = list(reference_docs or [])
         history_snippets = list(history_snippets or [])
@@ -398,15 +402,24 @@ class JsonPipeline:
                     if last_error:
                         use_messages = self._append_repair_messages(use_messages, "", last_error)
 
-                temp = 0.05 if attempt == 0 else 0.15 if attempt == 1 else 0.2
+                base_t = 0.05 if temperature is None else max(0.0, float(temperature))
+                temp = base_t if attempt == 0 else base_t + 0.1 if attempt == 1 else base_t + 0.15
                 try:
-                    resp = server.chat_completions(
-                        messages=use_messages,
-                        temperature=temp,
-                        max_tokens=max_tokens,
-                        json_schema=use_schema,
-                        extra=extra,
-                    )
+                    stream_fn = getattr(server, "chat_completions_stream", None)
+                    if on_token is not None and stream_fn is not None:
+                        if attempt:
+                            on_token("\n\n— nuovo tentativo —\n")
+                        resp = stream_fn(
+                            use_messages, on_delta=on_token, temperature=temp,
+                            max_tokens=max_tokens, json_schema=use_schema, extra=extra)
+                    else:
+                        resp = server.chat_completions(
+                            messages=use_messages,
+                            temperature=temp,
+                            max_tokens=max_tokens,
+                            json_schema=use_schema,
+                            extra=extra,
+                        )
                 except Exception as exc:  # noqa: BLE001
                     last_error = f"[{server_name}] Chiamata LLM fallita (tentativo {attempt+1}): {exc}"
                     logger.warning(last_error)
@@ -475,6 +488,28 @@ class JsonPipeline:
         )
 
     # ------------------------------------------------------------------
+    @property
+    def server(self) -> ServerLike:
+        """Primo backend della catena (compatibilita' con il codice esistente)."""
+        return self.server_chain[0]
+
+    def chat(self, messages: List[Dict[str, Any]], **kwargs: Any) -> Dict[str, Any]:
+        """chat_completions con failover sulla catena di backend (testo libero).
+
+        ``on_delta`` (opzionale) attiva lo streaming dove supportato."""
+        on_delta = kwargs.pop("on_delta", None)
+        last: Optional[BaseException] = None
+        for server in self.server_chain:
+            try:
+                stream_fn = getattr(server, "chat_completions_stream", None)
+                if on_delta is not None and stream_fn is not None:
+                    return stream_fn(messages, on_delta=on_delta, **kwargs)
+                return server.chat_completions(messages=messages, **kwargs)
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                _logmod.getLogger(__name__).warning("Backend %s fallito: %s", self._backend_name(server), exc)
+        raise RuntimeError(f"Nessun backend AI disponibile: {last}")
+
     @staticmethod
     def _backend_name(server: ServerLike) -> str:
         cls = type(server).__name__

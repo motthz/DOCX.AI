@@ -40,7 +40,7 @@ _ALLOWED_REPORT_COLUMNS: FrozenSet[str] = frozenset({
     "approved_at", "input_description", "draft_json", "final_json",
     "model_filename", "model_sha256", "llama_build", "output_json_path",
     "output_document_path", "output_pdf_path", "source_document_hashes",
-    "review_notes",
+    "review_notes", "source",
 })
 
 _ALLOWED_AIOPS_COLUMNS: FrozenSet[str] = frozenset({
@@ -212,6 +212,40 @@ _MIGRATIONS = [
     -- Migration v4: ai_operations.retry_count + FTS5 (se disponibile)
     ALTER TABLE ai_operations ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
     """,
+    """
+    -- Migration v5: versioni dei rapporti, allegati (foto), embedding, rapporti importati
+    CREATE TABLE IF NOT EXISTS report_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_id INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        data_json TEXT NOT NULL,
+        note TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_versions_report ON report_versions(report_id);
+
+    CREATE TABLE IF NOT EXISTS report_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_id INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        caption TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_attach_report ON report_attachments(report_id);
+
+    CREATE TABLE IF NOT EXISTS text_embeddings (
+        text_sha TEXT NOT NULL,
+        model TEXT NOT NULL,
+        dim INTEGER NOT NULL,
+        vector BLOB NOT NULL,
+        PRIMARY KEY (text_sha, model)
+    );
+
+    ALTER TABLE reports ADD COLUMN source TEXT DEFAULT 'ai';
+    CREATE INDEX IF NOT EXISTS idx_reports_status_created ON reports(status, created_at);
+    """,
 ]
 
 
@@ -282,6 +316,10 @@ class Database:
                     pass
             self._ensure_migrations()
             self._ensure_fts5()
+            try:
+                self._ensure_search_index()
+            except sqlite3.Error:
+                pass
 
     def _safe_connect(self) -> sqlite3.Connection:
         """Try sqlite3.connect; on DatabaseError, backup corrupted file + rebuild + restore last backup."""
@@ -723,6 +761,37 @@ class Database:
                 """
             )
 
+    def _ensure_search_index(self) -> None:
+        """Indice full-text su descrizione E dati del rapporto (ricerca globale)."""
+        if not _is_fts5_available(self._conn):
+            return
+        with self.transaction() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'reports_search'").fetchone()
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS reports_search USING fts5("
+                "input_description, data_text, tokenize = 'unicode61 remove_diacritics 2')")
+            conn.executescript(
+                """
+                CREATE TRIGGER IF NOT EXISTS reports_search_ai AFTER INSERT ON reports BEGIN
+                    INSERT INTO reports_search(rowid, input_description, data_text)
+                    VALUES (new.id, new.input_description, COALESCE(new.final_json, new.draft_json, ''));
+                END;
+                CREATE TRIGGER IF NOT EXISTS reports_search_ad AFTER DELETE ON reports BEGIN
+                    DELETE FROM reports_search WHERE rowid = old.id;
+                END;
+                CREATE TRIGGER IF NOT EXISTS reports_search_au AFTER UPDATE ON reports BEGIN
+                    DELETE FROM reports_search WHERE rowid = old.id;
+                    INSERT INTO reports_search(rowid, input_description, data_text)
+                    VALUES (new.id, new.input_description, COALESCE(new.final_json, new.draft_json, ''));
+                END;
+                """
+            )
+            if not exists:
+                conn.execute(
+                    "INSERT INTO reports_search(rowid, input_description, data_text) "
+                    "SELECT id, input_description, COALESCE(final_json, draft_json, '') FROM reports")
+
     def search_reports_fts(self, keyword: str, limit: int = 50) -> List[Dict[str, Any]]:
         keyword = (keyword or "").strip()
         if not keyword:
@@ -783,11 +852,11 @@ class Database:
             clauses.append("r.status = ?")
             params.append(status)
         if date_from:
-            clauses.append("r.created_at >= ?")
-            params.append(date_from)
+            clauses.append("substr(r.created_at, 1, 10) >= ?")
+            params.append(str(date_from)[:10])
         if date_to:
-            clauses.append("r.created_at <= ?")
-            params.append(date_to)
+            clauses.append("substr(r.created_at, 1, 10) <= ?")
+            params.append(str(date_to)[:10])
         if keyword:
             kws = keyword.split()
             kw_clauses = []
@@ -855,3 +924,202 @@ class Database:
                 (report_id,),
             )
             return [_row_to_dict(r) for r in cur.fetchall()]
+
+    # ----- Ricerca globale + filtri + paginazione -----
+    _REPORT_SELECT = (
+        "SELECT r.*, "
+        "COALESCE(m.name, m.slug, 'Modulo sconosciuto') AS module, "
+        "COALESCE(r.output_json_path, r.output_pdf_path, '') AS stamp, "
+        "r.created_at AS created "
+        "FROM reports r LEFT JOIN modules m ON m.id = r.module_id"
+    )
+
+    @staticmethod
+    def _fts_query(text: str) -> str:
+        """Testo libero -> query FTS5 sicura (prefisso su ogni parola)."""
+        import re as _re
+        words = _re.findall(r"\w+", text, flags=_re.UNICODE)
+        return " ".join(f'"{w}"*' for w in words)
+
+    def search_reports(self, *, query: str = "", status: Optional[str] = None,
+                       module_id: Optional[int] = None, date_from: Optional[str] = None,
+                       date_to: Optional[str] = None, field_filters: Optional[Dict[str, str]] = None,
+                       limit: int = 100, offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
+        """Ricerca nello storico. ``field_filters`` = {frammento_nome_campo: valore}: es.
+        {"tecnico": "rossi"} trova i rapporti con un campo il cui nome contiene "tecnico"
+        (o "operatore"/"firma", vedi FIELD_ALIASES) e il cui valore contiene "rossi".
+        Ritorna (righe della pagina, totale)."""
+        clauses: List[str] = []
+        params: List[Any] = []
+        query = (query or "").strip()
+        if query:
+            if _is_fts5_available(self._conn) and self._has_table("reports_search"):
+                clauses.append("r.id IN (SELECT rowid FROM reports_search WHERE reports_search MATCH ?)")
+                params.append(self._fts_query(query) or '""')
+            else:
+                for w in query.split():
+                    clauses.append("(r.input_description LIKE ? OR COALESCE(r.final_json, r.draft_json, '') LIKE ?)")
+                    params.extend([f"%{w}%", f"%{w}%"])
+        if status:
+            clauses.append("r.status = ?")
+            params.append(status)
+        if module_id is not None:
+            clauses.append("r.module_id = ?")
+            params.append(module_id)
+        if date_from:
+            clauses.append("substr(r.created_at, 1, 10) >= ?")
+            params.append(str(date_from)[:10])
+        if date_to:
+            clauses.append("substr(r.created_at, 1, 10) <= ?")
+            params.append(str(date_to)[:10])
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._lock:
+            rows = [_row_to_dict(r) for r in self._conn.execute(
+                self._REPORT_SELECT + where + " ORDER BY r.created_at DESC", params).fetchall()]
+        if field_filters:
+            rows = [r for r in rows if _match_fields(r, field_filters)]
+        total = len(rows)
+        return rows[offset:offset + limit], total
+
+    def _has_table(self, name: str) -> bool:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ?", (name,)).fetchone() is not None
+
+    def count_reports_by_module(self) -> Dict[int, Dict[str, int]]:
+        """{module_id: {status: n}} in una sola query (lista moduli, home)."""
+        out: Dict[int, Dict[str, int]] = {}
+        with self._lock:
+            for row in self._conn.execute(
+                    "SELECT module_id, status, COUNT(*) AS n FROM reports GROUP BY module_id, status"):
+                if row["module_id"] is None:
+                    continue
+                out.setdefault(int(row["module_id"]), {})[row["status"]] = int(row["n"])
+        return out
+
+    def count_reports_on(self, day: str) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM reports WHERE substr(created_at, 1, 10) = ?", (day[:10],)).fetchone()
+        return int(row[0]) if row else 0
+
+    def delete_report(self, report_id: int) -> None:
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM reports WHERE id = ?", (report_id,))
+
+    # ----- Versioni dei rapporti -----
+    def add_report_version(self, report_id: int, data_json: str, note: str = "") -> int:
+        with self.transaction() as conn:
+            row = conn.execute("SELECT COALESCE(MAX(version), 0) FROM report_versions WHERE report_id = ?",
+                               (report_id,)).fetchone()
+            ver = int(row[0]) + 1
+            conn.execute(
+                "INSERT INTO report_versions(report_id, version, data_json, note, created_at) VALUES (?,?,?,?,?)",
+                (report_id, ver, data_json, note, _now_iso()))
+            return ver
+
+    def list_report_versions(self, report_id: int) -> List[Dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM report_versions WHERE report_id = ? ORDER BY version DESC", (report_id,))
+            return [_row_to_dict(r) for r in cur.fetchall()]
+
+    # ----- Allegati (foto) -----
+    def add_attachment(self, report_id: int, path: str, caption: str = "") -> int:
+        with self.transaction() as conn:
+            cur = conn.execute(
+                "INSERT INTO report_attachments(report_id, path, caption, created_at) VALUES (?,?,?,?)",
+                (report_id, path, caption, _now_iso()))
+            return int(cur.lastrowid or 0)
+
+    def list_attachments(self, report_id: int) -> List[Dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM report_attachments WHERE report_id = ? ORDER BY id", (report_id,))
+            return [_row_to_dict(r) for r in cur.fetchall()]
+
+    def delete_attachment(self, attachment_id: int) -> None:
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM report_attachments WHERE id = ?", (attachment_id,))
+
+    # ----- Embedding (ricerca semantica), indicizzati per hash del testo -----
+    def get_embeddings(self, text_shas: List[str], model: str) -> Dict[str, bytes]:
+        out: Dict[str, bytes] = {}
+        if not text_shas:
+            return out
+        with self._lock:
+            for start in range(0, len(text_shas), 500):
+                part = text_shas[start:start + 500]
+                marks = ",".join("?" for _ in part)
+                for row in self._conn.execute(
+                        f"SELECT text_sha, vector FROM text_embeddings WHERE model = ? AND text_sha IN ({marks})",
+                        [model, *part]):
+                    out[row["text_sha"]] = row["vector"]
+        return out
+
+    def store_embeddings(self, items: List[Tuple[str, bytes, int]], model: str) -> None:
+        with self.transaction() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO text_embeddings(text_sha, model, dim, vector) VALUES (?,?,?,?)",
+                [(sha, model, dim, vec) for sha, vec, dim in items])
+
+    # ----- Backup e manutenzione -----
+    def backup_to(self, dest: Path) -> None:
+        """Copia consistente del DB (API di backup SQLite, anche a DB aperto)."""
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            target = sqlite3.connect(str(dest))
+            try:
+                self._conn.backup(target)
+            finally:
+                target.close()
+
+    def maintenance(self, *, vacuum_every_days: int = 7) -> Dict[str, Any]:
+        """PRAGMA optimize sempre; VACUUM al massimo una volta ogni N giorni."""
+        info: Dict[str, Any] = {"optimized": False, "vacuumed": False}
+        with self._lock:
+            try:
+                self._conn.execute("PRAGMA optimize")
+                info["optimized"] = True
+            except sqlite3.Error:
+                pass
+        last = self.get_setting("db.last_vacuum")
+        now = time.time()
+        if last is None or now - float(last) > vacuum_every_days * 86400:
+            with self._lock:
+                try:
+                    self._conn.execute("VACUUM")
+                    info["vacuumed"] = True
+                except sqlite3.Error:
+                    pass
+            self.set_setting("db.last_vacuum", str(now))
+        return info
+
+
+FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "tecnico": ("tecnico", "operatore", "firma", "esecutore", "manutentore"),
+    "impianto": ("impianto", "reparto", "linea", "apparecchiatura", "macchina", "stabilimento"),
+}
+
+
+def _match_fields(row: Dict[str, Any], filters: Dict[str, str]) -> bool:
+    try:
+        data = json.loads(row.get("final_json") or row.get("draft_json") or "{}")
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    for key, needle in filters.items():
+        needle = (needle or "").strip().lower()
+        if not needle:
+            continue
+        aliases = FIELD_ALIASES.get(key, (key,))
+        found = False
+        for fname, val in data.items():
+            if any(a in fname.lower() for a in aliases) and needle in json.dumps(val, ensure_ascii=False).lower():
+                found = True
+                break
+        if not found:
+            return False
+    return True

@@ -43,6 +43,15 @@ MODELS: Dict[str, Dict[str, Any]] = {
         "label": "Qwen3 0.6B (PC lenti, ~640 MB)",
     },
 }
+# Modello opzionale per la ricerca semantica nei documenti
+EMBEDDING_MODEL: Dict[str, Dict[str, Any]] = {
+    "Qwen3-Embedding-0.6B-Q8_0.gguf": {
+        "url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
+        "sha256": None,
+        "label": "Ricerca semantica nei documenti (~640 MB)",
+    },
+}
+RUNTIME_VARIANTS = {"cpu": ("win-cpu", "llama"), "vulkan": ("win-vulkan", "llama-vulkan")}
 
 USER_AGENT = "MaintenanceAI-installer"
 
@@ -116,7 +125,8 @@ class AIInstaller:
         return h.hexdigest()
 
     # ------------------------------------------------------------------
-    def _find_llama_asset(self) -> dict:
+    def _find_llama_asset(self, variant: str = "cpu") -> dict:
+        tag = RUNTIME_VARIANTS[variant][0]
         urls = [f"{LLAMA_RELEASES_API}/tags/{PREFERRED_LLAMA_TAG}",
                 f"{LLAMA_RELEASES_API}?per_page=20"]
         for url in urls:
@@ -129,17 +139,18 @@ class AIInstaller:
             for rel in raw if isinstance(raw, list) else [raw]:
                 for asset in rel.get("assets", []):
                     name = asset.get("name", "")
-                    if "win-cpu" in name and "x64" in name and name.endswith(".zip"):
+                    if tag in name and "x64" in name and name.endswith(".zip"):
                         return asset
-        raise RuntimeError("Nessuna build llama.cpp Windows CPU x64 trovata su GitHub.")
+        raise RuntimeError(f"Nessuna build llama.cpp Windows {variant} x64 trovata su GitHub.")
 
-    def install_runtime(self, progress: ProgressFn) -> Path:
-        exe = self.runtime_dir / "llama-server.exe"
+    def install_runtime(self, progress: ProgressFn, variant: str = "cpu") -> Path:
+        target = self.runtime_dir.parent / RUNTIME_VARIANTS[variant][1]
+        exe = target / "llama-server.exe"
         if exe.is_file():
             progress(1.0, "Runtime llama.cpp già presente.")
-            return self.runtime_dir
+            return target
         progress(None, "Ricerca runtime llama.cpp…")
-        asset = self._find_llama_asset()
+        asset = self._find_llama_asset(variant)
         zpath = self._download(asset["browser_download_url"], self.cache_dir / asset["name"],
                                progress, "Runtime llama.cpp", asset.get("size"))
         progress(None, "Estrazione runtime…")
@@ -153,15 +164,15 @@ class AIInstaller:
             found = next(Path(tmp).rglob("llama-server.exe"), None)
             if found is None:
                 raise RuntimeError("llama-server.exe non trovato nell'archivio scaricato.")
-            if self.runtime_dir.exists():
-                shutil.rmtree(self.runtime_dir, ignore_errors=True)
-            shutil.copytree(found.parent, self.runtime_dir)
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+            shutil.copytree(found.parent, target)
         zpath.unlink(missing_ok=True)
         progress(1.0, "Runtime installato.")
-        return self.runtime_dir
+        return target
 
     def install_model(self, name: str, progress: ProgressFn) -> Path:
-        info = MODELS[name]
+        info = MODELS.get(name) or EMBEDDING_MODEL[name]
         dest = self.models_dir / name
         if dest.is_file():
             progress(1.0, f"Modello {name} già presente.")
@@ -177,9 +188,19 @@ class AIInstaller:
         progress(1.0, f"Modello {name} installato.")
         return dest
 
-    def install(self, model_name: str, progress: ProgressFn) -> InstallResult:
+    def install(self, model_name: str, progress: ProgressFn, *, gpu: bool = False,
+                embeddings: bool = False) -> InstallResult:
         self._cancel.clear()
         runtime = self.install_runtime(progress)
+        if gpu:
+            try:
+                self.install_runtime(progress, "vulkan")
+            except InstallCancelled:
+                raise
+            except Exception as exc:  # noqa: BLE001 - la GPU e' facoltativa
+                LOG.warning("Runtime GPU non installato: %s", exc)
         model = self.install_model(model_name, progress)
+        if embeddings:
+            self.install_model(next(iter(EMBEDDING_MODEL)), progress)
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         return InstallResult(runtime_dir=runtime, model_path=model)

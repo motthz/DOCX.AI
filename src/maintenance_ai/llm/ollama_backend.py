@@ -129,3 +129,18 @@ class OllamaBackend:
             raise RuntimeError(
                 f"Risposta Ollama non è JSON valido: {exc}. Testo: {raw[:800]}"
             ) from exc
+
+    def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        h = {"Content-Type": "application/json"}
+        if extra:
+            h.update(extra)
+        return h
+
+
+def _bind_stream() -> None:
+    # Ollama espone la stessa API OpenAI-compatibile (SSE) di llama-server.
+    from .llama_server import LlamaServer
+    OllamaBackend.chat_completions_stream = LlamaServer.chat_completions_stream  # type: ignore[attr-defined]
+
+
+_bind_stream()

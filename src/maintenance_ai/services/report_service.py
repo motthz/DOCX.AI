@@ -109,6 +109,10 @@ class ReportService:
         *,
         use_mock: bool = False,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
+        use_references: bool = True,
+        use_history: bool = True,
+        temperature: Optional[float] = None,
+        on_token: Optional[Callable[[str], None]] = None,
     ) -> DraftOutcome:
         total = 4
         hashes: List[str] = []
@@ -122,9 +126,10 @@ class ReportService:
 
         try:
             _tick(0, "Preparazione contesto…")
-            ref_docs = self.context.parse_reference_documents(mod)
-            hashes.extend(self._hash_of_paths([self.mm.scan_reference_documents(mod)]))
-            history = self.context.select_history_snippets(mod, description)
+            ref_docs = self.context.parse_reference_documents(mod) if use_references else []
+            if use_references:
+                hashes.extend(self._hash_of_paths([self.mm.scan_reference_documents(mod)]))
+            history = self.context.select_history_snippets(mod, description) if use_history else []
             _tick(1, "Costruzione contesto completata.")
         except Exception as exc:  # noqa: BLE001
             ref_docs = []
@@ -140,6 +145,8 @@ class ReportService:
             operator_description=description,
             reference_docs=ref_docs,
             history_snippets=history,
+            temperature=temperature,
+            on_token=on_token,
         )
         _tick(3, "Salvataggio bozza nel DB…")
         report_id = self.db.create_report(
@@ -194,6 +201,7 @@ class ReportService:
         if review_notes:
             updates["review_notes"] = review_notes
         self.db.update_report(report_id, **updates)
+        self.db.add_report_version(report_id, updates["final_json"], "Approvazione")
 
     # ---- Exports -----------------------------------------------------------
     def finalize_exports(
@@ -238,9 +246,20 @@ class ReportService:
         # 3. PDF output
         pdf_path = base / f"{base.name}.pdf"
         review_notes = row.get("review_notes") or ""
+        photos = [(Path(a["path"]), a.get("caption") or "") for a in self.db.list_attachments(report_id)
+                  if Path(a["path"]).is_file()]
         export_pdf(pdf_path, data, mod.schema,
                    report_id=f"#{report_id}", module_name=mod.name,
-                   review_notes=review_notes)
+                   review_notes=review_notes, photos=photos)
+        if photos:
+            photo_dir = base / "foto"
+            photo_dir.mkdir(exist_ok=True)
+            import shutil as _sh
+            for i, (ph, _cap) in enumerate(photos, 1):
+                try:
+                    _sh.copy2(ph, photo_dir / f"foto_{i:02d}{ph.suffix.lower()}")
+                except OSError:
+                    pass
 
         # Also copy / save a copy inside module history folder for next runs?
         history_folder = mod.history_folder()
@@ -263,3 +282,65 @@ class ReportService:
             output_pdf_path=str(pdf_path),
         )
         return json_path, doc_path, pdf_path
+
+    # ---- Duplicazione, versioni, foto ---------------------------------------
+    def duplicate_report(self, report_id: int) -> int:
+        """Nuova bozza con gli stessi dati (base per un intervento simile)."""
+        row = self.db.get_report(report_id)
+        if row is None:
+            raise ValueError(f"Report {report_id} non trovato")
+        data = row.get("final_json") or row.get("draft_json") or "{}"
+        return self.db.create_report(
+            module_id=row.get("module_id"),
+            module_version=row.get("module_version") or "1.0.0",
+            status="draft",
+            input_description=row.get("input_description") or "",
+            draft_json=data,
+            model_filename=row.get("model_filename") or "",
+            source="duplicate",
+        )
+
+    def update_approved(self, report_id: int, data: Dict[str, Any], note: str = "Modifica") -> int:
+        """Modifica di un rapporto gia' approvato: salva una nuova versione."""
+        payload = json.dumps(data, ensure_ascii=False)
+        self.db.update_report(report_id, final_json=payload, status="approved")
+        return self.db.add_report_version(report_id, payload, note)
+
+    def restore_version(self, report_id: int, version_row: Dict[str, Any]) -> int:
+        data = json.loads(version_row["data_json"])
+        return self.update_approved(report_id, data, f"Ripristino della versione {version_row['version']}")
+
+    def attachments_dir(self, report_id: int) -> Path:
+        return self.config.data_root / "attachments" / f"{report_id:05d}"
+
+    def add_photos(self, report_id: int, files: List[Path], caption: str = "") -> int:
+        """Copia le foto nei dati utente (ridimensionate a max 2000 px)."""
+        dest_dir = self.attachments_dir(report_id)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        added = 0
+        for src in files:
+            src = Path(src)
+            if src.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+                continue
+            dest = dest_dir / f"{int(time.time() * 1000)}_{src.stem[:40]}.jpg"
+            try:
+                from PIL import Image, ImageOps
+                with Image.open(src) as raw:
+                    im = ImageOps.exif_transpose(raw).convert("RGB")
+                    im.thumbnail((2000, 2000))
+                    im.save(dest, "JPEG", quality=85)
+            except Exception:  # noqa: BLE001
+                continue
+            self.db.add_attachment(report_id, str(dest), caption)
+            added += 1
+        return added
+
+    def photos(self, report_id: int) -> List[Dict[str, Any]]:
+        return self.db.list_attachments(report_id)
+
+    def remove_photo(self, attachment: Dict[str, Any]) -> None:
+        self.db.delete_attachment(int(attachment["id"]))
+        try:
+            Path(attachment["path"]).unlink()
+        except OSError:
+            pass

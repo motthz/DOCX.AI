@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -128,6 +129,11 @@ class AIService:
         self._mock = mock
         self._pipeline_lock = threading.Lock()
         self.backend_label = "non avviato"
+        self.ram_warning = ""
+        self._last_used = 0.0
+        self._idle_stop = threading.Event()
+        self._idle_thread: Optional[threading.Thread] = None
+        self.semantic = None  # llm.embeddings.SemanticSearch (impostato dall'App)
 
     # --------------------------------------------------------------
     # LLM pipeline: lazy-init + failover chain + debug artifacts
@@ -140,15 +146,38 @@ class AIService:
         # Thread-safe: report extraction and document features run in worker
         # threads and must share ONE llama-server (each one loads ~2 GB of RAM).
         with self._pipeline_lock:
+            self._last_used = time.time()
             if self._pipeline is not None:
                 return self._pipeline
             self._pipeline = self._build_pipeline()
             return self._pipeline
 
+    # ---- impostazioni (tabella settings) ----
+    def _setting(self, key: str, default):
+        try:
+            from ..services.settings import Settings
+            return Settings(self.db).get(key)
+        except Exception:  # noqa: BLE001
+            return default
+
+    def _runtime_dirs(self, eff: Dict[str, Any]) -> List[Tuple[Path, int]]:
+        """Runtime da provare: (cartella, layer GPU). GPU (Vulkan) prima se abilitata."""
+        cpu_dir = self.config.resolve_ai_path(eff["runtime_dir"])
+        out: List[Tuple[Path, int]] = []
+        gpu_pref = str(self._setting("ai.gpu", "auto")).lower()
+        if gpu_pref in ("auto", "on"):
+            gpu_dir = self.config.resolve_ai_path("runtime/llama-vulkan")
+            if (gpu_dir / eff.get("runtime_exe", "llama-server.exe")).is_file():
+                out.append((gpu_dir, 99))
+        out.append((cpu_dir, 0))
+        return out
+
     def _llama_options(self, eff: Dict[str, Any], model_path: Path,
-                       context_size: int) -> LlamaServerOptions:
+                       context_size: int, runtime_dir: Optional[Path] = None,
+                       gpu_layers: int = 0) -> LlamaServerOptions:
+        threads = int(self._setting("ai.threads", 0) or 0) or eff.get("thread_override")
         return LlamaServerOptions(
-            runtime_dir=self.config.resolve_ai_path(eff["runtime_dir"]),
+            runtime_dir=runtime_dir or self.config.resolve_ai_path(eff["runtime_dir"]),
             runtime_exe=eff.get("runtime_exe", "llama-server.exe"),
             model_path=model_path,
             context_size=context_size,
@@ -157,7 +186,8 @@ class AIService:
             port_max=int(eff.get("port_max", 39299)),
             no_webui=bool(eff.get("no_webui", True)),
             no_think=bool(eff.get("no_think", True)),
-            thread_override=eff.get("thread_override"),
+            thread_override=threads,
+            gpu_layers=gpu_layers,
         )
 
     def _try_ollama(self, eff: Dict[str, Any], *, explicit: bool) -> Optional[OllamaBackend]:
@@ -179,12 +209,43 @@ class AIService:
         srv.start(timeout=2.0)
         return srv
 
+    def _model_candidates(self, eff: Dict[str, Any]) -> List[Tuple[Path, int]]:
+        """Modelli installati in ordine di preferenza, tenendo conto della RAM:
+        se il modello principale non entra nella RAM libera ma il leggero si',
+        si parte dal leggero (il PC non va in swap)."""
+        from ..llm import hardware
+        ctx_size = int(self._setting("ai.context", 0) or 0) or int(eff.get("context_size", 4096))
+        cands: List[Tuple[Path, int]] = []
+        if eff.get("model"):
+            cands.append((self.config.resolve_ai_path(eff["model"]), ctx_size))
+        if eff.get("fallback_model"):
+            cands.append((self.config.resolve_ai_path(eff["fallback_model"]), max(512, ctx_size // 2)))
+        cands = [c for c in cands if c[0].is_file()]
+        if len(cands) < 2:
+            return cands
+        hw = hardware.refresh_memory()
+        if not hw.ram_available:
+            return cands
+        need_main = hardware.model_ram_need(cands[0][0], cands[0][1])
+        need_small = hardware.model_ram_need(cands[1][0], cands[1][1])
+        if need_main > hw.ram_available and need_small <= hw.ram_available:
+            self.ram_warning = (f"RAM libera {hw.ram_available_gb} GB insufficiente per "
+                                f"{cands[0][0].name}: uso {cands[1][0].name}.")
+            LOG.warning(self.ram_warning)
+            return [cands[1], cands[0]]
+        if need_main > hw.ram_available:
+            self.ram_warning = (f"RAM libera {hw.ram_available_gb} GB: l'AI potrebbe essere lenta. "
+                                "Chiudi altri programmi o usa il profilo 'compatibility'.")
+            LOG.warning(self.ram_warning)
+        return cands
+
     def _build_pipeline(self) -> JsonPipeline:
         eff = self.config.llm_effective
         chain: List[Any] = []
         max_retries = max(0, int(eff.get("max_retries", 3)))
         backend = str(eff.get("backend", "llama_server")).lower()
         self.backend_label = "mock"
+        self.ram_warning = ""
 
         # 1) Ollama, if explicitly selected in the config
         if backend == "ollama":
@@ -197,28 +258,21 @@ class AIService:
             except Exception as exc:  # noqa: BLE001
                 LOG.warning(f"Ollama backend non disponibile (procedo con fallback): {exc}")
 
-        # 2) llama.cpp primary model, then the smaller fallback model ONLY if the
-        #    primary could not start (avoids loading two models into RAM).
+        # 2) llama.cpp: modello principale o leggero (uno solo in RAM), GPU se disponibile
         if not chain:
-            ctx_size = int(eff.get("context_size", 4096))
-            candidates = []
-            if eff.get("model"):
-                candidates.append((self.config.resolve_ai_path(eff["model"]), ctx_size))
-            if eff.get("fallback_model"):
-                candidates.append((self.config.resolve_ai_path(eff["fallback_model"]),
-                                   max(512, ctx_size // 2)))
-            for model_path, csize in candidates:
-                if not model_path.is_file():
-                    continue
-                try:
-                    srv = LlamaServer(self._llama_options(eff, model_path, csize))
-                    srv.start()
-                    chain.append(srv)
-                    self._server_chain.append(srv)
-                    self.backend_label = f"llama:{model_path.name}"
+            for model_path, csize in self._model_candidates(eff):
+                for runtime_dir, gpu_layers in self._runtime_dirs(eff):
+                    try:
+                        srv = LlamaServer(self._llama_options(eff, model_path, csize, runtime_dir, gpu_layers))
+                        srv.start()
+                        chain.append(srv)
+                        self._server_chain.append(srv)
+                        self.backend_label = f"llama:{model_path.name}" + (" (GPU)" if gpu_layers else "")
+                        break
+                    except Exception as exc:  # noqa: BLE001
+                        LOG.warning(f"Llama ({model_path.name}, gpu={gpu_layers}) non disponibile: {exc}")
+                if chain:
                     break
-                except Exception as exc:  # noqa: BLE001
-                    LOG.warning(f"Llama ({model_path.name}) non disponibile: {exc}")
 
         # 3) Auto-detect a locally running Ollama as a last real backend
         if not chain and backend != "ollama":
@@ -245,6 +299,69 @@ class AIService:
         return JsonPipeline(chain[0], max_retries=max_retries, debug_root=debug_root,
                             server_chain=chain)
 
+    # ---- precaricamento e spegnimento per inattivita' ----
+    def touch(self) -> None:
+        self._last_used = time.time()
+
+    def preload_async(self) -> None:
+        """Avvia il motore AI in background (la prima richiesta e' subito pronta)."""
+        def _run():
+            try:
+                self.pipeline()
+                self.touch()
+            except Exception as exc:  # noqa: BLE001
+                LOG.info("Precaricamento AI fallito: %s", exc)
+        threading.Thread(target=_run, daemon=True, name="ai-preload").start()
+
+    def start_idle_watch(self, minutes_fn) -> None:
+        """Spegne llama-server dopo N minuti senza richieste (libera la RAM)."""
+        if self._idle_thread is not None:
+            return
+
+        def _loop():
+            while not self._idle_stop.wait(30):
+                try:
+                    minutes = int(minutes_fn() or 0)
+                except Exception:  # noqa: BLE001
+                    minutes = 0
+                if minutes <= 0:
+                    continue
+                busy = self._pipeline_lock.locked()
+                if (self._pipeline is not None and not busy and self._last_used
+                        and time.time() - self._last_used > minutes * 60):
+                    LOG.info("Motore AI inattivo da %s minuti: spengo llama-server.", minutes)
+                    self.shutdown()
+                if self.semantic is not None and self.semantic.idle_seconds() > minutes * 60:
+                    self.semantic.stop()
+        self._idle_thread = threading.Thread(target=_loop, daemon=True, name="ai-idle")
+        self._idle_thread.start()
+
+    @property
+    def is_running(self) -> bool:
+        return self._pipeline is not None and self.is_real_ai
+
+    # ---- migliora testo (revisione) ----
+    def improve_text(self, text: str, field_label: str = "", *, on_delta=None) -> str:
+        """Riscrive un testo in forma tecnica e chiara SENZA aggiungere fatti."""
+        system = (
+            "Sei un redattore tecnico di rapporti di manutenzione. Riscrivi il testo dell'utente "
+            "in italiano tecnico, chiaro e conciso. REGOLE: non aggiungere fatti, numeri, date, "
+            "nomi, codici o cause che non sono nel testo; non togliere informazioni; correggi "
+            "grammatica e terminologia; usa frasi brevi. Rispondi SOLO con il testo riscritto."
+        )
+        user = (f"Campo: {field_label}\n" if field_label else "") + f"Testo:\n{text}\n\n/no_think"
+        pipe = self.pipeline()
+        self.touch()
+        resp = pipe.chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
+                         temperature=0.2, max_tokens=800, on_delta=on_delta)
+        self.touch()
+        out = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+        import re as _re
+        out = _re.sub(r"<think>.*?</think>", "", out, flags=_re.S).strip()
+        if not self.is_real_ai or not out or out.startswith("{"):
+            raise RuntimeError("Motore AI non disponibile: installa i componenti AI.")
+        return out
+
     @property
     def is_real_ai(self) -> bool:
         return self.backend_label != "mock"
@@ -252,6 +369,11 @@ class AIService:
     def reset(self) -> None:
         """Stop running backends so the next call re-detects them (e.g. after
         the AI components were installed or the LLM profile changed)."""
+        self.shutdown()
+
+    def close(self) -> None:
+        """Chiusura dell'app: ferma anche il controllo di inattivita'."""
+        self._idle_stop.set()
         self.shutdown()
 
     def shutdown(self) -> None:
@@ -465,7 +587,7 @@ class AIService:
 
         pipeline = self.pipeline(use_mock=use_mock)
         try:
-            resp = pipeline.server.chat_completions(
+            resp = pipeline.chat(
                 messages=[
                     {"role": "system", "content": system_text},
                     {"role": "user", "content": user_text},
@@ -529,7 +651,7 @@ class AIService:
         for attempt in range(pipeline.max_retries + 1):
             attempts = attempt + 1
             try:
-                resp = pipeline.server.chat_completions(
+                resp = pipeline.chat(
                     messages=messages,
                     temperature=0.05 if attempt == 0 else 0.2,
                     max_tokens=pipeline._estimate_max_tokens(schema),

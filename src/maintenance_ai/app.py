@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import threading
+import time
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +19,10 @@ from typing import Optional
 
 from .config import Config
 from .db import Database
+from .llm.embeddings import SemanticSearch
+from .services import housekeeping
+from .services.backup_service import apply_pending_restore, auto_backup_if_due
+from .services.settings import Settings
 from .llm.llama_server import MockLlamaServer
 from .module_manager import ModuleManager
 from .security import SecurityLimits
@@ -115,14 +121,22 @@ class App:
     doc_modifier: DocumentModifier
     audit_engine: AuditEngine
     smart_fill_engine: SmartFillEngine
+    settings: Settings
+    semantic: SemanticSearch
+    restore_message: Optional[str] = None
+    started_at: float = 0.0
 
     @classmethod
     def bootstrap(cls, config_path: Optional[Path] = None, *, verbose: bool = False) -> "App":
         _ensure_src_on_path()
+        started = time.perf_counter()
         config = Config.load(config_path)
         _configure_logging(config.logs_root(), verbose=verbose)
         limits = SecurityLimits.from_dict(config.security_limits())
+        # un backup da ripristinare va applicato prima di aprire il database
+        restore_message = apply_pending_restore(config.data_root)
         db = Database(config.db_path())
+        settings = Settings(db)
         mm = ModuleManager(config, db, limits)
         ctx = ContextService(config, db, mm)
 
@@ -139,8 +153,10 @@ class App:
         ocr_service = OCRService(config)
         doc_loader = DocumentLoader(config, security_limits=limits, db=db, ocr_service=ocr_service)
         doc_indexer = DocumentIndexer(db)
-        doc_retriever = DocumentRetriever()
+        semantic = SemanticSearch(config, db, enabled=bool(settings.get("ai.embeddings")))
+        doc_retriever = DocumentRetriever(semantic=semantic)
         ai_service = AIService(config, db, rules_manager, context=ctx)
+        ai_service.semantic = semantic
         reports = ReportService(config, db, mm, ctx, ai_service=ai_service)
         doc_generator = DocumentGenerator(config, doc_loader, doc_indexer,
                                           doc_retriever, ai_service)
@@ -167,14 +183,42 @@ class App:
             doc_modifier=doc_modifier,
             audit_engine=audit_engine,
             smart_fill_engine=smart_fill_engine,
+            settings=settings,
+            semantic=semantic,
+            restore_message=restore_message,
+            started_at=started,
         )
+
+    def start_background_tasks(self) -> None:
+        """Pulizia file, backup automatico e controllo inattivita' AI (solo GUI)."""
+        def _work():
+            try:
+                housekeeping.run(self.config.data_root)
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).exception("housekeeping")
+            try:
+                auto_backup_if_due(self.config, self.db,
+                                   every_days=int(self.settings.get("backup.auto_days")),
+                                   keep=int(self.settings.get("backup.keep")))
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).exception("backup automatico")
+        threading.Thread(target=_work, daemon=True, name="housekeeping").start()
+        self.ai_service.start_idle_watch(lambda: self.settings.get("ai.idle_minutes"))
 
     def shutdown(self) -> None:
         try:
             self.reports.shutdown()
         finally:
             try:
-                self.ai_service.shutdown()
+                self.ai_service.close()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self.semantic.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self.db.maintenance()
             except Exception:  # noqa: BLE001
                 pass
             self.db.close()

@@ -1,7 +1,9 @@
 """DocumentRetriever: selezione deterministica dei chunk più pertinenti.
 
-Nessun embedding, nessun vector DB: pura keyword overlap + IDF approssimato.
-L'output è auditable e veloce, funziona bene con CPU limitate.
+Base: keyword overlap + IDF approssimato (auditable, veloce su CPU limitate).
+Se e' disponibile il modello di embedding locale il punteggio diventa ibrido
+(meta' parole chiave, meta' similarita' semantica) e vengono recuperati anche
+brani pertinenti che non condividono parole con la richiesta.
 """
 
 from __future__ import annotations
@@ -34,8 +36,10 @@ class RetrievedChunk:
 
 
 class DocumentRetriever:
-    def __init__(self):
-        pass
+    SEMANTIC_MIN = 0.55  # similarita' minima per un brano senza parole in comune
+
+    def __init__(self, semantic=None):
+        self.semantic = semantic  # llm.embeddings.SemanticSearch | None
 
     # --------------------------------------------------------------
     # Public: select top-N chunks given user description + schema fields hints
@@ -68,18 +72,32 @@ class DocumentRetriever:
             for t in toks:
                 df[t] = df.get(t, 0) + 1
         N = max(1, len(chunks_list))
+        sims: Dict[int, float] = {}
+        if self.semantic is not None and chunks_list:
+            try:
+                sims = self.semantic.similarities(query_text or " ".join(sorted(query_tokens)),
+                                                  [c.chunk_text for c in chunks_list])
+            except Exception:  # noqa: BLE001
+                sims = {}
         scored: List[RetrievedChunk] = []
-        for c in chunks_list:
+        sim_of: List[float] = []
+        for i, c in enumerate(chunks_list):
             toks = set(self._normalize_tokens(c.keywords or _tokens(c.chunk_text)))
             matched = sorted(query_tokens & toks)
-            if not matched:
+            sim = sims.get(i, 0.0)
+            if not matched and sim < self.SEMANTIC_MIN:
                 continue
             s = 0.0
             for t in matched:
                 idf = 1.0 + math.log(N / (1.0 + df.get(t, 0)))
-                # simple TF in chunk = count/len approx via matched presence (0/1)
                 s += idf
             scored.append(RetrievedChunk(chunk=c, score=s, matched_keywords=matched))
+            sim_of.append(sim)
+        if sims and scored:
+            # punteggio ibrido: meta' parole chiave (normalizzate), meta' similarita'
+            top_kw = max(r.score for r in scored) or 1.0
+            for r, sim in zip(scored, sim_of):
+                r.score = 0.5 * (r.score / top_kw) + 0.5 * sim
         scored.sort(key=lambda r: (r.score, len(r.matched_keywords)), reverse=True)
         picked: List[RetrievedChunk] = []
         total_chars = 0
