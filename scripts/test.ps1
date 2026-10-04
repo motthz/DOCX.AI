@@ -24,7 +24,7 @@ if ($hasCoverage -and -not $skipCoverage) {
     & $venvPython -m coverage run -m unittest discover -s tests -v
     $unitExit = $LASTEXITCODE
     if ($unitExit -eq 0) {
-        & $venvPython -m coverage run -a -m maintenance_ai.main --self-test | Out-Null
+        & $venvPython -m coverage run -a -m docx_ai.main --self-test | Out-Null
         & $venvPython -m coverage report --fail-under=45
         $covExit = $LASTEXITCODE
         if ($covExit -ne 0) {
@@ -44,7 +44,7 @@ if ($hasCoverage -and -not $skipCoverage) {
 
 # 2. Self-test
 Write-Host "[test] --self-test applicazione" -ForegroundColor Cyan
-& $venvPython -m maintenance_ai.main --self-test
+& $venvPython -m docx_ai.main --self-test
 $selfExit = $LASTEXITCODE
 
 Remove-Item Env:\PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue

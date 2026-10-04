@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO))
 class DocxParserTests(unittest.TestCase):
     def test_placeholder_even_split_across_runs(self):
         import docx
-        from maintenance_ai.parsers.docx_parser import (
+        from docx_ai.parsers.docx_parser import (
             apply_placeholders,
             extract_text,
         )
@@ -43,7 +43,7 @@ class DocxParserTests(unittest.TestCase):
 
     def test_table_and_placeholders(self):
         import docx
-        from maintenance_ai.parsers.docx_parser import (
+        from docx_ai.parsers.docx_parser import (
             apply_placeholders,
             extract_text,
         )
@@ -65,7 +65,7 @@ class DocxParserTests(unittest.TestCase):
 class XlsxParserTests(unittest.TestCase):
     def test_mapping_writes(self):
         from openpyxl import Workbook
-        from maintenance_ai.parsers.xlsx_parser import apply_mapping, extract_text
+        from docx_ai.parsers.xlsx_parser import apply_mapping, extract_text
         wb = Workbook()
         ws = wb.active
         ws.title = "Rapporto"

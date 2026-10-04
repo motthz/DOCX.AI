@@ -74,7 +74,7 @@ dalla finestra "Componenti AI" direttamente da HuggingFace.
 
 def main() -> None:
     OUT.mkdir(exist_ok=True)
-    index = ["MaintenanceAI - licenze dei componenti di terze parti", "=" * 56, ""]
+    index = ["DOCX.AI - licenze dei componenti di terze parti", "=" * 56, ""]
     for name in runtime_packages() + ["pyinstaller"]:
         try:
             dist = md.distribution(name)

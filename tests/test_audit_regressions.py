@@ -15,11 +15,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from maintenance_ai.db import Database  # noqa: E402
-from maintenance_ai.config import Config  # noqa: E402
-from maintenance_ai.security import SecurityError  # noqa: E402
-from maintenance_ai.module_manager import ModuleManager  # noqa: E402
-from maintenance_ai.llm.llama_server import LlamaServer, LlamaServerOptions  # noqa: E402
+from docx_ai.db import Database  # noqa: E402
+from docx_ai.config import Config  # noqa: E402
+from docx_ai.security import SecurityError  # noqa: E402
+from docx_ai.module_manager import ModuleManager  # noqa: E402
+from docx_ai.llm.llama_server import LlamaServer, LlamaServerOptions  # noqa: E402
 
 
 class TestAudit010SqliteThreadSafety(unittest.TestCase):
@@ -176,12 +176,12 @@ class TestAudit002And009ModuleCreateAtomic(unittest.TestCase):
     def setUp(self) -> None:
         import os
         self._tmp = Path(tempfile.mkdtemp())
-        self._prev_data = os.environ.get("MAINTENANCE_AI_DATA_DIR")
-        self._prev_app = os.environ.get("MAINTENANCE_AI_APP_DIR")
+        self._prev_data = os.environ.get("DOCX_AI_DATA_DIR")
+        self._prev_app = os.environ.get("DOCX_AI_APP_DIR")
         data_dir = self._tmp / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
-        os.environ["MAINTENANCE_AI_DATA_DIR"] = str(data_dir)
-        os.environ["MAINTENANCE_AI_APP_DIR"] = str(
+        os.environ["DOCX_AI_DATA_DIR"] = str(data_dir)
+        os.environ["DOCX_AI_APP_DIR"] = str(
             Path(__file__).resolve().parent.parent
         )
         self.addCleanup(self._cleanup_env)
@@ -193,8 +193,8 @@ class TestAudit002And009ModuleCreateAtomic(unittest.TestCase):
     def _cleanup_env(self) -> None:
         import os
         for key, prev in (
-            ("MAINTENANCE_AI_DATA_DIR", self._prev_data),
-            ("MAINTENANCE_AI_APP_DIR", self._prev_app),
+            ("DOCX_AI_DATA_DIR", self._prev_data),
+            ("DOCX_AI_APP_DIR", self._prev_app),
         ):
             if prev is None:
                 os.environ.pop(key, None)

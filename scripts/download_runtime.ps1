@@ -1,4 +1,4 @@
-# MaintenanceAI: bootstrap runtime + modello
+# DOCX.AI: bootstrap runtime + modello
 # Passo 1) Ultima release llama.cpp Windows CPU x64
 # Passo 2) Modello Qwen3-1.7B-Q8_0.gguf con verifica SHA-256
 $ErrorActionPreference = "Stop"

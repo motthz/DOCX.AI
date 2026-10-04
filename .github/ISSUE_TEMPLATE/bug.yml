@@ -5,8 +5,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Versione MaintenanceAI
-      placeholder: "es. 0.3.0 (menu Aiuto o 'MaintenanceAI.exe --version')"
+      label: Versione DOCX.AI
+      placeholder: "es. 0.3.0 (menu Aiuto o 'DOCX.AI.exe --version')"
     validations:
       required: true
   - type: textarea

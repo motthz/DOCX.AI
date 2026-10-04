@@ -2,7 +2,7 @@ r"""Genera i manifest winget (schema 1.9) per la release corrente.
 
     .venv\Scripts\python.exe scripts\winget_manifest.py
 
-Usa release\MaintenanceAI-Setup-<ver>.exe per calcolare lo SHA-256 e scrive i
+Usa release\DOCX.AI-Setup-<ver>.exe per calcolare lo SHA-256 e scrive i
 manifest in release\winget\<ver>\. Per pubblicarli nel catalogo ufficiale:
     winget install wingetcreate
     wingetcreate submit --token <PAT GitHub> release\winget\<ver>
@@ -17,15 +17,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
-from maintenance_ai import __version__  # noqa: E402
+from docx_ai import __version__  # noqa: E402
 
-PKG = "MaintenanceAI.MaintenanceAI"
-REPO = "https://github.com/motthz/MaintenanceAI"
+PKG = "DOCXAI.DOCXAI"
+REPO = "https://github.com/motthz/DOCX.AI"
 SCHEMA = "https://aka.ms/winget-manifest.{kind}.1.9.0.schema.json"
 
 
 def main() -> None:
-    setup = ROOT / "release" / f"MaintenanceAI-Setup-{__version__}.exe"
+    setup = ROOT / "release" / f"DOCX.AI-Setup-{__version__}.exe"
     if not setup.is_file():
         raise SystemExit(f"Installer mancante: {setup} (eseguire scripts\release.ps1)")
     sha = hashlib.sha256(setup.read_bytes()).hexdigest().upper()
@@ -46,7 +46,7 @@ def main() -> None:
         "ManifestType: installer\nManifestVersion: 1.9.0\n", encoding="utf-8")
     (out / f"{PKG}.locale.it-IT.yaml").write_text(
         f"# yaml-language-server: $schema={SCHEMA.format(kind='defaultLocale')}\n{head}"
-        "PackageLocale: it-IT\nPublisher: MaintenanceAI\nPackageName: MaintenanceAI\n"
+        "PackageLocale: it-IT\nPublisher: DOCX.AI\nPackageName: DOCX.AI\n"
         f"PackageUrl: {REPO}\nLicense: Proprietaria\nLicenseUrl: {REPO}/blob/main/LICENSE\n"
         "ShortDescription: Rapporti di manutenzione con AI locale e offline\n"
         "Tags: [manutenzione, rapporti, ai, offline]\n"

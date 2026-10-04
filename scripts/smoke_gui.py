@@ -1,8 +1,8 @@
-r"""Smoke test della GUI da sorgente (vedi maintenance_ai.ui.gui_smoke).
+r"""Smoke test della GUI da sorgente (vedi docx_ai.ui.gui_smoke).
 
     .venv\Scripts\python.exe scripts\smoke_gui.py [--shots CARTELLA] [--dark] [--lang en-US]
 
-Nell'exe: MaintenanceAI.exe --gui-smoke
+Nell'exe: DOCX.AI.exe --gui-smoke
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ ap.add_argument("--lang", default="it-IT")
 args = ap.parse_args()
 
 tmp = Path(tempfile.mkdtemp(prefix="mai_gui_"))
-os.environ["MAINTENANCE_AI_DATA_DIR"] = str(tmp)
+os.environ["DOCX_AI_DATA_DIR"] = str(tmp)
 shutil.copytree(ROOT / "examples" / "modules", tmp / "workspace" / "modules", dirs_exist_ok=True)
 
 try:  # come main.py: coordinate reali su schermi HiDPI (anche per gli screenshot)
@@ -33,8 +33,8 @@ try:  # come main.py: coordinate reali su schermi HiDPI (anche per gli screensho
 except Exception:  # noqa: BLE001
     pass
 
-from maintenance_ai.app import App  # noqa: E402
-from maintenance_ai.ui import gui_smoke  # noqa: E402
+from docx_ai.app import App  # noqa: E402
+from docx_ai.ui import gui_smoke  # noqa: E402
 
 app = App.bootstrap()
 try:

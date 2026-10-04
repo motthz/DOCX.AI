@@ -8,7 +8,7 @@ $venvPyInstaller = Join-Path $ProjectRoot ".venv\Scripts\pyinstaller.exe"
     if (-not (Test-Path $_)) { throw "Manca $_ - eseguire scripts\setup_dev.ps1" }
 }
 
-$SpecFile = Join-Path $ProjectRoot "packaging\MaintenanceAI.spec"
+$SpecFile = Join-Path $ProjectRoot "packaging\DOCX.AI.spec"
 if (-not (Test-Path $SpecFile)) { throw "Manca file spec: $SpecFile" }
 
 # 0. Pulizia
@@ -17,7 +17,7 @@ foreach ($folder in @("build", "dist")) {
     if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# 0b. File di versione (unica fonte: src/maintenance_ai/__init__.py)
+# 0b. File di versione (unica fonte: src/docx_ai/__init__.py)
 & $venvPython (Join-Path $ProjectRoot "packaging\gen_version.py")
 if ($LASTEXITCODE -ne 0) { throw "gen_version fallito" }
 
@@ -36,7 +36,7 @@ if ($pyiExit -ne 0) { throw "PyInstaller fallito (exit=$pyiExit)" }
 
 # 3. Copia config/VERSION/LICENSES in dist (fallback se _internal non viene
 #    popolato correttamente oppure vogliamo la tree "pubblica" chiara).
-$DistDir = Join-Path $ProjectRoot "dist\MaintenanceAI"
+$DistDir = Join-Path $ProjectRoot "dist\DOCX.AI"
 foreach ($rel in @("config", "LICENSES")) {
     $src = Join-Path $ProjectRoot $rel
     $dst = Join-Path $DistDir $rel
@@ -52,12 +52,12 @@ foreach ($f in @("build\VERSION.txt")) {
 }
 
 # 4. Self-test sull'eseguibile buildato
-$Exe = Join-Path $ProjectRoot "dist\MaintenanceAI\MaintenanceAI.exe"
+$Exe = Join-Path $ProjectRoot "dist\DOCX.AI\DOCX.AI.exe"
 if (-not (Test-Path $Exe)) { throw "Atteso eseguibile non trovato: $Exe" }
 
 Write-Host "[build] Self-test versione pacchettizzata..." -ForegroundColor Cyan
-$so = Join-Path $env:TEMP "maintenanceai_selftest_stdout.txt"
-$se = Join-Path $env:TEMP "maintenanceai_selftest_stderr.txt"
+$so = Join-Path $env:TEMP "docxai_selftest_stdout.txt"
+$se = Join-Path $env:TEMP "docxai_selftest_stderr.txt"
 Remove-Item $so, $se -ErrorAction SilentlyContinue
 $sp = Start-Process -FilePath $Exe -ArgumentList "--self-test" -Wait -PassThru -RedirectStandardOutput $so -RedirectStandardError $se -WindowStyle Hidden
 Write-Host "[build] Self-test exit code: $($sp.ExitCode)" -ForegroundColor $(if ($sp.ExitCode -eq 0) { "Green" } else { "Red" })
@@ -71,9 +71,9 @@ if ($sp.ExitCode -ne 0) {
 # 5. Smoke test dell'interfaccia sull'exe (pagine e dialoghi, cartella dati temporanea)
 Write-Host "[build] Smoke test GUI dell'exe..." -ForegroundColor Cyan
 $gs = Start-Process -FilePath $Exe -ArgumentList "--gui-smoke" -Wait -PassThru -WindowStyle Normal `
-    -RedirectStandardOutput (Join-Path $env:TEMP "maintenanceai_guismoke.txt")
+    -RedirectStandardOutput (Join-Path $env:TEMP "docxai_guismoke.txt")
 if ($gs.ExitCode -ne 0) {
-    Get-Content (Join-Path $env:TEMP "maintenanceai_guismoke.txt") -Tail 40
+    Get-Content (Join-Path $env:TEMP "docxai_guismoke.txt") -Tail 40
     throw "Smoke test GUI della build fallito (exit=$($gs.ExitCode))."
 }
 Write-Host "[build] OK. Eseguibile: $Exe" -ForegroundColor Green

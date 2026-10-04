@@ -1,10 +1,10 @@
-r"""Generate the MaintenanceAI logo/icon set (run once, outputs are committed).
+r"""Generate the DOCX.AI logo/icon set (run once, outputs are committed).
 
     .venv\\Scripts\\python.exe packaging\\make_icon.py
 
 Outputs:
-  src/maintenance_ai/assets/app.ico        multi-size Windows icon (16..256)
-  src/maintenance_ai/assets/logo.png       256 px, used by window/header/splash
+  src/docx_ai/assets/app.ico        multi-size Windows icon (16..256)
+  src/docx_ai/assets/logo.png       256 px, used by window/header/splash
   packaging/installer/wizard_large.bmp     Inno Setup side image
   packaging/installer/wizard_small.bmp     Inno Setup header image
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSETS = ROOT / "src" / "maintenance_ai" / "assets"
+ASSETS = ROOT / "src" / "docx_ai" / "assets"
 INSTALLER = ROOT / "packaging" / "installer"
 
 S = 1024  # supersampled canvas
@@ -42,20 +42,21 @@ def _rounded_mask(size: int, radius: int) -> Image.Image:
     return m
 
 
-def _wrench_mask() -> Image.Image:
-    m = Image.new("L", (S, S), 0)
-    d = ImageDraw.Draw(m)
-    cy = S // 2
-    # handle
-    d.rounded_rectangle((330, cy - 58, 800, cy + 58), radius=58, fill=255)
-    # open-end head
-    d.ellipse((150, cy - 175, 470, cy + 175), fill=255)
-    # jaw opening
-    d.rectangle((120, cy - 62, 320, cy + 62), fill=0)
-    d.ellipse((250, cy - 62, 374, cy + 62), fill=0)
-    # hole at the handle end
-    d.ellipse((712, cy - 30, 772, cy + 30), fill=0)
-    return m.rotate(45, resample=Image.BICUBIC, center=(S // 2, S // 2))
+def _document_masks() -> tuple:
+    """Foglio con angolo piegato (maschera pagina, maschera piega, maschera righe)."""
+    x1, y1, x2, y2, fold = 250, 175, 720, 850, 150
+    page = Image.new("L", (S, S), 0)
+    d = ImageDraw.Draw(page)
+    d.rounded_rectangle((x1, y1, x2, y2), radius=46, fill=255)
+    d.polygon([(x2 - fold, y1 - 2), (x2 + 2, y1 - 2), (x2 + 2, y1 + fold)], fill=0)
+    corner = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(corner).polygon([(x2 - fold, y1), (x2 - fold, y1 + fold - 18), (x2 - 18, y1 + fold),
+                                    (x2, y1 + fold)], fill=255)
+    lines = Image.new("L", (S, S), 0)
+    dl = ImageDraw.Draw(lines)
+    for k, (ly, lw) in enumerate([(430, 340), (530, 340), (630, 250), (730, 300)]):
+        dl.rounded_rectangle((x1 + 70, ly, x1 + 70 + lw, ly + 38), radius=19, fill=255)
+    return page, corner, lines
 
 
 def _spark(cx: int, cy: int, r: int) -> list:
@@ -74,16 +75,18 @@ def make_logo() -> Image.Image:
     ImageDraw.Draw(hl).ellipse((-S * 0.3, -S * 0.75, S * 1.3, S * 0.45), fill=24)
     bg = Image.composite(Image.new("RGBA", (S, S), (255, 255, 255, 255)), bg, hl)
 
-    wrench = _wrench_mask()
-    # soft drop shadow
-    shadow = wrench.filter(ImageFilter.GaussianBlur(18))
-    shadow = ImageChops.offset(shadow, 10, 16).point(lambda v: int(v * 0.45))
+    page, corner, lines = _document_masks()
+    # ombra morbida del foglio
+    shadow = page.filter(ImageFilter.GaussianBlur(20))
+    shadow = ImageChops.offset(shadow, 12, 18).point(lambda v: int(v * 0.45))
     bg = Image.composite(Image.new("RGBA", (S, S), (10, 15, 40, 255)), bg, shadow)
-    bg = Image.composite(Image.new("RGBA", (S, S), (255, 255, 255, 255)), bg, wrench)
+    bg = Image.composite(Image.new("RGBA", (S, S), (255, 255, 255, 255)), bg, page)
+    bg = Image.composite(Image.new("RGBA", (S, S), (191, 210, 255, 255)), bg, corner)
+    bg = Image.composite(Image.new("RGBA", (S, S), (147, 170, 230, 255)), bg, lines)
 
     d = ImageDraw.Draw(bg)
-    d.polygon(_spark(800, 225, 135), fill=SPARK + (255,))
-    d.polygon(_spark(625, 130, 58), fill=(167, 243, 208, 255))
+    d.polygon(_spark(760, 640, 165), fill=SPARK + (255,))
+    d.polygon(_spark(870, 450, 70), fill=(167, 243, 208, 255))
 
     out = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     out.paste(bg, (0, 0), _rounded_mask(S, 220))

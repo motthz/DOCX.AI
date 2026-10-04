@@ -23,10 +23,10 @@ class AppTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="mai_feat_"))
-        cls.env = mock.patch.dict(os.environ, {"MAINTENANCE_AI_DATA_DIR": str(cls.tmp)})
+        cls.env = mock.patch.dict(os.environ, {"DOCX_AI_DATA_DIR": str(cls.tmp)})
         cls.env.start()
         shutil.copytree(REPO / "examples" / "modules", cls.tmp / "workspace" / "modules", dirs_exist_ok=True)
-        from maintenance_ai.app import App
+        from docx_ai.app import App
         cls.app = App.bootstrap()
         cls.mod = cls.app.module_manager.list_modules()[0]
 
@@ -89,7 +89,7 @@ class ReportFeatureTests(AppTestCase):
 class TableTests(AppTestCase):
     def test_excel_summary(self):
         from openpyxl import load_workbook
-        from maintenance_ai.exporters.summary_xlsx import export_summary
+        from docx_ai.exporters.summary_xlsx import export_summary
         self._report()
         rows, _n = self.app.db.search_reports(limit=1000)
         out = export_summary(rows, self.tmp / "riepilogo.xlsx", title="Test")
@@ -98,7 +98,7 @@ class TableTests(AppTestCase):
         self.assertEqual(wb["Documenti"].max_row, len(rows) + 1)
 
     def test_csv_import(self):
-        from maintenance_ai.services import import_service
+        from docx_ai.services import import_service
         csv_p = self.tmp / "interventi.csv"
         csv_p.write_text("Data;Apparecchiatura;Note;Descrizione\n02/10/2026;C-12;Cinghia;Cambio cinghia\n"
                          "03/10/2026;P-4;Filtro;Pulizia filtro\n", encoding="utf-8")
@@ -117,30 +117,30 @@ class TableTests(AppTestCase):
 
 class BackupTests(AppTestCase):
     def test_backup_restore_roundtrip(self):
-        from maintenance_ai.services import backup_service
+        from docx_ai.services import backup_service
         rid = self._report(desc="Rapporto da salvare nel backup")
         zip_p = backup_service.create_backup(self.app.config, self.app.db, self.tmp / "b.zip")
         with zipfile.ZipFile(zip_p) as zf:
             names = zf.namelist()
-        self.assertIn("maintenance_ai.db", names)
+        self.assertIn("docx_ai.db", names)
         self.assertTrue(any(n.startswith("workspace/") for n in names))
         info = backup_service.validate_backup(zip_p)
-        self.assertEqual(info["app"], "MaintenanceAI")
+        self.assertEqual(info["app"], "DOCX.AI")
         # ripristino su una cartella dati separata
         target = self.tmp / "restored"
         target.mkdir()
         shutil.copy2(zip_p, target / backup_service.PENDING)
         msg = backup_service.apply_pending_restore(target)
         self.assertIn("ripristinato", msg)
-        from maintenance_ai.db import Database
-        db = Database(target / "maintenance_ai.db")
+        from docx_ai.db import Database
+        db = Database(target / "docx_ai.db")
         try:
             self.assertIsNotNone(db.get_report(rid))
         finally:
             db.close()
 
     def test_invalid_backup_rejected(self):
-        from maintenance_ai.services import backup_service
+        from docx_ai.services import backup_service
         bad = self.tmp / "bad.zip"
         with zipfile.ZipFile(bad, "w") as zf:
             zf.writestr("x.txt", "x")
@@ -150,7 +150,7 @@ class BackupTests(AppTestCase):
 
 class SupportTests(AppTestCase):
     def test_diagnostics_package_has_no_reports(self):
-        from maintenance_ai.services import diagnostics
+        from docx_ai.services import diagnostics
         self._report(desc="DATO RISERVATO DEL CLIENTE")
         p = diagnostics.create_package(self.app, self.tmp / "diag")
         with zipfile.ZipFile(p) as zf:
@@ -160,10 +160,10 @@ class SupportTests(AppTestCase):
         self.assertNotIn(b"DATO RISERVATO", blob)
         self.assertFalse(any(n.endswith(".db") for n in names))
         url = diagnostics.issue_url(self.app)
-        self.assertTrue(url.startswith("https://github.com/motthz/MaintenanceAI/issues/new?"))
+        self.assertTrue(url.startswith("https://github.com/motthz/DOCX.AI/issues/new?"))
 
     def test_housekeeping(self):
-        from maintenance_ai.services import housekeeping
+        from docx_ai.services import housekeeping
         logs = self.app.config.logs_root()
         crash = logs / "crash.log"
         crash.write_bytes(b"x" * (housekeeping.CRASH_LOG_MAX + 1000))
@@ -185,11 +185,11 @@ class SupportTests(AppTestCase):
 
 class I18nTests(unittest.TestCase):
     def tearDown(self):
-        from maintenance_ai.ui import i18n
+        from docx_ai.ui import i18n
         i18n.set_language("it-IT")
 
     def test_translation_and_format(self):
-        from maintenance_ai.ui import i18n
+        from docx_ai.ui import i18n
         i18n.set_language("en-US")
         self.assertEqual(i18n.t("Salva bozza"), "Save draft")
         self.assertEqual(i18n.t("{n} bozze", n=3), "3 drafts")
@@ -199,7 +199,7 @@ class I18nTests(unittest.TestCase):
 
     def test_catalog_complete_and_consistent(self):
         import re
-        cat = json.loads((REPO / "src" / "maintenance_ai" / "locales" / "en.json").read_text(encoding="utf-8"))
+        cat = json.loads((REPO / "src" / "docx_ai" / "locales" / "en.json").read_text(encoding="utf-8"))
         self.assertTrue(all(cat.values()))
         for k, v in cat.items():
             self.assertEqual(sorted(re.findall(r"(?<!\{)\{\w+\}(?!\})", k)),
@@ -208,7 +208,7 @@ class I18nTests(unittest.TestCase):
 
 class HardwareTests(unittest.TestCase):
     def test_detect(self):
-        from maintenance_ai.llm import hardware
+        from docx_ai.llm import hardware
         hw = hardware.detect()
         self.assertGreater(hw.cpu_cores, 0)
         self.assertIn(hw.recommended_model(), ("Qwen3-1.7B-Q8_0.gguf", "Qwen3-0.6B-Q8_0.gguf"))

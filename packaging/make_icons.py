@@ -2,7 +2,7 @@ r"""Genera le icone PNG dell'interfaccia dal font Lucide (licenza ISC).
 
     .venv\Scripts\python.exe packaging\make_icons.py
 
-Per ogni icona produce src/maintenance_ai/assets/icons/<nome>_{light,dark,white}.png
+Per ogni icona produce src/docx_ai/assets/icons/<nome>_{light,dark,white}.png
 (64 px; CustomTkinter le ridimensiona in base al DPI). Le icone usate dall'app
 sono elencate in ICONS: aggiungerne una qui e rilanciare lo script.
 """
@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 FONT = ROOT / "packaging" / "third_party" / "lucide.ttf"
 INFO = ROOT / "packaging" / "third_party" / "info.json"
-OUT = ROOT / "src" / "maintenance_ai" / "assets" / "icons"
+OUT = ROOT / "src" / "docx_ai" / "assets" / "icons"
 SIZE = 64
 
 ICONS = """house file-text history package folder-open sparkles upload download file-plus

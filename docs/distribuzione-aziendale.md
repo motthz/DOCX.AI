@@ -1,26 +1,26 @@
 # Distribuzione aziendale (Intune, GPO, SCCM)
 
-L'installer `MaintenanceAI-Setup-<ver>.exe` (Inno Setup) supporta l'installazione
+L'installer `DOCX.AI-Setup-<ver>.exe` (Inno Setup) supporta l'installazione
 silenziosa e non richiede interazione.
 
 ## Parametri della riga di comando
 
 | Scenario | Comando |
 |---|---|
-| Utente corrente, silenzioso | `MaintenanceAI-Setup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER` |
-| Tutti gli utenti (richiede admin) | `MaintenanceAI-Setup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS` |
+| Utente corrente, silenzioso | `DOCX.AI-Setup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER` |
+| Tutti gli utenti (richiede admin) | `DOCX.AI-Setup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS` |
 | Senza collegamento sul Desktop | aggiungere `/TASKS=""` |
-| Cartella personalizzata | aggiungere `/DIR="C:\Programmi\MaintenanceAI"` |
+| Cartella personalizzata | aggiungere `/DIR="C:\Programmi\DOCX.AI"` |
 | Log dell'installazione | aggiungere `/LOG="C:\Temp\mai-setup.log"` |
 | Modello AI preselezionato | aggiungere `/AIMODEL=1.7b` (oppure `0.6b`, `none`) |
 
 Disinstallazione silenziosa:
 
 ```bat
-"%LOCALAPPDATA%\Programs\MaintenanceAI\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES
+"%LOCALAPPDATA%\Programs\DOCX.AI\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES
 ```
 
-(per l'installazione "tutti gli utenti" il percorso è `C:\Program Files\MaintenanceAI\unins000.exe`).
+(per l'installazione "tutti gli utenti" il percorso è `C:\Program Files\DOCX.AI\unins000.exe`).
 
 Codici di uscita: `0` = OK; gli altri codici sono documentati da Inno Setup
 (<https://jrsoftware.org/ishelp/topic_setupexitcodes.htm>).
@@ -30,27 +30,27 @@ Codici di uscita: `0` = OK; gli altri codici sono documentati da Inno Setup
 1. Scarica lo strumento [Microsoft Win32 Content Prep Tool](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool).
 2. Metti l'installer in una cartella e crea il pacchetto:
    ```bat
-   IntuneWinAppUtil.exe -c .\setup -s MaintenanceAI-Setup-0.3.0.exe -o .\out
+   IntuneWinAppUtil.exe -c .\setup -s DOCX.AI-Setup-0.3.0.exe -o .\out
    ```
 3. In Intune → *App → Windows → Aggiungi → App Windows (Win32)*:
-   - **Comando di installazione**: `MaintenanceAI-Setup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS`
-   - **Comando di disinstallazione**: `"C:\Program Files\MaintenanceAI\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES`
+   - **Comando di installazione**: `DOCX.AI-Setup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS`
+   - **Comando di disinstallazione**: `"C:\Program Files\DOCX.AI\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES`
    - **Comportamento installazione**: Sistema
-   - **Regola di rilevamento**: file `C:\Program Files\MaintenanceAI\MaintenanceAI.exe`, versione ≥ 0.3.0
+   - **Regola di rilevamento**: file `C:\Program Files\DOCX.AI\DOCX.AI.exe`, versione ≥ 0.3.0
 
 ## Modelli AI centralizzati
 
 Per evitare che ogni PC scarichi ~2 GB:
 
 1. Su un PC scarica i componenti dalla finestra *Componenti AI*.
-2. Copia `%LOCALAPPDATA%\MaintenanceAI\runtime` e `%LOCALAPPDATA%\MaintenanceAI\models`
-   nella cartella di installazione (`C:\Program Files\MaintenanceAI\runtime`, `...\models`)
+2. Copia `%LOCALAPPDATA%\DOCX.AI\runtime` e `%LOCALAPPDATA%\DOCX.AI\models`
+   nella cartella di installazione (`C:\Program Files\DOCX.AI\runtime`, `...\models`)
    tramite il pacchetto di distribuzione: l'app li cerca anche lì.
 
 ## Cartella dati condivisa
 
 In *Impostazioni → Cartella dati* è possibile puntare a una cartella di rete
-(`\server\manutenzione\MaintenanceAI`). Il database viene aperto in modalità
+(`\server\manutenzione\DOCX.AI`). Il database viene aperto in modalità
 compatibile con SMB e un file di lock impedisce l'uso contemporaneo da due PC.
 Per l'uso simultaneo da più postazioni usare cartelle dati separate.
 

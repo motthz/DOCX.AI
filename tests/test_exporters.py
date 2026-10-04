@@ -39,7 +39,7 @@ class ExporterTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="mai_exp_"))
 
     def test_pdf_export(self):
-        from maintenance_ai.exporters.pdf_exporter import export_pdf
+        from docx_ai.exporters.pdf_exporter import export_pdf
         out = self.tmp / "out.pdf"
         export_pdf(out, VALUES, SCHEMA, report_id="1", module_name="Test")
         self.assertGreater(out.stat().st_size, 2000)
@@ -49,8 +49,8 @@ class ExporterTests(unittest.TestCase):
 
     def test_docx_roundtrip(self):
         import docx
-        from maintenance_ai.exporters.docx_exporter import export_docx
-        from maintenance_ai.parsers.docx_parser import extract_text
+        from docx_ai.exporters.docx_exporter import export_docx
+        from docx_ai.parsers.docx_parser import extract_text
         # Crea template con placeholder
         tpl = self.tmp / "tpl.docx"
         d = docx.Document()
@@ -69,7 +69,7 @@ class ExporterTests(unittest.TestCase):
 
     def test_xlsx_roundtrip(self):
         from openpyxl import Workbook, load_workbook
-        from maintenance_ai.exporters.xlsx_exporter import export_xlsx
+        from docx_ai.exporters.xlsx_exporter import export_xlsx
         tpl = self.tmp / "tpl.xlsx"
         wb = Workbook()
         ws = wb.active

@@ -104,9 +104,9 @@ else:
 
 # ========================================================================= H3
 print("\n=== H3: flusso report end-to-end create_draft -> approve -> finalize")
-os.environ["MAINTENANCE_AI_CONFIG"] = str(ROOT / "config" / "default.json")
-from maintenance_ai.app import App
-from maintenance_ai.module_manager import ModuleManager  # noqa: F401
+os.environ["DOCX_AI_CONFIG"] = str(ROOT / "config" / "default.json")
+from docx_ai.app import App
+from docx_ai.module_manager import ModuleManager  # noqa: F401
 app = App.bootstrap(ROOT / "config" / "default.json")
 atexit.register(lambda: app.shutdown())
 # pick first module available in DB
@@ -173,7 +173,7 @@ else:
             names = zf.namelist()
             if len(names) < 3:
                 issues.append("troppo poche entries")
-            from maintenance_ai.security import safe_resolve_name
+            from docx_ai.security import safe_resolve_name
             for n in names:
                 resolved = safe_resolve_name(out_dir, n)
                 if str(resolved).startswith(str(out_dir)) is False:

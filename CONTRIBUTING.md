@@ -1,4 +1,4 @@
-# Contribuire a MaintenanceAI
+# Contribuire a DOCX.AI
 
 ## Ambiente
 
@@ -41,7 +41,7 @@ Aggiorna `CHANGELOG.md` nella sezione **Non rilasciato**.
 
 ## Rilascio
 
-1. Aggiorna `__version__` in `src/maintenance_ai/__init__.py` e sposta le voci del
+1. Aggiorna `__version__` in `src/docx_ai/__init__.py` e sposta le voci del
    CHANGELOG in una nuova sezione `## [x.y.z] - data`.
 2. `git tag vX.Y.Z && git push --tags`: la GitHub Action *Release* compila exe,
    installer e ZIP e li pubblica con le note prese dal CHANGELOG.

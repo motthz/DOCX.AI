@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "MaintenanceAI",
+    "name": "DOCX.AI",
     "language": "it-IT",
-    "data_dir_env": "%LOCALAPPDATA%/MaintenanceAI"
+    "data_dir_env": "%LOCALAPPDATA%/DOCX.AI"
   },
   "llm": {
     "backend": "llama_server",
@@ -64,7 +64,7 @@
     ]
   },
   "db": {
-    "filename": "maintenance_ai.db",
+    "filename": "docx_ai.db",
     "schema_version": 1
   },
   "ui": {

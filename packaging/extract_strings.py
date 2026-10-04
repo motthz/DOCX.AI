@@ -1,4 +1,4 @@
-r"""Estrae le stringhe dell'interfaccia da tradurre in src/maintenance_ai/locales/en.json.
+r"""Estrae le stringhe dell'interfaccia da tradurre in src/docx_ai/locales/en.json.
 
     .venv\Scripts\python.exe packaging\extract_strings.py [--check]
 
@@ -17,8 +17,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-UI = ROOT / "src" / "maintenance_ai" / "ui"
-CATALOG = ROOT / "src" / "maintenance_ai" / "locales" / "en.json"
+UI = ROOT / "src" / "docx_ai" / "ui"
+CATALOG = ROOT / "src" / "docx_ai" / "locales" / "en.json"
 TEXT_KW = {"text", "title", "label", "subtitle", "placeholder_text", "message", "prompt"}
 MSG_FUNCS = {"showinfo", "showwarning", "showerror", "askyesno", "askokcancel", "askyesnocancel"}
 _PREFIX = re.compile(r"^([^\w«(\"'¿¡{\[]*)(.*?)(\s*)$", re.S)
@@ -56,11 +56,11 @@ def extract() -> set:
                     core = _core(c)
                     if core and not re.fullmatch(r"[\w.\-]+\.(py|json|docx|xlsx|zip|png)", core):
                         out.add(core)
-    from maintenance_ai.docintelligence.rules_manager import FEATURE_LABELS_V2
+    from docx_ai.docintelligence.rules_manager import FEATURE_LABELS_V2
     out.update(FEATURE_LABELS_V2.values())
     # etichette passate a t() tramite variabili (schede, stati dello storico)
-    from maintenance_ai.ui.pages.history import STATUS, STATUS_LABEL
-    from maintenance_ai.ui.shell import PAGES
+    from docx_ai.ui.pages.history import STATUS, STATUS_LABEL
+    from docx_ai.ui.shell import PAGES
     out.update(lbl for _k, lbl, _i in PAGES)
     out.update(lbl for _k, lbl in STATUS)
     out.update(STATUS_LABEL.values())
@@ -72,8 +72,8 @@ def main() -> int:
     sys.path.insert(0, str(ROOT / "src"))
     keys = extract()
     cat = json.loads(CATALOG.read_text(encoding="utf-8")) if CATALOG.is_file() else {}
-    for k in sorted(keys):
-        cat.setdefault(k, "")
+    removed = [k for k in cat if k not in keys]
+    cat = {k: cat.get(k, "") for k in sorted(keys)}  # rimuove le stringhe non piu' usate
     missing = [k for k, v in cat.items() if not v]
     if "--check" in sys.argv:
         if missing:
@@ -84,7 +84,7 @@ def main() -> int:
         return 0
     CATALOG.parent.mkdir(parents=True, exist_ok=True)
     CATALOG.write_text(json.dumps(dict(sorted(cat.items())), ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    print(f"{len(cat)} stringhe nel catalogo, {len(missing)} da tradurre -> {CATALOG}")
+    print(f"{len(cat)} stringhe nel catalogo, {len(missing)} da tradurre, {len(removed)} rimosse -> {CATALOG}")
     return 0
 
 

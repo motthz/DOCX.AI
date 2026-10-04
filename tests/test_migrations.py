@@ -25,7 +25,7 @@ class MigrationTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_v010_database_upgrades_and_keeps_data(self):
-        from maintenance_ai.db import _MIGRATIONS, Database
+        from docx_ai.db import _MIGRATIONS, Database
         path = self.tmp / "old.db"
         shutil.copy(FIXTURE, path)
         db = Database(path)
@@ -47,7 +47,7 @@ class MigrationTests(unittest.TestCase):
             db.close()
 
     def test_every_intermediate_schema_migrates(self):
-        from maintenance_ai.db import _MIGRATIONS, Database
+        from docx_ai.db import _MIGRATIONS, Database
         for applied in range(len(_MIGRATIONS) + 1):
             with self.subTest(applied=applied):
                 path = self.tmp / f"step{applied}.db"
@@ -66,7 +66,7 @@ class MigrationTests(unittest.TestCase):
                     db.close()
 
     def test_reopen_is_idempotent(self):
-        from maintenance_ai.db import Database
+        from docx_ai.db import Database
         path = self.tmp / "twice.db"
         Database(path).close()
         db = Database(path)

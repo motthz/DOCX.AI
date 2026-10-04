@@ -1,4 +1,4 @@
-MaintenanceAI - licenze dei componenti di terze parti
+DOCX.AI - licenze dei componenti di terze parti
 ========================================================
 
 - attrs 26.1.0  (MIT)  -> attrs.txt

@@ -30,7 +30,7 @@ SCHEMA = {
 
 class PromptBuilderTests(unittest.TestCase):
     def test_messages_has_policy_and_schema(self):
-        from maintenance_ai.llm.prompt_builder import build_extraction_messages
+        from docx_ai.llm.prompt_builder import build_extraction_messages
         msgs = build_extraction_messages(
             SCHEMA,
             "Controllo pompa P1, sostituzione paraoli, tutto ok",
@@ -46,8 +46,8 @@ class PromptBuilderTests(unittest.TestCase):
 
 class JsonPipelineTests(unittest.TestCase):
     def test_mock_pipeline_returns_valid_object(self):
-        from maintenance_ai.llm.llama_server import MockLlamaServer
-        from maintenance_ai.llm.json_pipeline import JsonPipeline
+        from docx_ai.llm.llama_server import MockLlamaServer
+        from docx_ai.llm.json_pipeline import JsonPipeline
         server = MockLlamaServer()
         server.start()
         pipe = JsonPipeline(server, max_retries=1)
@@ -60,7 +60,7 @@ class JsonPipelineTests(unittest.TestCase):
             self.assertIn(req, result.data)
 
     def test_repair_json_strips_fences_and_fills_defaults(self):
-        from maintenance_ai.llm.json_pipeline import (
+        from docx_ai.llm.json_pipeline import (
             _fill_missing_defaults,
             _lenient_json_parse,
         )

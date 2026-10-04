@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from maintenance_ai.llm.grounding import GroundingChecker, summarize  # noqa: E402
+from docx_ai.llm.grounding import GroundingChecker, summarize  # noqa: E402
 
 DESC = ("Il 2 ottobre 2026 il tecnico Mario Rossi ha sostituito la cinghia del compressore C-12 "
         "nell'impianto di Lecco. Esito positivo.")

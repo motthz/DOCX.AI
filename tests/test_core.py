@@ -16,14 +16,14 @@ sys.path.insert(0, str(REPO))
 
 class ConfigTests(unittest.TestCase):
     def test_load_default(self):
-        from maintenance_ai.config import Config
+        from docx_ai.config import Config
         cfg = Config.load()
         self.assertTrue(cfg.app_root.exists())
         self.assertTrue(cfg.data_root.exists())
         self.assertTrue(cfg.db_path().parent.exists())
 
     def test_available_profiles_known(self):
-        from maintenance_ai.config import Config
+        from docx_ai.config import Config
         cfg = Config.load()
         profs = cfg.available_profiles()
         self.assertIn("compatibility", profs)
@@ -33,7 +33,7 @@ class ConfigTests(unittest.TestCase):
 
 class DbTests(unittest.TestCase):
     def setUp(self):
-        from maintenance_ai.db import Database
+        from docx_ai.db import Database
         td = Path(tempfile.mkdtemp(prefix="mai_db_"))
         self.db_path = td / "t.db"
         self.db = Database(self.db_path)
@@ -74,7 +74,7 @@ class DbTests(unittest.TestCase):
 
 class SecurityTests(unittest.TestCase):
     def test_safe_resolve_no_escape(self):
-        from maintenance_ai.security import safe_resolve_name, SecurityError
+        from docx_ai.security import safe_resolve_name, SecurityError
         root = Path(tempfile.mkdtemp(prefix="mai_sec_"))
         ok = safe_resolve_name(root, "hello/world.txt")
         self.assertTrue(str(ok.resolve()).startswith(str(root.resolve())))
@@ -86,13 +86,13 @@ class SecurityTests(unittest.TestCase):
             safe_resolve_name(root, "")
 
     def test_safe_slug_sanitizes(self):
-        from maintenance_ai.security import safe_slug
+        from docx_ai.security import safe_slug
         self.assertNotIn("?", safe_slug("a?b"))
         self.assertNotIn("\\", safe_slug("a\\b"))
         self.assertEqual(safe_slug(""), "module")
 
     def test_sha256_bytes_deterministic(self):
-        from maintenance_ai.security import sha256_bytes
+        from docx_ai.security import sha256_bytes
         self.assertEqual(sha256_bytes(b"abc"),
                          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 

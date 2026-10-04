@@ -1,10 +1,26 @@
-# Changelog
+# Changelog di DOCX.AI (già MaintenanceAI)
 
 Formato basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 versionamento [SemVer](https://semver.org/lang/it/). La versione ha un'unica
 fonte: `src/maintenance_ai/__init__.py`.
 
 ## [Non rilasciato]
+
+## [0.4.0] - 2026-10-04
+
+### Modificato
+- **L'app si chiama ora DOCX.AI** (prima MaintenanceAI): nuovo nome, nuovo logo, nuovo repository
+  `motthz/DOCX.AI`. Al primo avvio dati, moduli e impostazioni vengono spostati automaticamente da
+  `%LOCALAPPDATA%\MaintenanceAI` a `%LOCALAPPDATA%\DOCX.AI`; l'installer rimuove la vecchia versione.
+- **Compilazione di qualsiasi tipo di modulo**, non solo rapporti di manutenzione: istruzioni all'AI
+  generiche, testi dell'interfaccia neutri ("Compila", "documento"), PDF ed Excel senza riferimenti alla
+  manutenzione.
+
+### Aggiunto
+- **Tipo di documento** per ogni modulo (es. "verbale di riunione"), passato all'AI come contesto.
+- Filtro dello storico su **qualsiasi campo** del modulo.
+- Moduli di esempio **Verbale di riunione** (DOCX) e **Richiesta d'acquisto** (XLSX).
+- I backup della v0.3 restano ripristinabili.
 
 ## [0.3.0] - 2026-10-04
 
@@ -64,7 +80,8 @@ fonte: `src/maintenance_ai/__init__.py`.
 
 - Prima versione pubblica (portable onedir).
 
-[Non rilasciato]: https://github.com/motthz/MaintenanceAI/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/motthz/MaintenanceAI/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/motthz/MaintenanceAI/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/motthz/MaintenanceAI/releases/tag/v0.1.0
+[Non rilasciato]: https://github.com/motthz/DOCX.AI/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/motthz/DOCX.AI/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/motthz/DOCX.AI/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/motthz/DOCX.AI/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/motthz/DOCX.AI/releases/tag/v0.1.0

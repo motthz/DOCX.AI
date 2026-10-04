@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-r"""Smoke test 30 secondi per l'EXE pacchettizzato MaintenanceAI.
+r"""Smoke test 30 secondi per l'EXE pacchettizzato DOCX.AI.
 
 Uso (PowerShell):
-  $env:MAINTENANCE_AI_SMOKE_TEST="1"
+  $env:DOCX_AI_SMOKE_TEST="1"
   python scripts\smoke_test.py [path_exe]
 
-Path EXE default: dist\MaintenanceAI\MaintenanceAI.exe
+Path EXE default: dist\DOCX.AI\DOCX.AI.exe
 
 Regole:
-1. Avvia MaintenanceAI.exe
+1. Avvia DOCX.AI.exe
 2. Poll ogni 2s per 30s:
    - se il processo muore PRIMA dei 30s -> FAIL (exit 1)
    - dopo 30s se ancora vivo -> chiudi gentilmente (WM_CLOSE)
 3. Attendi max 5s per chiusura, se ancora vivo TerminateProcess
 4. Scansiona eventuali file crash.log / traceback.log / logs/*.log sotto
-   %LOCALAPPDATA%\MaintenanceAI\logs per 'Traceback' o 'CRITICAL' -> FAIL se trovati
+   %LOCALAPPDATA%\DOCX.AI\logs per 'Traceback' o 'CRITICAL' -> FAIL se trovati
 5. Exit 0 se tutto OK.
 """
 from __future__ import annotations
@@ -102,7 +102,7 @@ def main(argv: list[str]) -> int:
         exe = Path(argv[1])
     else:
         project_root = Path(__file__).resolve().parent.parent
-        exe = project_root / "dist" / "MaintenanceAI" / "MaintenanceAI.exe"
+        exe = project_root / "dist" / "DOCX.AI" / "DOCX.AI.exe"
     if not exe.exists():
         print(f"[smoke] EXE non trovato: {exe}", file=sys.stderr)
         print("[smoke] Esegui prima scripts/build.ps1", file=sys.stderr)
@@ -111,15 +111,15 @@ def main(argv: list[str]) -> int:
 
     localappdata = Path(os.environ.get(
         "LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    data_root = localappdata / "MaintenanceAI"
+    data_root = localappdata / "DOCX.AI"
 
     print(f"[smoke] EXE          : {exe}")
     print(f"[smoke] data_root    : {data_root}")
     print(f"[smoke] durata       : {SMOKE_DURATION_S}s (poll ogni {SMOKE_POLL_S}s)")
 
     env = os.environ.copy()
-    env.setdefault("MAINTENANCE_AI_SMOKE_TEST", "1")
-    env.setdefault("MAINTENANCE_AI_NO_GUI_TEST_MODE", "1")
+    env.setdefault("DOCX_AI_SMOKE_TEST", "1")
+    env.setdefault("DOCX_AI_NO_GUI_TEST_MODE", "1")
 
     try:
         proc = subprocess.Popen([str(exe)], env=env, close_fds=True)

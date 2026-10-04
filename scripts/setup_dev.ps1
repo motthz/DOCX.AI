@@ -36,7 +36,7 @@ if (Test-Path $preCommit) {
 
 Write-Host "[setup_dev] Self-test..." -ForegroundColor Yellow
 $env:PYTHONPATH = "$ProjectRoot\src;$ProjectRoot"
-& $venvPython -m maintenance_ai.main --self-test
+& $venvPython -m docx_ai.main --self-test
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "[setup_dev] self-test terminato con exit code $LASTEXITCODE."
 } else {

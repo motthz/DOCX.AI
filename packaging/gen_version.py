@@ -1,4 +1,4 @@
-r"""Genera i file di versione per la build partendo da maintenance_ai.__version__
+r"""Genera i file di versione per la build partendo da docx_ai.__version__
 (unica fonte della versione):
   build/version_info.txt   risorsa di versione dell'exe (PyInstaller)
   build/VERSION.txt        copiato nella cartella dell'app
@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from maintenance_ai import __version__  # noqa: E402
+from docx_ai import __version__  # noqa: E402
 
 OUT = ROOT / "build"
 
@@ -28,20 +28,20 @@ def main() -> None:
                     OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
   kids=[
     StringFileInfo([StringTable('041004B0', [
-      StringStruct('CompanyName', 'MaintenanceAI'),
-      StringStruct('FileDescription', 'MaintenanceAI - Rapporti di manutenzione con AI locale'),
+      StringStruct('CompanyName', 'DOCX.AI'),
+      StringStruct('FileDescription', 'DOCX.AI - Rapporti di manutenzione con AI locale'),
       StringStruct('FileVersion', '{__version__}'),
-      StringStruct('InternalName', 'MaintenanceAI'),
-      StringStruct('LegalCopyright', 'Copyright (c) {datetime.date.today().year} MaintenanceAI. Tutti i diritti riservati.'),
-      StringStruct('OriginalFilename', 'MaintenanceAI.exe'),
-      StringStruct('ProductName', 'MaintenanceAI'),
+      StringStruct('InternalName', 'DOCX.AI'),
+      StringStruct('LegalCopyright', 'Copyright (c) {datetime.date.today().year} DOCX.AI. Tutti i diritti riservati.'),
+      StringStruct('OriginalFilename', 'DOCX.AI.exe'),
+      StringStruct('ProductName', 'DOCX.AI'),
       StringStruct('ProductVersion', '{__version__}')])]),
     VarFileInfo([VarStruct('Translation', [0x0410, 1200])])
   ]
 )
 """, encoding="utf-8")
     (OUT / "VERSION.txt").write_text(
-        f"MaintenanceAI: {__version__}\n"
+        f"DOCX.AI: {__version__}\n"
         f"Build date: {datetime.date.today().isoformat()}\n"
         f"Python: {platform.python_version()}\n"
         "Componenti AI: scaricati dall'app (llama.cpp + Qwen3 GGUF)\n",

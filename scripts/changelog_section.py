@@ -14,4 +14,4 @@ for line in text.splitlines():
         continue
     if inside:
         out.append(line)
-print("\n".join(out).strip() or f"MaintenanceAI {version}")
+print("\n".join(out).strip() or f"DOCX.AI {version}")

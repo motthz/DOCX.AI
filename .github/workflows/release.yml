@@ -57,5 +57,5 @@ jobs:
         with:
           body_path: release_notes.md
           files: |
-            release/MaintenanceAI-Setup-*.exe
-            release/MaintenanceAI-*-portable-win64.zip
+            release/DOCX.AI-Setup-*.exe
+            release/DOCX.AI-*-portable-win64.zip
