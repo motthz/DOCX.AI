@@ -8,3 +8,8 @@ ruff
 mypy
 pre-commit
 pip-tools
+# dipendenze solo-Windows di PyInstaller/build: dichiarate per non perderle
+# quando il lock viene rigenerato su Linux (Dependabot)
+pefile
+pywin32-ctypes
+colorama
