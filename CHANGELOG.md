@@ -6,6 +6,8 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.5.0] - 2026-10-05
+
 ### Aggiunto
 - **Editor visuale "trascina e rilascia"** per Word ed Excel: si trascinano le tessere dei campi (Testo,
   Numero, Data, Sì/No, Scelta, Elenco) direttamente nel documento. Rilasciandole su una riga da
