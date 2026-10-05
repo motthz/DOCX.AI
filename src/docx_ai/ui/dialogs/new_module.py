@@ -23,10 +23,10 @@ DOC_TYPES = ["Rapporto di intervento", "Verbale di riunione", "Richiesta d'acqui
 
 
 class NewModuleDialog(Dialog):
-    def __init__(self, win: Any):
-        super().__init__(win.root, t("Nuovo modulo"), width=760, height=680, icon_name="file-plus",
-                         subtitle=t("Un modulo è il modello di un documento (rapporto, verbale, scheda, richiesta…): l'AI ne compila i campi "
-                                    "{{come_questo}} partendo dalle informazioni che fornisci."))
+    def __init__(self, win: Any, initial_file: Optional[Path] = None):
+        super().__init__(win.root, t("Nuovo modulo"), width=760, height=760, icon_name="file-plus",
+                         subtitle=t("Un modulo è il modello di un documento (rapporto, verbale, scheda, richiesta…): l'AI ne "
+                                    "compila i campi partendo dalle informazioni che fornisci."))
         self.win = win
         self.template: Optional[Path] = None
         self.mode = ctk.StringVar(value="template")
@@ -38,7 +38,7 @@ class NewModuleDialog(Dialog):
         self._cards = {}
         for col, (key, ic, title, desc) in enumerate((
                 ("template", "layout-template", t("Da un mio file (DOCX/XLSX)"),
-                 t("Usa un tuo documento con i campi {{nome_campo}}: schema e mappatura vengono creati da soli.")),
+                 t("Usa un tuo documento Word o Excel: poi trascini i campi nei punti da compilare.")),
                 ("empty", "file-plus", t("Modulo vuoto"),
                  t("Parti da zero con uno schema minimo; potrai aggiungere template e campi dopo.")))):
             card = ctk.CTkFrame(modes, fg_color=C["surface"], border_width=2, border_color=C["border"],
@@ -56,17 +56,21 @@ class NewModuleDialog(Dialog):
         form = ctk.CTkFrame(self.body, fg_color="transparent")
         form.pack(fill="x")
         form.columnconfigure(1, weight=1)
-        self.file_row = ctk.CTkFrame(form, fg_color="transparent")
+        from ..dnd import FileDropZone
+        self.file_row = FileDropZone(form, t("Trascina qui il tuo file Word o Excel"),
+                                     t("oppure sceglilo dal computer"), t("Scegli file…"), self._dropped,
+                                     self._pick, icon_name="upload", height=118)
         self.file_row.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        button(self.file_row, t("Scegli file…"), self._pick, icon_name="folder-open").pack(side="left")
-        self.file_lbl = label(self.file_row, t("Nessun file selezionato"), muted=True)
-        self.file_lbl.pack(side="left", padx=10)
+        if not self.file_row.drop_enabled:
+            self.file_row.title.configure(text=t("Scegli il tuo file Word o Excel"))
+            self.file_row.hint.configure(text=t("Nessun file selezionato"))
+        self.file_lbl = self.file_row.hint
 
         label(form, t("Nome *"), kind="body_b").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=6)
         self.name = ctk.CTkEntry(form, height=34, placeholder_text=t("es. Verbale di riunione, Richiesta d'acquisto, Rapporto intervento"))
         self.name.grid(row=1, column=1, sticky="ew", pady=6)
         label(form, t("Descrizione"), kind="body_b").grid(row=2, column=0, sticky="nw", padx=(0, 12), pady=6)
-        self.desc = ctk.CTkTextbox(form, height=80, border_width=1, border_color=C["border"])
+        self.desc = ctk.CTkTextbox(form, height=56, border_width=1, border_color=C["border"])
         self.desc.grid(row=2, column=1, sticky="ew", pady=6)
         label(form, t("Tipo di documento"), kind="body_b").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=6)
         self.doc_type = ctk.CTkComboBox(form, height=34, values=[t(d) for d in DOC_TYPES])
@@ -82,6 +86,8 @@ class NewModuleDialog(Dialog):
         # Invio crea il modulo, ma non mentre si va a capo nella descrizione
         self.bind("<Return>", lambda e: None if isinstance(e.widget, tk.Text) else self._create())
         self._choose("template")
+        if initial_file is not None:
+            self._set_file(Path(initial_file))
         self.after(200, self.name.focus_set)
 
     def _choose(self, key: str) -> None:
@@ -97,10 +103,22 @@ class NewModuleDialog(Dialog):
     def _pick(self) -> None:
         f = filedialog.askopenfilename(parent=self, title=t("Scegli il template"),
                                        filetypes=[(t("Template DOCX/XLSX"), "*.docx *.xlsx")])
-        if not f:
+        if f:
+            self._set_file(Path(f))
+
+    def _dropped(self, files) -> None:
+        ok = [f for f in files if f.suffix.lower() in (".docx", ".xlsx")]
+        if not ok:
+            self.win.toast(t("Trascina un file Word (.docx) o Excel (.xlsx)."), "warning")
             return
-        self.template = Path(f)
-        self.file_lbl.configure(text=self.template.name)
+        self._set_file(ok[0])
+
+    def _set_file(self, path: Path) -> None:
+        self.template = path
+        self._choose("template")
+        self.file_row.title.configure(text="✓ " + self.template.name)
+        self.file_lbl.configure(text=t("Puoi trascinare un altro file per cambiarlo"))
+        self.file_row.highlight(True)
         if not self.name.get().strip():
             self.name.insert(0, self.template.stem.replace("_", " ").strip().capitalize())
 
@@ -119,7 +137,7 @@ class NewModuleDialog(Dialog):
         try:
             if self.mode.get() == "template":
                 mod = self.win.mm.create_module_from_template(
-                    name=name, template_file=self.template, slug=slug, description=desc)
+                    name=name, template_file=self.template, slug=slug, description=desc, allow_empty=True)
             else:
                 mod = self.win.mm.create_module(name=name, template_type="docx", slug=slug, description=desc)
         except Exception as exc:  # noqa: BLE001
@@ -133,12 +151,18 @@ class NewModuleDialog(Dialog):
         except Exception:  # noqa: BLE001
             pass
         invalid = list(getattr(self.win.mm, "last_invalid_placeholders", []) or [])             if self.mode.get() == "template" else []
+        from_file = self.mode.get() == "template"
         self.close()
         self.win.refresh_modules(quiet=True)
         self.win.select_module(mod.slug)
         self.win.show_page("module")
-        self.win.toast(t("Modulo creato: {name}", name=mod.name), "success",
-                       action=(t("Nuovo documento"), lambda: self.win.show_page("report")))
+        if from_file and not (mod.schema or {}).get("properties"):
+            # file senza campi {{...}}: si passa subito a trascinarli nel documento
+            from .template_editor import open_visual_editor
+            self.win.root.after(300, lambda: open_visual_editor(self.win, mod, first_time=True))
+        else:
+            self.win.toast(t("Modulo creato: {name}", name=mod.name), "success",
+                           action=(t("Modifica i campi"), lambda: self._edit(mod)))
         if invalid:
             from tkinter import messagebox
             messagebox.showwarning(
@@ -147,3 +171,7 @@ class NewModuleDialog(Dialog):
                   "Il nome di un campo può contenere solo lettere, numeri e _ (niente spazi o trattini), "
                   "es. {example}. Correggi il template e ricrea il modulo, oppure usa l'Editor template.",
                   items="\n".join(invalid[:15]), example="{{nome_cliente}}"), parent=self.win.root)
+
+    def _edit(self, mod) -> None:
+        from .template_editor import open_visual_editor
+        open_visual_editor(self.win, self.win.mm.load_module(mod.slug))

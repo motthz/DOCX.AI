@@ -81,8 +81,8 @@ def run(app: Any, *, lang: str = "it-IT", dark: bool = False, shots: Optional[Pa
 
 
     def template_editor():
-        from docx_ai.ui.dialogs.template_editor import TemplateEditor
-        return TemplateEditor(win, mod)
+        from docx_ai.ui.dialogs.template_editor import open_visual_editor
+        return open_visual_editor(win, mod)
 
 
     def pdf_preview():

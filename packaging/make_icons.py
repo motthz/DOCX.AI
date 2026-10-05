@@ -28,7 +28,7 @@ life-buoy wand-sparkles filter calendar user factory list-checks play square gau
 zap info external-link folder file-json layout-template table file-input save rotate-ccw clock
 check printer mail send languages accessibility type map-pin bot brain-circuit circle-x
 file-search scan-text images keyboard log-out arrow-right arrow-left loader-circle circle-dot
-list""".split()
+list grip-vertical hash undo-2 mouse-pointer-click square-check list-todo text-cursor-input""".split()
 
 VARIANTS = {"light": (51, 65, 85), "dark": (226, 232, 240), "white": (255, 255, 255),
             "primary": (37, 99, 235)}

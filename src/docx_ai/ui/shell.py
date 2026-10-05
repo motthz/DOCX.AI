@@ -92,6 +92,11 @@ class MainWindow:
         self._build_body()
         self._install_shortcuts()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        try:
+            from .dnd import enable_file_drop
+            enable_file_drop(self.root, self._files_dropped)
+        except Exception:  # noqa: BLE001 - il trascinamento dei file e' facoltativo
+            LOG.exception("trascinamento file non disponibile")
 
         self.refresh_modules(quiet=True)
         self.show_page(self.settings.get("ui.last_tab") if self.settings.get("ui.last_tab") in
@@ -109,6 +114,19 @@ class MainWindow:
                 cb(*args)
             except Exception:  # noqa: BLE001
                 LOG.exception("listener %s", event)
+
+    def _files_dropped(self, files) -> None:
+        """File trascinati sulla finestra: Word/Excel -> nuovo modulo, ZIP -> importa modulo."""
+        f = files[0]
+        ext = f.suffix.lower()
+        if ext in (".docx", ".xlsx"):
+            from .dialogs.new_module import NewModuleDialog
+            NewModuleDialog(self, initial_file=f)
+        elif ext == ".zip":
+            self.sidebar.import_module(f)
+        else:
+            self.toast(t("Trascina un file Word (.docx) o Excel (.xlsx) per creare un modulo, oppure un "
+                         "modulo esportato (.zip)."), "warning")
 
     def toast(self, msg: str, kind: str = "info", action=None) -> None:
         self.toasts.show(msg, kind, action=action)

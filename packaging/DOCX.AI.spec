@@ -23,7 +23,7 @@ hidden = collect_submodules("docx_ai") + collect_submodules("customtkinter") + [
     "docx", "openpyxl", "reportlab", "jsonschema", "defusedxml", "defusedxml.ElementTree", "defusedxml.common",
     "reportlab.graphics", "reportlab.graphics.barcode", "reportlab.lib", "reportlab.pdfbase", "reportlab.pdfgen",
     "reportlab.platypus", "PIL", "PIL._tkinter_finder", "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
-    "PIL.ImageTk", "pypdfium2", "pypdf", "darkdetect",
+    "PIL.ImageTk", "pypdfium2", "pypdf", "darkdetect", "tkinterdnd2",
 ]
 
 a = Analysis(
@@ -38,7 +38,8 @@ a = Analysis(
         (str(SRC / "docx_ai" / "locales"), "docx_ai/locales"),
         (str(ROOT / "docs"), "docs"),
         (str(ROOT / "examples"), "examples"),  # moduli di esempio (pulsante nella barra laterale)
-    ] + collect_data_files("customtkinter") + collect_data_files("pypdfium2") + collect_data_files("pypdfium2_raw"),
+    ] + collect_data_files("customtkinter") + collect_data_files("pypdfium2") + collect_data_files("pypdfium2_raw")
+    + collect_data_files("tkinterdnd2"),  # estensione Tcl tkdnd: trascinare file da Esplora risorse
     hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},

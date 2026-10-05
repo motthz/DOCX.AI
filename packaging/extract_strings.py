@@ -71,6 +71,8 @@ def extract() -> set:
     out.update(DOC_TYPES)
     out.update(text for text, _tone in STATUS_CHIP.values())
     out.update(TYPE_LABELS.values())
+    from docx_ai.ui.dialogs.template_editor import KINDS
+    out.update(x for name, _ic, example in KINDS.values() for x in (name, example))
     return out
 
 

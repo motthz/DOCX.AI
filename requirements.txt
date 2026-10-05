@@ -647,6 +647,10 @@ rpds-py==2026.6.3 \
     # via
     #   jsonschema
     #   referencing
+tkinterdnd2==0.6.3 \
+    --hash=sha256:50c7386302104bfb30d8e15b4cc53c0581bc51a28186ff4d7ad3cb2cc820c936 \
+    --hash=sha256:53ed472ec08705702e087b5664f0534ca53a07a67102255f9cdc82bc5094158b
+    # via -r requirements.in
 typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5

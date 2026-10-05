@@ -68,6 +68,14 @@ class ModulePage(ctk.CTkFrame):
              "info" if tpl_ok else "danger").pack(side="left", padx=(0, 6))
         n_fields = len((mod.schema or {}).get("properties", {}))
         Chip(chips, t("{n} campi", n=n_fields), "neutral").pack(side="left")
+        if n_fields == 0 and tpl_ok:
+            hint = Card(self.page, soft=True)
+            hint.pack(fill="x", pady=(0, 14))
+            label(hint.body, t("Questo modulo non ha ancora campi da compilare."), kind="body_b").pack(anchor="w")
+            label(hint.body, t("Apri l'editor visuale e trascina i campi nei punti del documento che l'AI deve "
+                               "compilare."), muted=True).pack(anchor="w", pady=(2, 8))
+            button(hint.body, t("Apri l'editor visuale"), self.edit_template, kind="primary",
+                   icon_name="mouse-pointer-click").pack(anchor="w")
 
         grid = ctk.CTkFrame(self.page, fg_color="transparent")
         grid.pack(fill="both", expand=True)
@@ -94,10 +102,13 @@ class ModulePage(ctk.CTkFrame):
         tools.grid(row=0, column=1, sticky="nsew", padx=(GAP // 2, 0))
         tb = tools.body
         label(tb, t("Strumenti"), kind="h4").pack(anchor="w", pady=(0, 6))
+        button(tb, t("Editor visuale: trascina i campi"), self.edit_template, icon_name="mouse-pointer-click",
+               kind="primary", anchor="w", height=40).pack(fill="x", pady=(0, 2))
+        label(tb, t("Metti i campi da compilare direttamente nel documento, trascinandoli."), kind="caption",
+              muted=True, wraplength=300).pack(anchor="w", pady=(0, 8))
         items = [
-            ("layout-template", t("Editor template"), self.edit_template),
-            ("table", t("Campi (schema)"), self.edit_schema),
-            ("list", t("Mappatura celle Excel"), self.edit_mapping),
+            ("table", t("Elenco campi (avanzato)"), self.edit_schema),
+            ("list", t("Mappatura celle Excel (avanzato)"), self.edit_mapping),
             ("shield-check", t("Regole AI del modulo"), self.edit_rules),
             ("upload", t("Esporta modulo (ZIP)"), self.export_zip),
             ("copy", t("Duplica modulo"), self.duplicate),
@@ -131,13 +142,8 @@ class ModulePage(ctk.CTkFrame):
             self.win.refresh_modules(quiet=True)
 
     def edit_template(self) -> None:
-        mod = self.win.selected
-        if mod.template_type != "docx" or not Path(mod.template_path).exists():
-            self.win.toast(t("L'editor visuale è disponibile per i template DOCX. Per Excel usa la mappatura celle."),
-                           "info")
-            return
-        from ..dialogs.template_editor import TemplateEditor
-        TemplateEditor(self.win, mod)
+        from ..dialogs.template_editor import open_visual_editor
+        open_visual_editor(self.win, self.win.selected)
 
     def edit_schema(self) -> None:
         mod = self.win.selected

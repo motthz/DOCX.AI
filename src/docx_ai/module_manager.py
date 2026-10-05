@@ -180,8 +180,12 @@ class ModuleManager:
         slug: Optional[str] = None,
         description: str = "",
         force_type: Optional[str] = None,
+        allow_empty: bool = False,
     ) -> LoadedModule:
         """Create a module using an existing DOCX/XLSX as the blank template.
+
+        With ``allow_empty`` a file without placeholders is accepted too (empty
+        schema): the fields are then placed with the visual editor.
 
         - Copies ``template_file`` into 01_modulo_vuoto/
         - Scans the file for ``{{placeholder_name}}`` tokens
@@ -205,7 +209,7 @@ class ModuleManager:
         else:
             phs, xlsx_cell_map = self._scan_placeholders_xlsx(template_file)
 
-        if not phs:
+        if not phs and not allow_empty:
             raise ValueError(
                 "Nessun placeholder {{nome_campo}} rilevato nel template. "
                 "Inserire nel documento alcuni segnaposto nel formato {{nome_campo}} "

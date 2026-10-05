@@ -167,9 +167,10 @@ class Sidebar(ctk.CTkFrame):
         from .dialogs.new_module import NewModuleDialog
         NewModuleDialog(self.win)
 
-    def import_module(self) -> None:
-        path = filedialog.askopenfilename(title=t("Importa modulo (ZIP)"),
-                                          filetypes=[(t("Archivio modulo"), "*.zip")], parent=self.win.root)
+    def import_module(self, path=None) -> None:
+        path = path or filedialog.askopenfilename(title=t("Importa modulo (ZIP)"),
+                                                  filetypes=[(t("Archivio modulo"), "*.zip")],
+                                                  parent=self.win.root)
         if not path:
             return
         try:

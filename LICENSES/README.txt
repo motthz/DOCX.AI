@@ -19,6 +19,7 @@ DOCX.AI - licenze dei componenti di terze parti
 - referencing 0.37.0  (MIT)  -> referencing.txt
 - reportlab 5.0.1  (BSD license (see license.txt for details), Copyright (c) 200)  -> reportlab.txt
 - rpds-py 2026.6.3  (MIT)  -> rpds-py.txt
+- tkinterdnd2 0.6.3  (vedi file)  -> tkinterdnd2.txt
 - typing_extensions 4.16.0  (PSF-2.0)  -> typing_extensions.txt
 - pyinstaller 6.22.2  (GPLv2-or-later with a special exception which allows to use )  -> pyinstaller.txt
 - Python 3.12.0 (PSF License)  -> Python.txt

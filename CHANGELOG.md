@@ -6,6 +6,17 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+### Aggiunto
+- **Editor visuale "trascina e rilascia"** per Word ed Excel: si trascinano le tessere dei campi (Testo,
+  Numero, Data, Sì/No, Scelta, Elenco) direttamente nel documento. Rilasciandole su una riga da
+  compilare (`______`, `.....`), su una cella vuota, su un testo selezionato o in fondo al documento il
+  campo prende quel posto; il nome viene suggerito dall'etichetta vicina (es. "Cliente:"). I campi si
+  spostano trascinandoli, si tolgono nel cestino, si modificano con un clic; c'è "Annulla modifica"
+  (Ctrl+Z). Per chi non trascina: clic sulla tessera e poi clic nel documento.
+- Nuovo modulo: si può trascinare il file Word/Excel nella finestra (anche sulla finestra principale;
+  un `.zip` viene importato come modulo). Non servono più i segnaposto `{{...}}`: un modulo senza campi
+  apre subito l'editor visuale.
+
 ## [0.4.2] - 2026-10-05
 
 ### Corretto
