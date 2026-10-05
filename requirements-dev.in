@@ -1,7 +1,7 @@
 # Strumenti di sviluppo/build. Rigenerare con:
 #   .venv\Scripts\pip-compile --generate-hashes requirements-dev.in
 -c requirements.txt
-pyinstaller==6.22.2
+pyinstaller==6.22.3
 pyinstaller-hooks-contrib
 coverage
 ruff
