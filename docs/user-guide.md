@@ -81,6 +81,9 @@ other documents, extract text from scans (Windows OCR), AI rules. Originals are 
 - **Data and backup**: data folder (also **on the network**), **backup**, **restore**,
   automatic backup.
 - **Help and support**: this guide, guided tour, **diagnostic package**, **report a problem**.
+- **About**: version and **automatic updates**: on startup DOCX.AI checks GitHub for a new
+  version, downloads it in the background and installs it when you close the app (or right
+  away with *Restart and update*). The portable ZIP only shows a notice.
 
 ## 8. Keyboard shortcuts
 

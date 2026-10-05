@@ -8,6 +8,12 @@ fonte: `src/maintenance_ai/__init__.py`.
 
 ## [0.4.1] - 2026-10-05
 
+### Aggiunto
+- **Aggiornamenti automatici**: all'avvio l'app controlla le release su GitHub, scarica il nuovo
+  installer in background (verificato con SHA-256) e lo installa in silenzio alla chiusura, oppure
+  subito con "Riavvia e aggiorna". Interruttore e "Controlla ora" in *Impostazioni → Informazioni*;
+  disattivabile in azienda con `DOCX_AI_NO_UPDATE=1`. Lo ZIP portable mostra solo un avviso.
+
 ### Corretto
 - **Installazione dell'AI dall'app**: l'estrazione del runtime llama.cpp falliva sempre
   (`FileExistsError`) e impediva di scaricare i modelli.
