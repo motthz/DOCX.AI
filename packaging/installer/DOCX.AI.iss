@@ -8,7 +8,7 @@
 ;   %LOCALAPPDATA%\DOCX.AI NON vengono cancellati.
 
 #ifndef AppVersion
-  #define AppVersion "0.4.1"
+  #define AppVersion "0.4.2"
 #endif
 #define AppName "DOCX.AI"
 #define AppExe "DOCX.AI.exe"
