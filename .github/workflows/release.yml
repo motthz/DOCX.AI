@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # avvio manuale da Actions (o via API) su main: il tag vX.Y.Z viene creato dalla
+  # release stessa a partire da __version__
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,17 +18,27 @@ jobs:
       PYTHONUTF8: "1"
       SKIP_COVERAGE_GATE: "1"
     steps:
+      - uses: actions/checkout@v5
+      - name: Versione da rilasciare
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}" }
+          else {
+            $m = Select-String -Path src\docx_ai\__init__.py -Pattern '__version__ = "([^"]+)"'
+            $tag = "v" + $m.Matches[0].Groups[1].Value
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Release $tag"
       - name: Release gia' pubblicata con gli asset?
         id: check
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $n = gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets -q ".assets | length" 2>$null
+          $n = gh release view "${{ steps.ver.outputs.tag }}" --repo "${{ github.repository }}" --json assets -q ".assets | length" 2>$null
           if ($n -and [int]$n -gt 0) { "skip=true" >> $env:GITHUB_OUTPUT } else { "skip=false" >> $env:GITHUB_OUTPUT }
           $global:LASTEXITCODE = 0  # release inesistente: gh esce con 1, non e' un errore
-      - uses: actions/checkout@v5
-        if: steps.check.outputs.skip != 'true'
       - uses: actions/setup-python@v6
         if: steps.check.outputs.skip != 'true'
         with:
@@ -49,12 +62,14 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}".TrimStart("v")
+          $ver = "${{ steps.ver.outputs.tag }}".TrimStart("v")
           .venv\Scripts\python.exe scripts\changelog_section.py $ver > release_notes.md
       - name: Pubblica release
         if: steps.check.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           body_path: release_notes.md
           files: |
             release/DOCX.AI-Setup-*.exe
