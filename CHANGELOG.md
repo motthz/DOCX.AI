@@ -6,6 +6,10 @@ fonte: `src/maintenance_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+### Corretto
+- **Installazione dell'AI dall'app**: l'estrazione del runtime llama.cpp falliva sempre
+  (`FileExistsError`) e impediva di scaricare i modelli.
+
 ## [0.4.0] - 2026-10-04
 
 ### Modificato

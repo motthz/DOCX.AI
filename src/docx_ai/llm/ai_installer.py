@@ -155,10 +155,11 @@ class AIInstaller:
                                progress, "Runtime llama.cpp", asset.get("size"))
         progress(None, "Estrazione runtime…")
         with tempfile.TemporaryDirectory(dir=self.cache_dir) as tmp:
+            root = Path(tmp).resolve()
             with zipfile.ZipFile(zpath) as zf:
                 for member in zf.namelist():
-                    target = (Path(tmp) / member).resolve()
-                    if not str(target).startswith(str(Path(tmp).resolve())):
+                    # non riusare ``target``: e' la cartella di destinazione del runtime
+                    if not (root / member).resolve().is_relative_to(root):
                         raise RuntimeError(f"Percorso non sicuro nell'archivio: {member}")
                 zf.extractall(tmp)
             found = next(Path(tmp).rglob("llama-server.exe"), None)

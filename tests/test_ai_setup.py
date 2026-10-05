@@ -114,6 +114,24 @@ class InstallerTests(unittest.TestCase):
             out = inst.install_model("fake.gguf", lambda f, m: None)
         self.assertEqual(out.read_bytes(), src.read_bytes())
 
+    def test_runtime_install_extracts_into_runtime_dir(self):
+        import zipfile
+        from docx_ai.llm import ai_installer
+        tmp = Path(tempfile.mkdtemp(prefix="mai_inst_"))
+        zpath = tmp / "llama-b1-bin-win-cpu-x64.zip"
+        with zipfile.ZipFile(zpath, "w") as zf:
+            zf.writestr("llama-server.exe", b"exe")
+            zf.writestr("ggml.dll", b"dll")
+            zf.writestr("LICENSE", b"mit")
+        asset = {"name": zpath.name, "browser_download_url": zpath.as_uri(),
+                 "size": zpath.stat().st_size}
+        inst = ai_installer.AIInstaller(tmp / "data")
+        with mock.patch.object(inst, "_find_llama_asset", return_value=asset):
+            out = inst.install_runtime(lambda f, m: None)
+        self.assertEqual(out, tmp / "data" / "runtime" / "llama")
+        self.assertEqual((out / "llama-server.exe").read_bytes(), b"exe")
+        self.assertTrue((out / "ggml.dll").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
