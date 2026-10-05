@@ -27,6 +27,8 @@ DEFAULTS: Dict[str, Any] = {
     # backup
     "backup.auto_days": 7,         # 0 = disattivato
     "backup.keep": 5,
+    # aggiornamenti
+    "updates.auto": True,          # controlla e scarica le nuove versioni da GitHub
 }
 
 

@@ -8,7 +8,7 @@
 ;   %LOCALAPPDATA%\DOCX.AI NON vengono cancellati.
 
 #ifndef AppVersion
-  #define AppVersion "0.4.0"
+  #define AppVersion "0.4.1"
 #endif
 #define AppName "DOCX.AI"
 #define AppExe "DOCX.AI.exe"
@@ -85,6 +85,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; aggiornamento automatico dall'app (/SILENT /RELAUNCH=1): riapre DOCX.AI a fine installazione
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: RelaunchRequested
 
 [Code]
 const
@@ -99,6 +101,11 @@ begin
   if RegQueryStringValue(HKCU, LegacyKey, 'UninstallString', S) or
      RegQueryStringValue(HKLM, LegacyKey, 'UninstallString', S) then
     Result := RemoveQuotes(S);
+end;
+
+function RelaunchRequested(): Boolean;
+begin
+  Result := WizardSilent() and (ExpandConstant('{param:RELAUNCH|0}') = '1');
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

@@ -460,20 +460,32 @@ def main(argv: Optional[List[str]] = None) -> int:
                 pass
             return 1
         restart_cmd = None
+        update = None
         try:
             win = MainWindow(app)
             win.show()
             if getattr(win, "_restart", False):
                 restart_cmd = win.relaunch_command()
+            update = getattr(win, "pending_update", None)
         finally:
             try:
                 app.shutdown()
             except Exception:  # noqa: BLE001
                 pass
+        if (restart_cmd or update) and data_lock:
+            data_lock.release()
+            data_lock = None
+        if update:
+            # l'installer silenzioso sostituisce l'app e, se richiesto, la riapre
+            from docx_ai.services import updater
+            try:
+                updater.launch_installer(update, relaunch=bool(getattr(win, "update_relaunch", False)
+                                                                or restart_cmd))
+                return 0
+            except OSError:
+                import logging as _lg3
+                _lg3.getLogger(__name__).exception("avvio aggiornamento")
         if restart_cmd:
-            if data_lock:
-                data_lock.release()
-                data_lock = None
             import subprocess
             subprocess.Popen(restart_cmd, close_fds=True)
         return 0

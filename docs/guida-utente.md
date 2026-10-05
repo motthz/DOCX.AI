@@ -147,6 +147,10 @@ Gli originali non vengono mai modificati: ogni risultato è una nuova versione.
   contemporaneo da due PC), **backup** in un file ZIP, **ripristino**, backup automatico.
 - **Aiuto e supporto**: questa guida, tour guidato, **pacchetto diagnostico** (log senza
   i tuoi documenti) e **segnalazione di un problema**.
+- **Informazioni**: versione e **aggiornamenti automatici**. All'avvio DOCX.AI controlla
+  se su GitHub c'è una nuova versione, la scarica in background e la installa quando
+  chiudi l'app (oppure subito con *Riavvia e aggiorna*). Dati, moduli e modelli AI restano
+  dove sono. Con lo ZIP portable l'app avvisa soltanto della nuova versione.
 
 ![Componenti AI](img/componenti-ai.png)
 

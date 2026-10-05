@@ -25,6 +25,14 @@ Disinstallazione silenziosa:
 Codici di uscita: `0` = OK; gli altri codici sono documentati da Inno Setup
 (<https://jrsoftware.org/ishelp/topic_setupexitcodes.htm>).
 
+## Aggiornamenti automatici
+
+L'app installata controlla le release su GitHub all'avvio, scarica il nuovo installer in
+`%LOCALAPPDATA%\DOCX.AI\updates` (verificato con SHA-256) e lo esegue in modalità
+silenziosa alla chiusura. Se gli aggiornamenti vengono distribuiti centralmente,
+disattivarli impostando la variabile d'ambiente `DOCX_AI_NO_UPDATE=1` (ad esempio via GPO)
+oppure da *Impostazioni → Informazioni*.
+
 ## Microsoft Intune (Win32 app)
 
 1. Scarica lo strumento [Microsoft Win32 Content Prep Tool](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool).

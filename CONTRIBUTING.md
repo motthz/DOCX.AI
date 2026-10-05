@@ -45,5 +45,7 @@ Aggiorna `CHANGELOG.md` nella sezione **Non rilasciato**.
    CHANGELOG in una nuova sezione `## [x.y.z] - data`.
 2. `git tag vX.Y.Z && git push --tags`: la GitHub Action *Release* compila exe,
    installer e ZIP e li pubblica con le note prese dal CHANGELOG.
+   In alternativa, su `main`: *Actions → Release → Run workflow*; il tag `vX.Y.Z`
+   viene creato dalla release a partire da `__version__`.
 
 In locale: `scripts\release.ps1` produce gli stessi file in `release\`.

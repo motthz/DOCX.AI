@@ -192,6 +192,16 @@ class SettingsPage(ctk.CTkFrame):
     def _about(self) -> None:
         b = self._card(t("Informazioni"))
         label(b, f"DOCX.AI {__version__}", kind="body_b").pack(anchor="w")
+        self._switch(b, t("Aggiornamenti automatici"),
+                     t("All'avvio controlla se c'è una nuova versione, la scarica e la installa alla chiusura."),
+                     "updates.auto")
+        right = self._row(b, t("Controlla aggiornamenti"), t("Cerca subito una nuova versione su GitHub."))
+        if self.win.pending_update:
+            button(right, t("Riavvia e aggiorna"), self.win.apply_update, kind="primary",
+                   icon_name="refresh-cw").pack()
+        else:
+            button(right, t("Controlla ora"), lambda: self.win.check_updates(manual=True),
+                   icon_name="refresh-cw").pack()
         label(b, t("Copyright © 2026 DOCX.AI. Tutti i diritti riservati. Componenti di terze parti "
                    "con licenze nella cartella LICENSES."), kind="small", muted=True, wraplength=900).pack(anchor="w")
         lic = self.win.config.app_root / "LICENSES"

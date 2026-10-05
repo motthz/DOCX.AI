@@ -77,6 +77,9 @@ class MainWindow:
         self._restore_geometry()
 
         self.toasts = Toasts(self.root)
+        self.pending_update: Optional[Path] = None   # installer scaricato, eseguito alla chiusura
+        self.update_relaunch = False
+        self._update_checking = False
         self.modules: List[LoadedModule] = []
         self.selected: Optional[LoadedModule] = None
         self.pages: Dict[str, Any] = {}
@@ -411,11 +414,78 @@ class MainWindow:
                     self.root.after(0, lambda: (setattr(self, "ai_state", "idle"), self.refresh_ai()))
             threading.Thread(target=_preload, daemon=True, name="ai-preload").start()
         self.app.start_background_tasks()
+        if self.settings.get("updates.auto"):
+            self.root.after(8000, self.check_updates)
         self.root.after(60000, self._poll_ai)
 
     def _poll_ai(self) -> None:
         self.refresh_ai()  # riflette lo spegnimento per inattivita'
         self.root.after(60000, self._poll_ai)
+
+    # ------------------------------------------------------------------ aggiornamenti
+    def check_updates(self, manual: bool = False) -> None:
+        """Controlla GitHub in background; nella versione installata scarica anche l'aggiornamento."""
+        from ..services import updater
+        if self._update_checking or self.pending_update or (updater.disabled_by_policy() and not manual):
+            if manual and self.pending_update:
+                self._notify_update_ready()
+            return
+        self._update_checking = True
+        self_install = updater.can_self_install(self.config.app_root)
+
+        def ui(fn: Callable[[], None]) -> None:
+            try:
+                self.root.after(0, fn)
+            except (tk.TclError, RuntimeError):
+                pass
+
+        def work() -> None:
+            try:
+                updater.cleanup()
+                info = updater.check()
+                if info is None:
+                    if manual:
+                        ui(lambda: self.toast(t("DOCX.AI è aggiornato all'ultima versione."), "success"))
+                    return
+                if not self_install or not info.asset_url:
+                    ui(lambda: self.toasts.show(
+                        t("È disponibile DOCX.AI {v}.", v=info.version), "info",
+                        action=(t("Scarica"), lambda: self._open_url(info.page_url)), duration_ms=15000))
+                    return
+                path = updater.download(info)
+
+                def ready() -> None:
+                    self.pending_update = path
+                    self._notify_update_ready(info.version)
+                ui(ready)
+            except Exception as exc:  # noqa: BLE001 - l'aggiornamento non deve disturbare il lavoro
+                LOG.warning("Aggiornamento non riuscito: %s", exc)
+                if manual:
+                    ui(lambda e=exc: self.toast(t("Aggiornamento non riuscito: {e}", e=e), "error"))
+            finally:
+                self._update_checking = False
+        threading.Thread(target=work, daemon=True, name="updater").start()
+
+    def _notify_update_ready(self, version: str = "") -> None:
+        self.toasts.show(t("Aggiornamento {v} pronto: verrà installato alla chiusura di DOCX.AI.", v=version),
+                         "success", action=(t("Riavvia e aggiorna"), self.apply_update), duration_ms=15000)
+
+    def apply_update(self) -> None:
+        if self.pending_update is None:
+            return
+        self.update_relaunch = True
+        self.close()
+        try:
+            alive = bool(self.root.winfo_exists())
+        except tk.TclError:
+            alive = False
+        if alive:  # chiusura annullata dall'utente
+            self.update_relaunch = False
+
+    @staticmethod
+    def _open_url(url: str) -> None:
+        import webbrowser
+        webbrowser.open(url)
 
     def start_tour(self) -> None:
         from .tour import Tour
