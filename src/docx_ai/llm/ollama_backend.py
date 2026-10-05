@@ -101,6 +101,9 @@ class OllamaBackend:
             "temperature": float(temperature),
             "max_tokens": int(max_tokens),
             "stream": False,
+            # I modelli "thinking" (Qwen3, DeepSeek-R1…) altrimenti consumano tutti i
+            # token nel ragionamento e restituiscono un content vuoto.
+            "reasoning_effort": "none",
         }
         if json_schema:
             payload["response_format"] = {"type": "json_object", "schema": json_schema}
@@ -140,7 +143,12 @@ class OllamaBackend:
 def _bind_stream() -> None:
     # Ollama espone la stessa API OpenAI-compatibile (SSE) di llama-server.
     from .llama_server import LlamaServer
-    OllamaBackend.chat_completions_stream = LlamaServer.chat_completions_stream  # type: ignore[attr-defined]
+
+    def chat_completions_stream(self, messages, *, extra=None, **kwargs):
+        extra = {"reasoning_effort": "none", **(extra or {})}
+        return LlamaServer.chat_completions_stream(self, messages, extra=extra, **kwargs)
+
+    OllamaBackend.chat_completions_stream = chat_completions_stream  # type: ignore[attr-defined]
 
 
 _bind_stream()

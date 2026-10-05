@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import customtkinter as ctk
 
-from ..design import col
+from ..design import C, col
 from ..i18n import t
 from ..widgets import Card, EmptyState, button, label
 
@@ -94,7 +94,10 @@ class HistoryPage(ctk.CTkFrame):
         for text, ic, cmd in ((t("Anteprima PDF"), "eye", self.preview), (t("Apri / modifica"), "pencil", self.open_selected),
                               (t("Duplica"), "copy", self.duplicate), (t("Versioni"), "git-compare", self.versions),
                               (t("Cartella"), "folder-open", self.open_folder), (t("Elimina"), "trash-2", self.delete_selected)):
-            b = button(bar, text, cmd, icon_name=ic, kind="danger" if ic == "trash-2" else "secondary", height=30)
+            # "Elimina" con testo rosso ma sfondo neutro: un pulsante rosso pieno sembrerebbe
+            # attivo anche quando e' disabilitato (nessun documento selezionato)
+            extra = dict(text_color=C["danger"]) if ic == "trash-2" else {}
+            b = button(bar, text, cmd, icon_name=ic, kind="secondary", height=30, **extra)
             b.pack(side="right", padx=(6, 0))
             self.actions.append(b)
         win.on("reports", self.reload)
@@ -327,7 +330,7 @@ class HistoryPage(ctk.CTkFrame):
             return
         dest = filedialog.asksaveasfilename(
             parent=self.win.root, defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")],
-            initialfile=f"Riepilogo_rapporti_{time.strftime('%Y%m%d')}.xlsx")
+            initialfile=f"{t('Riepilogo_documenti')}_{time.strftime('%Y%m%d')}.xlsx")
         if not dest:
             return
         from ...exporters.summary_xlsx import export_summary

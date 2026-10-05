@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 import customtkinter as ctk
 
+from . import design
 from .design import C, font
 from .i18n import t
 from .icons import icon
@@ -55,6 +56,7 @@ class Sidebar(ctk.CTkFrame):
 
         self.full.pack(fill="both", expand=True)
         win.on("modules", self.render)
+        win.on("reports", self.render)  # conteggi bozze/completati aggiornati dopo ogni documento
         win.on("module_selected", lambda m: self._highlight())
 
     # ------------------------------------------------------------------
@@ -66,12 +68,20 @@ class Sidebar(ctk.CTkFrame):
             self._expanded_width = self.winfo_width()
             self.full.pack_forget()
             self.rail.pack(fill="y")
-            paned.paneconfigure(self, width=64, minsize=64)
+            paned.paneconfigure(self, width=int(64 * design.user_scale()), minsize=int(64 * design.user_scale()))
         else:
             self.rail.pack_forget()
             self.full.pack(fill="both", expand=True)
             paned.paneconfigure(self, width=max(240, getattr(self, "_expanded_width", 300)), minsize=220)
         self.collapsed = value
+
+    def apply_scale(self, old: float, new: float) -> None:
+        """Ridimensiona la barra quando cambia la dimensione del testo."""
+        if self.collapsed:
+            self.win._paned.paneconfigure(self, width=int(64 * new), minsize=int(64 * new))
+            return
+        logical = self.winfo_width() / (old or 1.0)
+        self.win._paned.paneconfigure(self, width=int(logical * new))
 
     def _schedule_filter(self) -> None:
         if self._search_after:
@@ -86,7 +96,8 @@ class Sidebar(ctk.CTkFrame):
         if not mods:
             EmptyState(self.listbox, "package", t("Nessun modulo"),
                        t("Un modulo è il modello di documento (DOCX o XLSX) che l'AI compilerà."),
-                       action=(t("Crea il primo modulo"), self.new_module)).pack(fill="x", pady=10)
+                       action=(t("Crea il primo modulo"), self.new_module), wraplength=190,
+                       secondary=(t("Aggiungi moduli di esempio"), self.add_examples)).pack(fill="x", pady=10)
             return
         q = self.search.get().strip().lower()
         counts = self.win.db.count_reports_by_module()  # una sola query per tutti i moduli
@@ -117,10 +128,10 @@ class Sidebar(ctk.CTkFrame):
         name.pack(fill="x")
         parts: List[str] = []
         if counts.get("draft"):
-            parts.append(t("{n} bozze", n=counts["draft"]))
+            parts.append(t("{n} bozza", n=1) if counts["draft"] == 1 else t("{n} bozze", n=counts["draft"]))
         done = counts.get("exported", 0) + counts.get("approved", 0)
         if done:
-            parts.append(t("{n} completati", n=done))
+            parts.append(t("{n} completato", n=1) if done == 1 else t("{n} completati", n=done))
         if not tpl_ok:
             parts.append(t("template mancante"))
         meta = ctk.CTkLabel(txt, text=" · ".join(parts) or t("nessun documento"), font=font("caption"),
@@ -140,6 +151,18 @@ class Sidebar(ctk.CTkFrame):
                 pass
 
     # ------------------------------------------------------------------
+    def add_examples(self) -> None:
+        try:
+            added = self.win.mm.install_examples()
+        except Exception as exc:  # noqa: BLE001
+            self.win.toast(t("Errore: {e}", e=exc), "error")
+            return
+        self.win.refresh_modules(quiet=True)
+        if added:
+            self.win.toast(t("Aggiunti {n} moduli di esempio.", n=len(added)), "success")
+        else:
+            self.win.toast(t("Moduli di esempio non disponibili in questa installazione."), "warning")
+
     def new_module(self) -> None:
         from .dialogs.new_module import NewModuleDialog
         NewModuleDialog(self.win)

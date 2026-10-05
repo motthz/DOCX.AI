@@ -29,7 +29,7 @@ from ..docintelligence import (
     SourceRef,
 )
 from ..module_manager import LoadedModule, ModuleManager
-from .theme import COLORS, FONTS, GradientCanvas, RoundedCard, ModernTheme, apply_theme, center_window
+from .theme import COLORS, FONTS, RoundedCard, ModernTheme, apply_theme, center_window
 
 
 LOG = logging.getLogger(__name__)
@@ -128,13 +128,30 @@ class _BackgroundWorker(tk.Toplevel):
             err = self._error
             self.destroy()
             self._on_done(res, err)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # un errore qui lasciava la finestra "in elaborazione" senza nessun messaggio
+            LOG.exception("Completamento operazione")
+            try:
+                messagebox.showerror("Errore", f"Operazione non completata: {exc}", parent=self.master)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 # =============================================================
 # 1) DOCUMENT CREATION
 # =============================================================
+def _solid_header(win: tk.Misc, title: str, subtitle: str) -> tk.Frame:
+    """Intestazione dei dialoghi documenti (tinta unita, testo che va a capo)."""
+    bg = COLORS["header_start"]
+    header = tk.Frame(win, bg=bg)
+    header.pack(fill="x")
+    tk.Label(header, text=title, fg="white", bg=bg, font=FONTS["h1"], anchor="w").pack(
+        fill="x", padx=24, pady=(14, 0))
+    tk.Label(header, text=subtitle, fg=COLORS["text_white_muted"], bg=bg, font=FONTS["body_sm"],
+             anchor="w", justify="left", wraplength=860).pack(fill="x", padx=24, pady=(2, 14))
+    return header
+
+
 class DocumentCreationDialog(tk.Toplevel):
     def __init__(self, master,
                  generator: DocumentGenerator,
@@ -163,20 +180,8 @@ class DocumentCreationDialog(tk.Toplevel):
 
     # --------------------------------------------------------------
     def _build_ui(self) -> None:
-        header = GradientCanvas(self, COLORS["primary_800"], COLORS["slate_900"], height=86)
-        header.pack(fill="x")
-        header_title = tk.Label(
-            header, text="📝  Creazione documento",
-            fg="white", bg=COLORS["header_start"], font=FONTS["h1"], anchor="w",
-        )
-        header.create_window(24, 18, anchor="nw", window=header_title)
-        header_sub = tk.Label(
-            header,
-            text="Crea una bozza di documento aziendale partendo dai riferimenti selezionati.",
-            fg=COLORS["text_white_muted"], bg=COLORS["header_end"],
-            font=FONTS["body_sm"], anchor="w",
-        )
-        header.create_window(24, 50, anchor="nw", window=header_sub)
+        _solid_header(self, "Creazione documento",
+                      "Crea una bozza di documento aziendale partendo dai riferimenti selezionati.")
 
         body = tk.Frame(self, bg=COLORS["bg"])
         body.pack(fill="both", expand=True, padx=16, pady=12)
@@ -265,7 +270,7 @@ class DocumentCreationDialog(tk.Toplevel):
 
         # Bottom
         bottom = tk.Frame(body, bg=COLORS["bg"])
-        bottom.pack(fill="x", pady=(10, 0))
+        bottom.pack(fill="x", side="bottom", pady=(10, 0), before=out_card)
         self.lbl_status = tk.Label(bottom, text="", font=FONTS["body_sm"],
                                    fg=COLORS["muted"], bg=COLORS["bg"], anchor="w")
         self.lbl_status.pack(side="left")
@@ -352,14 +357,14 @@ class DocumentCreationDialog(tk.Toplevel):
             self.fonti_text.delete("1.0", "end")
             lines = [f"Documenti analizzati: {len(docs)}", ""]
             for d in docs:
-                lines.append(f"• {d.path.name} — {d.pages_count or 0} pagine")
+                lines.append(f"• {d.path.name}" + (f" — {d.pages_count} pagine" if d.pages_count else ""))
                 if d.used_ocr:
                     lines[-1] += " [OCR]"
             lines.append("")
             lines.append("Fonti usate per l'output:")
             if gen.sources:
                 for s in gen.sources:
-                    lines.append(f"- {s.describe()}")
+                    lines.append(f"- {s.to_display()}")
             else:
                 lines.append("(nessuna tracciata)")
             self.fonti_text.insert("1.0", "\n".join(lines))
@@ -504,16 +509,8 @@ class DocumentModificationDialog(tk.Toplevel):
             self.callig_font_var.set(self._callig_handwriting_fonts[0])
 
     def _build_ui(self) -> None:
-        header = GradientCanvas(self, COLORS["primary_800"], COLORS["slate_900"], height=86)
-        header.pack(fill="x")
-        t = tk.Label(header, text="✏️  Modifica documento",
-                     fg="white", bg=COLORS["header_start"], font=FONTS["h1"])
-        header.create_window(24, 18, anchor="nw", window=t)
-        t2 = tk.Label(header,
-                      text="Carica un documento (o scansione), seleziona il modulo, evidenzia le parti e genera la nuova versione.",
-                      fg=COLORS["text_white_muted"], bg=COLORS["header_end"],
-                      font=FONTS["body_sm"])
-        header.create_window(24, 50, anchor="nw", window=t2)
+        _solid_header(self, "Modifica documento",
+                      "Carica un documento (o scansione), seleziona il modulo, evidenzia le parti e genera la nuova versione.")
 
         body = tk.Frame(self, bg=COLORS["bg"])
         body.pack(fill="both", expand=True, padx=16, pady=12)
@@ -655,7 +652,7 @@ class DocumentModificationDialog(tk.Toplevel):
         self.riass_txt = self._make_text(self.tab_riassunto)
 
         bottom = tk.Frame(body, bg=COLORS["bg"])
-        bottom.pack(fill="x", pady=(10, 0))
+        bottom.pack(fill="x", side="bottom", pady=(10, 0), before=out_card)
 
         # Calligrafia export
         callig_row = tk.Frame(bottom, bg=COLORS["bg"])
@@ -774,11 +771,9 @@ class DocumentModificationDialog(tk.Toplevel):
             pages = self._last_doc.pages_count or 0
             # Rileva se OCR e' stato applicato o file è immagine
             ext = Path(p).suffix.lower().lstrip(".")
-            ocr_applied = bool(getattr(self._last_doc, "meta", None) and
-                               isinstance(self._last_doc.meta, dict) and
-                               self._last_doc.meta.get("ocr_applied", False))
+            ocr_applied = bool(getattr(self._last_doc, "used_ocr", False))
             is_image = ext in {"jpg", "jpeg", "png"}
-            msg_core = f"✓  Caricato: {Path(p).name} ({pages} pagine)"
+            msg_core = f"✓  Caricato: {Path(p).name}" + (f" ({pages} pagine)" if pages else "")
             self.lbl_status.configure(text=msg_core)
             if ocr_applied or is_image:
                 badge = (
@@ -803,7 +798,7 @@ class DocumentModificationDialog(tk.Toplevel):
                 )
             # Popola tab Originale con il testo caricato
             try:
-                orig_text = getattr(self._last_doc, "text", None) or ""
+                orig_text = getattr(self._last_doc, "full_text", None) or ""
                 self.orig_txt.delete("1.0", "end")
                 self.orig_txt.insert("1.0", orig_text or "(nessun testo estratto)")
             except Exception:  # noqa: BLE001
@@ -986,16 +981,8 @@ class AuditDialog(tk.Toplevel):
         self._build_ui()
 
     def _build_ui(self):
-        header = GradientCanvas(self, COLORS["primary_800"], COLORS["slate_900"], height=86)
-        header.pack(fill="x")
-        t = tk.Label(header, text="🔍  Audit documenti",
-                     fg="white", bg=COLORS["header_start"], font=FONTS["h1"])
-        header.create_window(24, 18, anchor="nw", window=t)
-        t2 = tk.Label(header,
-                      text="Analisi automatica di criticità, incoerenze, tracciabilità.",
-                      fg=COLORS["text_white_muted"], bg=COLORS["header_end"],
-                      font=FONTS["body_sm"])
-        header.create_window(24, 50, anchor="nw", window=t2)
+        _solid_header(self, "Audit documenti",
+                      "Analisi automatica di criticità, incoerenze, tracciabilità.")
 
         body = tk.Frame(self, bg=COLORS["bg"])
         body.pack(fill="both", expand=True, padx=16, pady=12)
@@ -1084,7 +1071,7 @@ class AuditDialog(tk.Toplevel):
         self.q_txt = self._mk_txt(self.tab_q)
 
         bottom = tk.Frame(body, bg=COLORS["bg"])
-        bottom.pack(fill="x", pady=(10, 0))
+        bottom.pack(fill="x", side="bottom", pady=(10, 0), before=out_card)
         self.lbl_status = tk.Label(bottom, text="", font=FONTS["body_sm"],
                                    fg=COLORS["muted"], bg=COLORS["bg"], anchor="w")
         self.lbl_status.pack(side="left")
@@ -1257,16 +1244,8 @@ class SmartFillDialog(tk.Toplevel):
         self._build_ui()
 
     def _build_ui(self):
-        header = GradientCanvas(self, COLORS["primary_800"], COLORS["slate_900"], height=86)
-        header.pack(fill="x")
-        t = tk.Label(header, text="🧩  Compilazione smart da documenti",
-                     fg="white", bg=COLORS["header_start"], font=FONTS["h1"])
-        header.create_window(24, 18, anchor="nw", window=t)
-        t2 = tk.Label(header,
-                      text="Compila il modulo leggendo informazioni da PDF/DOCX/XLSX/immagini.",
-                      fg=COLORS["text_white_muted"], bg=COLORS["header_end"],
-                      font=FONTS["body_sm"])
-        header.create_window(24, 50, anchor="nw", window=t2)
+        _solid_header(self, "Compilazione smart da documenti",
+                      "Compila il modulo leggendo informazioni da PDF/DOCX/XLSX/immagini.")
 
         body = tk.Frame(self, bg=COLORS["bg"])
         body.pack(fill="both", expand=True, padx=16, pady=12)
@@ -1342,7 +1321,7 @@ class SmartFillDialog(tk.Toplevel):
 
         # Bottom
         bottom = tk.Frame(body, bg=COLORS["bg"])
-        bottom.pack(fill="x", pady=(10, 0))
+        bottom.pack(fill="x", side="bottom", pady=(10, 0), before=out_card)
         self.lbl_status = tk.Label(bottom, text="", font=FONTS["body_sm"],
                                    fg=COLORS["muted"], bg=COLORS["bg"], anchor="w")
         self.lbl_status.pack(side="left")
@@ -1352,10 +1331,25 @@ class SmartFillDialog(tk.Toplevel):
                                    style="Primary.TButton", command=self._on_save,
                                    state="disabled")
         self.btn_save.pack(side="right")
+        # Dalla pagina Compila: i dati proseguono nel flusso normale (revisione -> documento
+        # compilato DOCX/XLSX/PDF nello Storico). Senza questo si salvava solo un JSON.
+        self.on_use: Optional[Callable[[Any, Dict[str, Any], List[str]], None]] = None
+        self.btn_use = ttk.Button(bottom, text="✓  Crea il documento con questi dati",
+                                  style="Primary.TButton", command=self._on_use, state="disabled")
+
+    def _on_use(self) -> None:
+        if self._last_result is None or self._loaded_module is None or self.on_use is None:
+            return
+        data = self._collect_edited_data()
+        texts = [d.full_text for d in (self._last_result.documents_used or []) if d.full_text]
+        names = [d.path.name for d in (self._last_result.documents_used or [])]
+        mod = self._loaded_module
+        self.destroy()
+        self.on_use(mod, data, texts or names)
 
     # --------------------------------------------------------------
     def preload(self, files, module_slug: Optional[str] = None) -> None:
-        """Precompila file e modulo (avvio dalla pagina Rapporto)."""
+        """Precompila file e modulo (avvio dalla pagina Compila) e avvia subito la compilazione."""
         self._files_var = [str(f) for f in files]
         try:
             self.files_lbl.configure(text=f"{len(self._files_var)} file selezionati")
@@ -1367,6 +1361,8 @@ class SmartFillDialog(tk.Toplevel):
                 self._on_load_module()
             except Exception:  # noqa: BLE001
                 pass
+        if self._files_var and self._loaded_module is not None:
+            self.after(300, self._on_fill)
 
     def _on_load_module(self):
         slug = self._module_slug_var.get().strip()
@@ -1446,7 +1442,7 @@ class SmartFillDialog(tk.Toplevel):
                 txt_srcs = []
                 for s in (field_src.sources if hasattr(field_src, "sources") else []):
                     if isinstance(s, SourceRef):
-                        txt_srcs.append(s.describe())
+                        txt_srcs.append(s.to_display())
                 if txt_srcs:
                     src_lbl = tk.Label(left,
                         text="Fonte: " + " | ".join(txt_srcs[:3]),
@@ -1542,6 +1538,9 @@ class SmartFillDialog(tk.Toplevel):
                 msg += f" — {len(r.validation_errors)} errori di validazione"
             self.lbl_status.configure(text="✓  " + msg)
             self.btn_save.configure(state="normal")
+            if self.on_use is not None:
+                self.btn_use.pack(side="right", padx=(0, 8))
+                self.btn_use.configure(state="normal")
         self.lbl_status.configure(text="⏳  Compilazione smart in corso…")
         self.btn_save.configure(state="disabled")
         _BackgroundWorker(self, "Compilazione smart",

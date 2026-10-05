@@ -76,7 +76,7 @@ class ReviewDialog(Dialog):
                            insertbackground=col("text"), highlightthickness=0)
         self.src.pack(fill="both", expand=True, padx=2, pady=(6, 2))
         srcs = sources or [description]
-        self.src.insert("end", t("DESCRIZIONE DELL'OPERATORE") + "\n", "h")
+        self.src.insert("end", t("INFORMAZIONI FORNITE") + "\n", "h")
         self.src.insert("end", (description or t("(nessuna)")) + "\n")
         for i, s in enumerate(srcs[1:], 1):
             self.src.insert("end", "\n" + t("DOCUMENTO DI RIFERIMENTO {n}", n=i) + "\n", "h")
@@ -122,6 +122,8 @@ class ReviewDialog(Dialog):
         button(self.footer, t("Chiudi"), self.cancel, kind="ghost").pack(side="right", padx=8, pady=12)
 
         self._refresh()
+        # parte dal primo campo (il focus su un campo puo' far scorrere il modulo a meta')
+        self.after(350, lambda: form._parent_canvas.yview_moveto(0))
         self.after(AUTOSAVE_S * 1000, self._autosave_loop)
 
     # ------------------------------------------------------------------ campi
@@ -144,6 +146,11 @@ class ReviewDialog(Dialog):
         holder = ctk.CTkFrame(row, fg_color="transparent")
         holder.pack(fill="x", padx=12, pady=(4, 12))
         value = self.data.get(key)
+        # il segnaposto interno "NON_SPECIFICATO" non va mostrato: il campo resta vuoto (chip "Mancante")
+        if isinstance(value, str) and value.strip().upper() == "NON_SPECIFICATO" and not spec.get("enum"):
+            value = ""
+        elif isinstance(value, list):
+            value = [v for v in value if not (isinstance(v, str) and v.strip().upper() == "NON_SPECIFICATO")]
         typ = spec.get("type")
         if isinstance(typ, list):
             typ = next((x for x in typ if x != "null"), "string")
@@ -235,7 +242,9 @@ class ReviewDialog(Dialog):
         if kind == "bool":
             return bool(w.get())
         if kind in ("number", "integer"):
-            raw = w.get().strip().replace(",", ".")
+            raw = w.get().strip().replace(" ", "")
+            if "," in raw:  # formato italiano: 1.234,50
+                raw = raw.replace(".", "").replace(",", ".")
             if not raw:
                 return None
             try:
@@ -294,11 +303,13 @@ class ReviewDialog(Dialog):
                                      else C["warning"] if status == "empty" else C["border"])
         q = max(0, min(100, int(quality_score(data, self.schema) or 0)))
         self.q_chip.set(t("Qualità {q}/100", q=q), "success" if q >= 75 else "warning" if q >= 45 else "danger")
-        self.miss_chip.set(t("{n} campi mancanti", n=n_missing) if n_missing else t("Tutti i campi compilati"),
+        self.miss_chip.set((t("1 campo mancante") if n_missing == 1 else t("{n} campi mancanti", n=n_missing))
+                           if n_missing else t("Tutti i campi compilati"),
                            "warning" if n_missing else "success")
         if self.checker is not None:
             n_bad = summarize(self.checks)["missing"]
-            self.ground_chip.set(t("{n} valori da verificare", n=n_bad) if n_bad else t("Valori trovati nelle fonti"),
+            self.ground_chip.set((t("1 valore da verificare") if n_bad == 1 else t("{n} valori da verificare", n=n_bad))
+                                 if n_bad else t("Valori trovati nelle fonti"),
                                  "danger" if n_bad else "success")
         else:
             self.ground_chip.pack_forget()

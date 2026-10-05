@@ -15,6 +15,11 @@ from ..icons import icon
 from ..widgets import Card, Chip, EmptyState, button, label, scrollable
 
 
+# tipi JSON dello schema mostrati con nomi comprensibili
+TYPE_LABELS = {"string": "testo", "number": "numero", "integer": "numero intero", "boolean": "sì/no",
+               "array": "lista", "object": "gruppo di campi"}
+
+
 class ModulePage(ctk.CTkFrame):
     def __init__(self, parent, win: Any):
         super().__init__(parent, fg_color="transparent")
@@ -53,8 +58,11 @@ class ModulePage(ctk.CTkFrame):
         tpl_ok = bool(mod.template_path) and Path(mod.template_path).exists()
         chips = ctk.CTkFrame(self.page, fg_color="transparent")
         chips.pack(fill="x", pady=(0, 14))
-        Chip(chips, t("{n} bozze", n=counts.get("draft", 0)), "warning").pack(side="left", padx=(0, 6))
-        Chip(chips, t("{n} completati", n=counts.get("exported", 0) + counts.get("approved", 0)),
+        n_draft = counts.get("draft", 0)
+        n_done = counts.get("exported", 0) + counts.get("approved", 0)
+        Chip(chips, t("{n} bozza", n=1) if n_draft == 1 else t("{n} bozze", n=n_draft), "warning").pack(
+            side="left", padx=(0, 6))
+        Chip(chips, t("{n} completato", n=1) if n_done == 1 else t("{n} completati", n=n_done),
              "success").pack(side="left", padx=(0, 6))
         Chip(chips, t("Template {ext}", ext=mod.template_type.upper()) if tpl_ok else t("Template mancante"),
              "info" if tpl_ok else "danger").pack(side="left", padx=(0, 6))
@@ -76,8 +84,8 @@ class ModulePage(ctk.CTkFrame):
             label(r, (spec or {}).get("title") or name.replace("_", " ").capitalize(), kind="body_b").pack(
                 side="left")
             typ = (spec or {}).get("type", "string")
-            Chip(r, ("elenco" if (spec or {}).get("enum") else str(typ)) + (" · " + t("obbligatorio") if name in req else ""),
-                 "neutral").pack(side="right")
+            kind = t("elenco") if (spec or {}).get("enum") else t(TYPE_LABELS.get(str(typ), str(typ)))
+            Chip(r, kind + (" · " + t("obbligatorio") if name in req else ""), "neutral").pack(side="right")
             if (spec or {}).get("description"):
                 label(fields.body, spec["description"], kind="caption", muted=True, wraplength=520).pack(
                     fill="x", padx=(2, 0))
@@ -161,7 +169,11 @@ class ModulePage(ctk.CTkFrame):
         dest = filedialog.asksaveasfilename(parent=self.win.root, defaultextension=".zip",
                                             initialfile=f"{mod.slug}.zip", filetypes=[("ZIP", "*.zip")])
         if dest:
-            self.win.mm.export_module_zip(mod.slug, Path(dest))
+            try:
+                self.win.mm.export_module_zip(mod.slug, Path(dest))
+            except Exception as exc:  # noqa: BLE001
+                self.win.toast(t("Esportazione non riuscita: {e}", e=exc), "error")
+                return
             self.win.toast(t("Modulo esportato."), "success")
 
     def duplicate(self) -> None:
@@ -173,7 +185,8 @@ class ModulePage(ctk.CTkFrame):
     def archive(self) -> None:
         mod = self.win.selected
         if messagebox.askyesno(t("Archivia modulo"), t("Archiviare «{n}»? Non comparirà più nell'elenco; i documenti "
-                                                       "restano nello storico.", n=mod.name), parent=self.win.root):
+                                                       "restano nello storico. Puoi ripristinarlo da Impostazioni → "
+                                                       "Dati e backup.", n=mod.name), parent=self.win.root):
             self.win.mm.archive_module(mod.slug)
             self.win.selected = None
             self.win.refresh_modules(quiet=True)

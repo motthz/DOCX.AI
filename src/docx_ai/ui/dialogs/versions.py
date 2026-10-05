@@ -47,6 +47,10 @@ class VersionsDialog(Dialog):
                               text=f"v{v['version']} · {(v['created_at'] or '')[:16].replace('T', ' ')}\n{v.get('note') or ''}",
                               command=lambda vv=v: self.show(vv))
             b.pack(fill="x", pady=2)
+            try:  # testo su due righe allineato a sinistra (Tk centra le righe per default)
+                b._text_label.configure(justify="left")
+            except Exception:  # noqa: BLE001
+                pass
             self._buttons.append((b, v))
         self.restore_btn = button(self.footer, t("Ripristina questa versione"), self.restore, kind="primary",
                                   icon_name="rotate-ccw")

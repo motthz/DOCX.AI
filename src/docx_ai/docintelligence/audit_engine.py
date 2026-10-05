@@ -53,6 +53,18 @@ IDENTIFIER_PATTERNS: List[Tuple[str, re.Pattern]] = [
 ]
 
 
+def _as_list(value: Any) -> List[str]:
+    """Il modello a volte restituisce una stringa al posto di un elenco (es. un solo file):
+    iterarla darebbe i singoli caratteri."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        value = [value]
+    return [str(x).strip() for x in value if str(x).strip() and str(x).strip() != "NON_SPECIFICATO"]
+
+
 @dataclass
 class AuditFinding:
     """Singola criticità / osservazione."""
@@ -254,8 +266,8 @@ class AuditEngine:
                         title=str(c.get("titolo", "")),
                         severity=str(c.get("gravita", "MEDIO")).upper() if str(c.get("gravita")).upper() in SEVERITY_LEVELS else "MEDIO",
                         description=str(c.get("descrizione", "")),
-                        files=[str(x) for x in (c.get("file_interessati") or []) if x],
-                        locations=[str(x) for x in (c.get("posizioni") or []) if x],
+                        files=_as_list(c.get("file_interessati")),
+                        locations=_as_list(c.get("posizioni")),
                         evidence=str(c.get("evidenza", "")),
                         reason=str(c.get("motivo", "")),
                         suggestion=str(c.get("suggerimento", "")),
@@ -273,13 +285,29 @@ class AuditEngine:
                 ("collegamenti_tra_documenti", "links_between_documents"),
                 ("controlli_effettuati", "controls_executed"),
             ]:
-                items = data.get(field_name) or []
+                items = _as_list(data.get(field_name))
                 for item in items:
                     if isinstance(item, str) and item.strip():
                         getattr(report, attr).append(item.strip())
 
-        # Merge heuristic + AI findings, heuristic first for high severity triggers
-        all_findings = heuristic_findings + ai_findings
+        # Le incoerenze tra documenti sono le criticita' piu' utili: prima finivano solo nella
+        # scheda "Domande / Coerenze" e la tabella principale mostrava solo i dati mancanti.
+        for item in report.inconsistencies:
+            ai_findings.append(AuditFinding(
+                title=("Incoerenza: " + item)[:120], severity="ALTO", description=item,
+                files=[d.path.name for d in docs if d.path.name in item],
+                confidence="Possibile criticità",
+                suggestion="Verifica quale documento è aggiornato e allinea l'altro.",
+            ))
+        # Merge heuristic + AI findings, heuristic first for high severity triggers.
+        # Il modello tende a ripetere le criticita' euristiche che gli vengono passate: niente doppioni.
+        seen_titles = {f.title.strip().lower() for f in heuristic_findings}
+        all_findings = list(heuristic_findings)
+        for f in ai_findings:
+            key = f.title.strip().lower()
+            if key and key not in seen_titles:
+                seen_titles.add(key)
+                all_findings.append(f)
         report.findings = all_findings
         # Count severities
         for f in all_findings:

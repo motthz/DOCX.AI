@@ -16,7 +16,7 @@ from tkinter import messagebox, ttk
 from typing import Dict, Optional
 
 from ..docintelligence import RulesManager, FEATURE_RULES_FILES, GLOBAL_FEATURE_KEY, FEATURE_LABELS_V2
-from .theme import COLORS, FONTS, GradientCanvas, RoundedCard, ModernTheme, apply_theme, center_window
+from .theme import COLORS, FONTS, RoundedCard, ModernTheme, apply_theme, center_window
 
 
 LOG = logging.getLogger(__name__)
@@ -59,26 +59,20 @@ class RulesEditorDialog(tk.Toplevel):
         self._build_ui()
         self._load_initial()
         self._dirty = False
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # --------------------------------------------------------------
     def _build_ui(self) -> None:
         scale = getattr(self, "_dpi_scale", None) or 1.0
         # Gradient header
-        header = GradientCanvas(self, COLORS["primary_800"], COLORS["slate_900"], height=int(140 * scale))
+        hbg = COLORS["header_start"]
+        header = tk.Frame(self, bg=hbg)
         header.pack(fill="x")
-        header_title = tk.Label(
-            header, text="⚙  Regole AI",
-            fg="white", bg=COLORS["header_start"],
-            font=FONTS["h1"], anchor="w",
-        )
-        header.create_window(int(24 * scale), int(18 * scale), anchor="nw", window=header_title)
-        header_sub = tk.Label(
-            header,
-            text=self._header_subtitle(),
-            fg=COLORS["text_white_muted"], bg=COLORS["header_end"],
-            font=FONTS["body_sm"], anchor="w", justify="left", wraplength=int(900 * scale),
-        )
-        header.create_window(int(24 * scale), int(56 * scale), anchor="nw", window=header_sub)
+        tk.Label(header, text="Regole AI", fg="white", bg=hbg, font=FONTS["h1"], anchor="w").pack(
+            fill="x", padx=int(24 * scale), pady=(int(16 * scale), 0))
+        tk.Label(header, text=self._header_subtitle(), fg=COLORS["text_white_muted"], bg=hbg,
+                 font=FONTS["body_sm"], anchor="w", justify="left", wraplength=int(740 * scale)).pack(
+            fill="x", padx=int(24 * scale), pady=(2, int(16 * scale)))
 
         # Buttons (packed BEFORE expand body so they always stay visible inside viewport)
         btns = tk.Frame(self, bg=COLORS["bg"])
@@ -89,7 +83,7 @@ class RulesEditorDialog(tk.Toplevel):
         ).pack(side="left")
         ttk.Button(
             btns, text="Chiudi", style="Secondary.TButton",
-            command=self.destroy,
+            command=self._on_close,
         ).pack(side="right", padx=(8, 0))
         ttk.Button(
             btns, text="💾  Salva", style="Primary.TButton",
@@ -106,7 +100,7 @@ class RulesEditorDialog(tk.Toplevel):
         top_bar = tk.Frame(card_inner, bg=COLORS["card_bg"])
         top_bar.pack(fill="x", pady=(0, 8))
         tk.Label(
-            top_bar, text="Contenuto del file .txt (solo tu puoi modificarlo)",
+            top_bar, text="Istruzioni permanenti per l'AI (una per riga)",
             font=FONTS["body_bold"], fg=COLORS["text"], bg=COLORS["card_bg"], anchor="w",
         ).pack(side="left")
         self.status_var = tk.StringVar(value="— Nessuna modifica —")
@@ -122,8 +116,8 @@ class RulesEditorDialog(tk.Toplevel):
         tk.Label(
             banner,
             text=(
-                "⚠️  IMPORTANTE: L'AI legge queste regole MA NON PUO' MODIFICARLE MAI.\n"
-                "Solo TU, tramite questo editor dopo click esplicito 💾 Salva, puoi cambiarle."
+                "L'AI segue queste regole ogni volta che compila, ma non può modificarle:\n"
+                "le cambi solo tu, da questa finestra, premendo Salva."
             ),
             bg=COLORS["danger_50"], fg=COLORS["danger_800"],
             font=FONTS["body_bold"], justify="left", anchor="w",
@@ -145,10 +139,9 @@ class RulesEditorDialog(tk.Toplevel):
         info_bar = tk.Label(
             card_inner,
             text=(
-                "Ordine istruzioni AI: 1) regole interne software  2) regole feature  "
-                "3) regole modulo  4) richiesta utente.\n"
-                "L'AI legge questo file MA NON potrà MAI modificarlo. "
-                "Nessun processo automatico lo sovrascrive."
+                "Esempi: «Scrivi le date nel formato gg/mm/aaaa» · «Il reparto va sempre in maiuscolo» · "
+                "«Se manca il numero di protocollo lascia il campo vuoto».\n"
+                "Priorità: regole dell'app, poi regole della funzione, poi regole del modulo, poi la tua richiesta."
             ),
             font=FONTS["body_sm"], fg=COLORS["muted"], bg=COLORS["card_bg"],
             justify="left", anchor="w",
@@ -161,12 +154,9 @@ class RulesEditorDialog(tk.Toplevel):
             fkey = self.feature_key if self.feature_key in FEATURE_RULES_FILES else GLOBAL_FEATURE_KEY
             file_name = FEATURE_RULES_FILES.get(fkey, GLOBAL_FEATURE_KEY + "_rules.txt")
             label = FEATURE_LABELS_IT.get(fkey, FEATURE_LABELS_IT.get(GLOBAL_FEATURE_KEY, self.feature_key))
-            return f"Feature: {label}\nFile: {file_name}"
+            return f"Funzione: {label}  ·  {file_name}"
         if self.module_folder:
-            return (
-                f"Modulo: {self.module_name or self.module_folder.name}\n"
-                f"File: {self.module_folder / 'rules.txt'}"
-            )
+            return f"Modulo: {self.module_name or self.module_folder.name}  ·  rules.txt"
         return "Seleziona una regola."
 
     # --------------------------------------------------------------
@@ -200,6 +190,12 @@ class RulesEditorDialog(tk.Toplevel):
                 self.text.edit_modified(False)
         except Exception:  # noqa: BLE001
             pass
+
+    def _on_close(self) -> None:
+        if self._dirty and not messagebox.askyesno(
+                "Regole AI", "Chiudere senza salvare le modifiche alle regole?", parent=self):
+            return
+        self.destroy()
 
     def _on_reload(self) -> None:
         if self._dirty:

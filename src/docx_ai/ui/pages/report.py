@@ -18,7 +18,7 @@ from ...module_manager import LoadedModule
 from ..design import C, GAP, font
 from ..i18n import t
 from ..icons import icon
-from ..widgets import Card, Chip, Stepper, button, label, section, separator
+from ..widgets import Card, Chip, Stepper, autowrap, button, label, section, separator
 
 LOG = logging.getLogger(__name__)
 IMG_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
@@ -49,13 +49,13 @@ class ReportPage(ctk.CTkFrame):
         label(top, t("Nuovo documento"), kind="h2").pack(side="left")
         self.module_chip = Chip(top, "—", "info")
         self.module_chip.pack(side="left", padx=10)
-        self.quality = Chip(top, "", "neutral")
-        self.quality.pack(side="right")
 
-        self.mode = ctk.CTkSegmentedButton(b, values=[t("Scrivi le informazioni"), t("Da documenti")],
+        mrow = ctk.CTkFrame(b, fg_color="transparent")
+        mrow.pack(fill="x", pady=(12, 10))
+        self.mode = ctk.CTkSegmentedButton(mrow, values=[t("Scrivi le informazioni"), t("Da documenti")],
                                            command=self._switch_mode, font=font("body_b"), height=32)
         self.mode.set(t("Scrivi le informazioni"))
-        self.mode.pack(anchor="w", pady=(12, 10))
+        self.mode.pack(side="left")
 
         self.input_host = ctk.CTkFrame(b, fg_color="transparent")
         self.input_host.pack(fill="both", expand=True)
@@ -63,6 +63,9 @@ class ReportPage(ctk.CTkFrame):
         self.desc = ctk.CTkTextbox(self.desc_frame, height=170, wrap="word", font=font("body"),
                                    border_width=1, border_color=C["border"], fg_color=C["surface"])
         self.desc.pack(fill="both", expand=True)
+        # lunghezza del testo sotto la casella: in alto veniva tagliata con nomi lunghi o testo ingrandito
+        self.quality = Chip(self.desc_frame, "", "neutral")
+        self.quality.pack(anchor="e", pady=(6, 0))
         self._placeholder = t("Scrivi tutto ciò che il documento deve contenere, a parole tue. Esempi: «Riunione del 2 ottobre con "
                               "Rossi e Bianchi: approvato il budget di 12.000 €, prossimo incontro il 15» oppure «Il tecnico Rossi ha sostituito la cinghia del compressore C-12, prova ok». "
                               "Più dettagli dai, più campi vengono compilati.")
@@ -126,7 +129,7 @@ class ReportPage(ctk.CTkFrame):
             box = ctk.CTkFrame(s, fg_color="transparent")
             box.pack(fill="x", pady=(12, 0))
             ctk.CTkSwitch(box, text=title, variable=var, font=font("body_b")).pack(anchor="w")
-            label(box, sub, kind="small", muted=True, wraplength=300).pack(anchor="w", padx=(46, 0))
+            autowrap(label(box, sub, kind="small", muted=True, wraplength=300)).pack(fill="x", padx=(46, 0))
         self.grounding.trace_add("write", lambda *a: st.set("ai.grounding", self.grounding.get()))
 
         section(s, t("Creatività dell'AI"), t("Bassa = più fedele al testo (consigliato).")).pack(
@@ -141,7 +144,7 @@ class ReportPage(ctk.CTkFrame):
         self.temp_lbl.pack(side="left", padx=(8, 0))
 
         separator(s).pack(fill="x", pady=16)
-        self.ai_info = label(s, "", kind="small", muted=True, wraplength=300)
+        self.ai_info = autowrap(label(s, "", kind="small", muted=True, wraplength=300))
         self.ai_info.pack(fill="x")
 
         win.on("module_selected", lambda m: self._update_module())
@@ -162,7 +165,8 @@ class ReportPage(ctk.CTkFrame):
 
     def _update_ai_info(self) -> None:
         st = self.win.config.ai_components_status()
-        if not (st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])):
+        if not (self.win.ai.is_running or self.win.ollama_available) and not (
+                st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])):
             self.ai_info.configure(text=t("AI non installata: la bozza avrà i campi da compilare a mano. "
                                           "Installa l'AI dal pulsante in alto."))
         else:
@@ -197,6 +201,7 @@ class ReportPage(ctk.CTkFrame):
         (self.docs_frame if docs else self.desc_frame).pack(fill="both", expand=True)
         if docs:
             self._render_docs()
+        self._update_quality()
         self.go_btn.configure(text=t("Compila da documenti") if docs else t("Compila con AI   (Ctrl+E)"))
 
     def _toggle_live(self) -> None:
@@ -360,6 +365,7 @@ class ReportPage(ctk.CTkFrame):
     def _after_draft(self, mod, outcome, desc: str, sources: List[str]) -> None:
         self.busy = False
         self.go_btn.configure(state="normal", text=t("Compila con AI   (Ctrl+E)"))
+        self.win.ai_state = "idle"  # altrimenti refresh_ai lascerebbe "AI al lavoro…" per sempre
         self.win.refresh_ai()
         if not outcome.data:
             self._fail(outcome.error or t("dati non validi"))
@@ -451,9 +457,24 @@ class ReportPage(ctk.CTkFrame):
         try:
             dlg = SmartFillDialog(self.win.root, self.win.app.smart_fill_engine, self.win.app.rules_manager,
                                   self.win.mm, self.win.config.exports_root())
+            dlg.on_use = self._use_documents_data
             dlg.preload(list(self.doc_files), mod.slug)
         except Exception as exc:  # noqa: BLE001
             self.win.toast(t("Errore: {e}", e=exc), "error")
+
+    def _use_documents_data(self, mod: LoadedModule, data: Dict[str, Any], sources: List[str]) -> None:
+        """Dati letti dai documenti -> bozza nello Storico -> revisione -> esportazione."""
+        names = ", ".join(p.name for p in self.doc_files)
+        desc = t("Compilato dai documenti: {f}", f=names)
+        rid = self.win.db.create_report(module_id=mod.id, module_version=mod.version, status="draft",
+                                        input_description=desc,
+                                        draft_json=json.dumps(data, ensure_ascii=False), source="documents")
+        self.win.emit("reports")
+        self.stepper.reset()
+        for i in range(3):
+            self.stepper.set(i, "ok")
+        self.stepper.set(3, "run")
+        self.open_review(mod, rid, data, desc, sources)
 
 
 __all__ = ["ReportPage", "tk"]

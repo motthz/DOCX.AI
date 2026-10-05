@@ -40,9 +40,8 @@ def load_workbook_safe(path: Path) -> Workbook:
 
 def extract_text(wb: Workbook) -> XlsxExtraction:
     out = XlsxExtraction(full_text="")
-    import re
-    ph_re = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_\.]*)\s*\}\}")
-    placeholders = set()
+    from .docx_parser import _PLACEHOLDER_RE as ph_re
+    placeholders: Dict[str, None] = {}  # ordine di apparizione
     pieces: List[str] = []
     for ws in wb.worksheets:
         title = ws.title or ""
@@ -55,11 +54,12 @@ def extract_text(wb: Workbook) -> XlsxExtraction:
             for value in row_values:
                 s = "" if value is None else str(value)
                 cell_strs.append(s)
-                placeholders.update(ph_re.findall(s))
+                for ph in ph_re.findall(s):
+                    placeholders.setdefault(ph, None)
             pieces.append(" | ".join(cell_strs))
         out.sheets[title] = rows
     out.full_text = "\n".join(pieces)
-    out.placeholders = sorted(placeholders)
+    out.placeholders = list(placeholders)
     out.meta["sheet_count"] = len(wb.worksheets)
     return out
 

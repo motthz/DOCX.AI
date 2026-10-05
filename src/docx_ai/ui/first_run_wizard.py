@@ -88,7 +88,7 @@ class FirstRunWizard:
                  bg="#1e293b", fg="#ffffff", font=("Segoe UI", 16, "bold")).pack(anchor="w")
         tk.Label(titles, text="Configurazione guidata iniziale",
                  bg="#1e293b", fg="#93c5fd", font=("Segoe UI", 10)).pack(anchor="w")
-        self.progress = ttk.Progressbar(self.top, length=560, mode="determinate", maximum=3)
+        self.progress = ttk.Progressbar(self.top, length=560, mode="determinate", maximum=4)
         self.progress.pack(pady=14)
         self.body = ttk.Frame(self.top, padding=(20, 10))
         self.body.pack(fill="both", expand=True)
@@ -113,12 +113,12 @@ class FirstRunWizard:
 
     def _step2_workspace(self) -> ttk.Frame:
         f = ttk.Frame(self.body)
-        ttk.Label(f, text="2. Cartella dati (workspace / moduli)",
+        ttk.Label(f, text="2. Cartella dei dati",
                   style="Title.H4.TLabel").pack(anchor="w", pady=(0, 8))
         ttk.Label(f,
-                  text="Tutti i moduli creati, i documenti di riferimento e lo storico dei rapporti\n"
-                       "verranno salvati in questa cartella. La selezione viene salvata nel DB settings\n"
-                       "e può essere cambiata in seguito.",
+                  text="Moduli, documenti di riferimento, storico dei documenti compilati e backup\n"
+                       "verranno salvati in questa cartella (anche di rete). Puoi cambiarla in\n"
+                       "qualsiasi momento da Impostazioni.",
                   style="Subtle.TLabel", justify="left").pack(anchor="w", pady=(0, 8))
         row = ttk.Frame(f)
         row.pack(fill="x", pady=6)
@@ -130,8 +130,8 @@ class FirstRunWizard:
         f = ttk.Frame(self.body)
         ttk.Label(f, text="3. Verifica automatica componenti",
                   style="Title.H4.TLabel").pack(anchor="w", pady=(0, 8))
-        ttk.Label(f, text="Viene eseguito l'auto-test. Attendi…",
-                  style="Subtle.TLabel").pack(anchor="w", pady=(0, 6))
+        self.selftest_lbl = ttk.Label(f, text="Viene eseguito l'auto-test. Attendi…", style="Subtle.TLabel")
+        self.selftest_lbl.pack(anchor="w", pady=(0, 6))
         self.selftest_text = tk.Text(f, height=10, width=70, wrap="word",
                                      bg="#0f172a", fg="#e2e8f0",
                                      font=("Consolas", 9))
@@ -143,7 +143,8 @@ class FirstRunWizard:
         ttk.Label(f, text="4. Configurazione completata ✓",
                   style="Title.H4.TLabel").pack(anchor="w", pady=(0, 16))
         ttk.Label(f, text="DOCX.AI è pronto per l'uso.\n"
-                          "Premi 'Fine' per iniziare a creare i tuoi moduli e rapporti di manutenzione.",
+                          "Premi 'Fine' per iniziare: crea un modulo da un tuo documento Word o Excel\n"
+                          "oppure parti dai moduli di esempio.",
                   style="Subtle.TLabel", justify="left").pack(anchor="w")
         return f
 
@@ -161,7 +162,7 @@ class FirstRunWizard:
         for i, fr in enumerate(self._frames):
             fr.pack_forget()
         self._frames[self.step].pack(fill="both", expand=True)
-        self.progress["value"] = self.step
+        self.progress["value"] = self.step + 1
         self.btn_back.configure(state="normal" if self.step > 0 else "disabled")
         if self.step == 0:
             self.btn_next.configure(text="Avanti →", state="normal")
@@ -183,7 +184,8 @@ class FirstRunWizard:
 
     def _back(self) -> None:
         if self.step > 0 and self.step != 2:
-            self.step -= 1
+            # dall'ultimo passo si torna alla cartella: l'auto-test non va ripetuto
+            self.step = 1 if self.step == 3 else self.step - 1
             self._show_step()
 
     # --------------------------------------------------------------
@@ -211,7 +213,7 @@ class FirstRunWizard:
                     val2 = self.db.get_setting("wizard_selftest_key")
                     if val is not None:
                         self.db.set_setting("wizard_selftest_key", val)
-                    _append(f"[OK] DB write/read: {val2}")
+                    _append("[OK] Database: lettura e scrittura" if val2 else "[WARN] Database non verificato")
                 except Exception as exc:  # noqa: BLE001
                     _append(f"[WARN] DB test fallito: {exc}")
             # Try to validate DOCX/XLSX/PDF exporters? Skip to save time.
@@ -227,6 +229,10 @@ class FirstRunWizard:
             _append("[PASS] Configurazione iniziale completata.")
         finally:
             self.top.after(250, lambda: self.btn_next.configure(state="normal"))
+            try:
+                self.selftest_lbl.configure(text="Verifica completata.")
+            except Exception:  # noqa: BLE001
+                pass
 
     # --------------------------------------------------------------
     def _on_abort(self) -> None:

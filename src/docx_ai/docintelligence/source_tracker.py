@@ -31,6 +31,13 @@ class SourceRef:
     confidence: Optional[float] = None
     source_kind: str = ""   # "native" | "ocr" | "inferred"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Forma serializzabile in JSON (salvataggio dei dati approvati)."""
+        return {"file": self.file_name, "path": str(self.file_path) if self.file_path else None,
+                "sha256": self.file_sha256, "page": self.page, "sheet": self.sheet, "cell": self.cell,
+                "paragraph": self.paragraph_index, "section": self.section, "excerpt": self.excerpt[:400],
+                "confidence": self.confidence, "kind": self.source_kind}
+
     def to_display(self) -> str:
         parts: List[str] = []
         parts.append(self.file_name)
@@ -54,6 +61,11 @@ class Conflict:
 
     def values(self) -> List[str]:
         return [v for v, _ in self.alternatives]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"field": self.field,
+                "alternatives": [{"value": v, "sources": [r.to_dict() for r in refs]}
+                                 for v, refs in self.alternatives]}
 
 
 @dataclass

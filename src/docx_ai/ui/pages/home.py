@@ -10,7 +10,7 @@ import customtkinter as ctk
 from ..design import C, GAP, font
 from ..i18n import t
 from ..icons import icon
-from ..widgets import Card, EmptyState, StatCard, button, label, scrollable
+from ..widgets import Card, EmptyState, StatCard, autowrap, button, label, scrollable
 
 
 def _greeting() -> str:
@@ -62,8 +62,8 @@ class HomePage(ctk.CTkFrame):
             ctk.CTkLabel(card.body, text="", image=icon(ic, 22, "primary")).pack(anchor="w")
             ctk.CTkLabel(card.body, text=title, font=font("body_b"), text_color=C["text"], anchor="w").pack(
                 fill="x", pady=(8, 0))
-            ctk.CTkLabel(card.body, text=sub, font=font("small"), text_color=C["text_muted"], anchor="w",
-                         justify="left", wraplength=220).pack(fill="x")
+            autowrap(ctk.CTkLabel(card.body, text=sub, font=font("small"), text_color=C["text_muted"], anchor="w",
+                                  justify="left", wraplength=220)).pack(fill="x")
             for w in (card, card.body, *card.body.winfo_children()):
                 w.bind("<Button-1>", lambda e, c=cmd: c(), add="+")
 
@@ -132,14 +132,14 @@ class HomePage(ctk.CTkFrame):
         st = self.win.config.ai_components_status()
         ready = st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])
         ai = self.win.ai
-        if not ready:
-            label(body, t("L'AI locale non è ancora installata. Senza AI puoi comunque compilare i documenti a mano."),
-                  muted=True, wraplength=320).pack(fill="x", pady=(4, 10))
+        if not ready and not ai.is_running and not self.win.ollama_available:  # Ollama locale = AI disponibile
+            autowrap(label(body, t("L'AI locale non è ancora installata. Senza AI puoi comunque compilare i documenti "
+                                   "a mano."), muted=True, wraplength=320)).pack(fill="x", pady=(4, 10))
             button(body, t("Installa AI (una volta)"), self.win.open_ai_setup, kind="primary",
                    icon_name="download").pack(anchor="w")
             return
         state = t("attivo") if ai.is_running else t("pronto (si avvia alla prima richiesta)")
-        label(body, t("Stato: {s}", s=state), wraplength=320).pack(fill="x", pady=(4, 0))
+        autowrap(label(body, t("Stato: {s}", s=state), wraplength=320)).pack(fill="x", pady=(4, 0))
         if ai.is_running:
             label(body, ai.backend_label, kind="caption", muted=True).pack(fill="x")
         if getattr(ai, "ram_warning", ""):
@@ -147,5 +147,5 @@ class HomePage(ctk.CTkFrame):
                   text_color=C["warning"]).pack(fill="x", pady=(6, 0))
         from ...llm import hardware
         hw = hardware.refresh_memory()
-        label(body, hw.summary(), kind="caption", muted=True, wraplength=320).pack(fill="x", pady=(8, 10))
+        autowrap(label(body, hw.summary(), kind="caption", muted=True, wraplength=320)).pack(fill="x", pady=(8, 10))
         button(body, t("Gestisci componenti AI"), self.win.open_ai_setup, icon_name="cpu").pack(anchor="w")

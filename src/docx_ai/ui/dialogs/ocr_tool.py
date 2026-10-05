@@ -63,10 +63,17 @@ class OcrDialog(Dialog):
         self.win.toast(t("Testo copiato."), "success")
 
     def to_report(self) -> None:
+        import re
         page = self.win.page("report")
+        text = "\n".join(ln for ln in self.out.get("1.0", "end").splitlines()
+                         if not re.fullmatch(r"=== .+ ===", ln.strip())).strip()
+        if page.mode.get() != t("Scrivi le informazioni"):
+            page.mode.set(t("Scrivi le informazioni"))
+            page._switch_mode(t("Scrivi le informazioni"))
+        existing = page._text()
         page._hide_placeholder()
-        page.desc.delete("1.0", "end")
-        page.desc.insert("1.0", self.out.get("1.0", "end").strip())
+        # si aggiunge al testo gia' scritto (prima lo sostituiva senza chiedere)
+        page.desc.insert("end", ("\n\n" if existing else "") + text)
         page._update_quality()
         self.close()
         self.win.show_page("report")

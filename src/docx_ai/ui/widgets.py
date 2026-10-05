@@ -77,6 +77,34 @@ def label(parent, text: str = "", *, kind: str = "body", muted: bool = False, **
     return ctk.CTkLabel(parent, text=text, font=font(kind), **kw)
 
 
+def autowrap(lbl: ctk.CTkLabel) -> ctk.CTkLabel:
+    """Manda a capo il testo alla larghezza reale dell'etichetta (con un wraplength
+    fisso il testo viene tagliato se lo spazio e' minore, es. con lo zoom di Windows)."""
+    inner = getattr(lbl, "_label", None)
+    if inner is None:
+        return lbl
+    state = {"w": 0, "job": None}
+
+    def apply() -> None:
+        state["job"] = None
+        try:
+            w = lbl.winfo_width()
+            # isteresi: piccole variazioni (es. barra di scorrimento che compare) non
+            # devono innescare un ciclo a-capo -> altezza -> larghezza
+            if w > 1 and abs(w - state["w"]) >= 40:
+                state["w"] = w
+                inner.configure(wraplength=max(40, w - 8))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def on_configure(_e) -> None:
+        if state["job"] is None:
+            state["job"] = lbl.after(60, apply)
+
+    lbl.bind("<Configure>", on_configure, add="+")
+    return lbl
+
+
 class Chip(ctk.CTkLabel):
     TONES = {
         "neutral": (C["surface_alt"], C["text_muted"]),
@@ -105,12 +133,11 @@ class StatCard(Card):
         badge = ctk.CTkLabel(row, text="", image=icon(icon_name, 22, "auto"), width=44, height=44,
                              corner_radius=22, fg_color=C["primary_soft"])
         badge.pack(side="left")
-        col_ = ctk.CTkFrame(row, fg_color="transparent")
-        col_.pack(side="left", padx=(12, 0), fill="x", expand=True)
-        self.value = ctk.CTkLabel(col_, text="—", font=font("h2"), text_color=accent, anchor="w")
-        self.value.pack(anchor="w")
-        ctk.CTkLabel(col_, text=caption, font=font("small"), text_color=C["text_muted"],
-                     anchor="w").pack(anchor="w")
+        self.value = ctk.CTkLabel(row, text="—", font=font("h2"), text_color=accent, anchor="w")
+        self.value.pack(side="left", padx=(12, 0))
+        # sotto l'icona e su tutta la larghezza: accanto all'icona veniva tagliata con il testo ingrandito
+        autowrap(ctk.CTkLabel(self.body, text=caption, font=font("small"), text_color=C["text_muted"],
+                              anchor="w", justify="left", wraplength=200)).pack(fill="x", pady=(6, 0))
 
     def set(self, value: str) -> None:
         self.value.configure(text=value)
@@ -119,7 +146,8 @@ class StatCard(Card):
 # ---------------------------------------------------------------- stato vuoto
 class EmptyState(ctk.CTkFrame):
     def __init__(self, parent, icon_name: str, heading: str, text: str,
-                 action: Optional[Tuple[str, Callable]] = None, **kw):
+                 action: Optional[Tuple[str, Callable]] = None, *, wraplength: int = 420,
+                 secondary: Optional[Tuple[str, Callable]] = None, **kw):
         kw.setdefault("fg_color", "transparent")
         super().__init__(parent, **kw)
         circle = ctk.CTkLabel(self, text="", image=icon(icon_name, 40, "primary"), width=88, height=88,
@@ -127,9 +155,12 @@ class EmptyState(ctk.CTkFrame):
         circle.pack(pady=(24, 12))
         ctk.CTkLabel(self, text=heading, font=font("h3"), text_color=C["text"]).pack()
         ctk.CTkLabel(self, text=text, font=font("body"), text_color=C["text_muted"],
-                     wraplength=420, justify="center").pack(pady=(4, 12))
+                     wraplength=wraplength, justify="center").pack(pady=(4, 12))
         if action:
-            button(self, action[0], action[1], kind="primary", icon_name="plus").pack(pady=(0, 24))
+            button(self, action[0], action[1], kind="primary", icon_name="plus").pack(
+                pady=(0, 8 if secondary else 24))
+        if secondary:
+            button(self, secondary[0], secondary[1], kind="ghost").pack(pady=(0, 24))
 
 
 # ---------------------------------------------------------------- barra schede

@@ -84,6 +84,7 @@ class MainWindow:
         self.selected: Optional[LoadedModule] = None
         self.pages: Dict[str, Any] = {}
         self.ai_state = "idle"
+        self.ollama_available = False  # Ollama locale con un modello di chat (usato se manca llama.cpp)
         self._listeners: Dict[str, List[Callable]] = {}
 
         self._build_header()
@@ -176,7 +177,7 @@ class MainWindow:
         from .sidebar import Sidebar
         self.sidebar = Sidebar(self._paned, self)
         self.content = ctk.CTkFrame(self._paned, fg_color=C["bg"], corner_radius=0)
-        width = int(self.settings.get("ui.sidebar_width"))
+        width = int(int(self.settings.get("ui.sidebar_width")) * design.user_scale())
         self._paned.add(self.sidebar, minsize=64, width=width, stretch="never")
         self._paned.add(self.content, minsize=560, stretch="always")
         if self.settings.get("ui.sidebar_collapsed"):
@@ -288,10 +289,12 @@ class MainWindow:
             return
         st = self.config.ai_components_status()
         ready = st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])
-        if not ready:
-            self.set_ai_state("error", t("AI non installata"))
-        elif self.ai.is_running:
+        if self.ai.is_running:  # anche con un Ollama locale rilevato senza componenti installati
             self.set_ai_state("ok", t("AI attiva"))
+        elif not ready and self.ollama_available:
+            self.set_ai_state("idle", t("AI pronta (Ollama)"))
+        elif not ready:
+            self.set_ai_state("error", t("AI non installata"))
         else:
             self.set_ai_state("idle", t("AI pronta"))
         self.emit("ai")
@@ -381,19 +384,17 @@ class MainWindow:
         self.refresh_ai()
         if self.db.get_setting("first_run_done") is None:
             from .first_run_wizard import FirstRunWizard
-            default_ws = self.config.data_root / "workspace"
             lang_before = self.settings.get("ui.lang")
-            wiz = FirstRunWizard(self.root, default_workspace=default_ws, config=self.config, db=self.db)
+            wiz = FirstRunWizard(self.root, default_workspace=self.config.data_root, config=self.config,
+                                 db=self.db)
             if not wiz.run():
                 return
             # applica davvero le scelte della procedura guidata (lingua, cartella dati)
-            from ..datadir import set_configured_data_dir
-            chosen = Path(wiz.workspace.get()).expanduser()
+            needs_restart = self.settings.get("ui.lang") != lang_before
+            chosen = Path(wiz.workspace.get().strip() or self.config.data_root).expanduser()
             if chosen.name.lower() == "workspace":
                 chosen = chosen.parent
-            needs_restart = self.settings.get("ui.lang") != lang_before
-            if chosen.resolve() != self.config.data_root.resolve():
-                set_configured_data_dir(chosen)
+            if chosen.resolve() != self.config.data_root.resolve() and self._move_first_run_data_dir(chosen):
                 needs_restart = True
             if needs_restart:
                 self.restart()
@@ -416,7 +417,48 @@ class MainWindow:
         self.app.start_background_tasks()
         if self.settings.get("updates.auto"):
             self.root.after(8000, self.check_updates)
+        if not (st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])):
+            threading.Thread(target=self._probe_ollama, daemon=True, name="ollama-probe").start()
         self.root.after(60000, self._poll_ai)
+
+    def _probe_ollama(self) -> None:
+        """Senza componenti AI installati l'app usa un Ollama locale, se c'e': lo segnala
+        subito invece di mostrare "AI non installata" fino alla prima compilazione."""
+        try:
+            from ..llm.ollama_backend import OllamaBackend, OllamaBackendOptions
+            eff = self.config.llm_effective or {}
+            srv = OllamaBackend(OllamaBackendOptions(url=str(eff.get("ollama_url", "http://127.0.0.1:11434"))))
+            found = srv.health_check(timeout=1.5) and any("embed" not in m.lower() for m in srv.list_models())
+        except Exception:  # noqa: BLE001
+            found = False
+        if found:
+            self.root.after(0, lambda: (setattr(self, "ollama_available", True), self.refresh_ai()))
+
+    def _move_first_run_data_dir(self, chosen: Path) -> bool:
+        """Cartella dati scelta nella procedura guidata. Una cartella gia' piena di altri
+        file riceve una sottocartella DOCX.AI; lingua e "procedura completata" vengono
+        scritte anche nel nuovo database, altrimenti dopo il riavvio la procedura
+        ripartirebbe da capo (e in italiano)."""
+        from ..datadir import DB_NAME, set_configured_data_dir
+        from ..db import Database
+        try:
+            if chosen.is_dir() and any(chosen.iterdir()) and not (chosen / DB_NAME).exists():
+                chosen = chosen / "DOCX.AI"
+            new_db = Database(chosen / DB_NAME)
+            try:
+                for key in ("ui.lang", "first_run_done", "ui.tour_done"):
+                    val = self.db.get_setting(key)
+                    if val is not None and new_db.get_setting(key) is None:
+                        new_db.set_setting(key, val)
+            finally:
+                new_db.close()
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("Cartella dati %s non utilizzabile: %s", chosen, exc)
+            messagebox.showerror(t("Cartella dati"), t("Impossibile usare la cartella scelta: {e}", e=exc),
+                                 parent=self.root)
+            return False
+        set_configured_data_dir(chosen)
+        return True
 
     def _poll_ai(self) -> None:
         self.refresh_ai()  # riflette lo spegnimento per inattivita'
@@ -522,7 +564,7 @@ class MainWindow:
             if not zoomed:
                 self.db.set_setting("ui.geometry", self.root.geometry())
             if not self.sidebar.collapsed:
-                self.settings.set("ui.sidebar_width", self.sidebar.winfo_width())
+                self.settings.set("ui.sidebar_width", int(self.sidebar.winfo_width() / design.user_scale()))
             self.settings.set("ui.sidebar_collapsed", self.sidebar.collapsed)
         except Exception:  # noqa: BLE001
             pass

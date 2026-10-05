@@ -18,7 +18,7 @@ from ...services import backup_service, diagnostics
 from .. import design
 from ..design import GAP
 from ..i18n import LANGS, t
-from ..widgets import Card, button, label, scrollable
+from ..widgets import Card, autowrap, button, label, scrollable
 
 DOCS_URL = "https://github.com/motthz/DOCX.AI/blob/main/docs/guida-utente.md"
 
@@ -44,7 +44,7 @@ class SettingsPage(ctk.CTkFrame):
         card.pack(fill="x", pady=(0, GAP))
         label(card.body, title, kind="h3").pack(anchor="w")
         if sub:
-            label(card.body, sub, kind="small", muted=True, wraplength=900).pack(anchor="w", pady=(0, 6))
+            autowrap(label(card.body, sub, kind="small", muted=True, wraplength=900)).pack(fill="x", pady=(0, 6))
         return card.body
 
     def _row(self, parent, title: str, sub: str = "") -> ctk.CTkFrame:
@@ -54,7 +54,7 @@ class SettingsPage(ctk.CTkFrame):
         box.pack(side="left", fill="x", expand=True)
         label(box, title, kind="body_b").pack(anchor="w")
         if sub:
-            label(box, sub, kind="caption", muted=True, wraplength=620).pack(anchor="w")
+            autowrap(label(box, sub, kind="caption", muted=True, wraplength=620)).pack(fill="x")
         right = ctk.CTkFrame(r, fg_color="transparent")
         right.pack(side="right")
         return right
@@ -112,8 +112,13 @@ class SettingsPage(ctk.CTkFrame):
 
     def _apply_scale(self, value: float) -> None:
         factor = round(value / 100, 2)
+        old = design.user_scale()
         self.s.set("ui.scale", factor)
         design.set_ui_scale(factor)
+        try:
+            self.win.sidebar.apply_scale(old, design.user_scale())
+        except Exception:  # noqa: BLE001
+            pass
 
     def _ai(self) -> None:
         from ...llm import hardware
@@ -169,6 +174,9 @@ class SettingsPage(ctk.CTkFrame):
         right = self._row(b, t("Backup"), t("Database, moduli, regole e foto in un unico file ZIP."))
         button(right, t("Crea backup ora"), self.backup_now, kind="primary", icon_name="archive").pack(side="left")
         button(right, t("Ripristina…"), self.restore, icon_name="archive-restore").pack(side="left", padx=(6, 0))
+        right = self._row(b, t("Moduli archiviati"), t("I moduli archiviati non compaiono nell'elenco: qui puoi "
+                                                       "rimetterli in uso."))
+        button(right, t("Ripristina modulo…"), self.restore_archived, icon_name="archive-restore").pack()
         self._option(b, t("Backup automatico"), t("Nella cartella backups dei dati utente."), "backup.auto_days",
                      [(t("ogni giorno"), 1), (t("ogni settimana"), 7), (t("ogni mese"), 30), (t("disattivato"), 0)])
         self._option(b, t("Backup automatici da conservare"), "", "backup.keep",
@@ -271,6 +279,34 @@ class SettingsPage(ctk.CTkFrame):
             return
         backup_service.schedule_restore(self.win.config, Path(f))
         self.win.restart()
+
+    def restore_archived(self) -> None:
+        archived = self.win.mm.list_archived()
+        if not archived:
+            self.win.toast(t("Nessun modulo archiviato."), "info")
+            return
+        from ..dialogs.base import Dialog
+        dlg = Dialog(self.win.root, t("Moduli archiviati"), width=520, height=420, icon_name="archive-restore",
+                     subtitle=t("Scegli il modulo da rimettere nell'elenco."))
+        box = ctk.CTkScrollableFrame(dlg.body, fg_color="transparent")
+        box.pack(fill="both", expand=True)
+
+        def restore(folder: str, name: str) -> None:
+            try:
+                mod = self.win.mm.restore_module(folder)
+            except Exception as exc:  # noqa: BLE001
+                self.win.toast(t("Ripristino non riuscito: {e}", e=exc), "error")
+                return
+            dlg.close()
+            self.win.refresh_modules(quiet=True)
+            self.win.select_module(mod.slug)
+            self.win.toast(t("Modulo ripristinato: {n}", n=name), "success")
+        for folder, name in archived:
+            row = ctk.CTkFrame(box, fg_color="transparent")
+            row.pack(fill="x", pady=3)
+            label(row, name, kind="body_b").pack(side="left", padx=4)
+            button(row, t("Ripristina"), lambda f=folder, n=name: restore(f, n), height=28).pack(side="right")
+        button(dlg.footer, t("Chiudi"), dlg.close).pack(side="right", padx=20, pady=12)
 
     def change_data_dir(self) -> None:
         new = filedialog.askdirectory(parent=self.win.root, title=t("Nuova cartella dati (anche di rete)"))

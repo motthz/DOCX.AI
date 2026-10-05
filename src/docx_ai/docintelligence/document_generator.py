@@ -298,27 +298,23 @@ class DocumentGenerator:
                     import shutil
                     shutil.copyfile(generated.template_used, out_docx)
                     d = docx.Document(str(out_docx))
-                    # Sostituisce placeholder {{titolo}} e {{contenuto}} se esistono
-                    from ..parsers.docx_parser import apply_placeholders
+                    from ..parsers.docx_parser import _PLACEHOLDER_RE, _iter_all_paragraphs, apply_placeholders
+                    keys = {m.group(1) for p in _iter_all_paragraphs(d) for m in _PLACEHOLDER_RE.finditer(p.text)}
                     apply_placeholders(d, {
                         "titolo": generated.title,
                         "contenuto": generated.body_markdown,
                         "title": generated.title,
                         "body": generated.body_markdown,
                     })
-                    # Altrimenti appende alla fine
-                    d.add_paragraph()
-                    d.add_heading(generated.title, level=1)
-                    for s in generated.sections:
-                        d.add_heading(s.get("title", ""), level=2)
-                        d.add_paragraph(str(s.get("content", "")))
+                    # senza un segnaposto per il contenuto, il testo va in coda al modello
+                    # (prima veniva aggiunto SEMPRE, quindi compariva due volte)
+                    if not keys & {"contenuto", "body"}:
+                        d.add_paragraph()
+                        _markdown_to_docx(d, generated.body_markdown)
                     d.save(str(out_docx))
                 else:
                     d = docx.Document()
-                    d.add_heading(generated.title, level=1)
-                    for s in generated.sections:
-                        d.add_heading(s.get("title", ""), level=2)
-                        d.add_paragraph(str(s.get("content", "")))
+                    _markdown_to_docx(d, generated.body_markdown)
                     d.save(str(out_docx))
                 result_paths["docx"] = out_docx
             except Exception as exc:  # noqa: BLE001
@@ -348,3 +344,24 @@ class DocumentGenerator:
                 LOG.error("Salvataggio PDF fallito: %s", exc)
 
         return result_paths
+
+
+def _markdown_to_docx(d: Any, markdown: str) -> None:
+    """Scrive il testo della bozza (titoli #, ##, ###, elenchi, paragrafi) nel documento Word.
+    Usa il testo completo e non solo le sezioni principali: le sottosezioni e la bozza
+    di riserva in testo libero non vanno perse."""
+    for raw in (markdown or "").splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        stripped = line.lstrip()
+        level = len(stripped) - len(stripped.lstrip("#"))
+        if 1 <= level <= 4 and stripped[level:level + 1] == " ":
+            d.add_heading(stripped[level:].strip(), level=level)
+        elif stripped[:2] in ("- ", "* ", "• "):
+            try:
+                d.add_paragraph(stripped[2:].strip(), style="List Bullet")
+            except KeyError:
+                d.add_paragraph("• " + stripped[2:].strip())
+        else:
+            d.add_paragraph(stripped)

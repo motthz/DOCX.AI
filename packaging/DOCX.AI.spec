@@ -37,6 +37,7 @@ a = Analysis(
         (str(SRC / "docx_ai" / "assets"), "docx_ai/assets"),
         (str(SRC / "docx_ai" / "locales"), "docx_ai/locales"),
         (str(ROOT / "docs"), "docs"),
+        (str(ROOT / "examples"), "examples"),  # moduli di esempio (pulsante nella barra laterale)
     ] + collect_data_files("customtkinter") + collect_data_files("pypdfium2") + collect_data_files("pypdfium2_raw"),
     hiddenimports=hidden,
     hookspath=[],

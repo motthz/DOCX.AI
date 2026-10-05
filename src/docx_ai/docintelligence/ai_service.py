@@ -200,11 +200,14 @@ class AIService:
             return None
         if not explicit:
             # Auto-detect: use an installed model, preferring Qwen.
-            installed = srv.list_models()
+            # solo modelli di chat: i modelli di embedding non generano testo
+            installed = [m for m in srv.list_models() if "embed" not in m.lower()]
             if not installed:
                 return None
             if model not in installed:
                 qwen = [m for m in installed if m.lower().startswith("qwen")]
+                # a parita' preferisce i modelli solo testo (piu' leggeri dei "-vl")
+                qwen.sort(key=lambda m: "vl" in m.lower())
                 srv.options.model = (qwen or installed)[0]
         srv.start(timeout=2.0)
         return srv
@@ -488,24 +491,16 @@ class AIService:
         user_text = "\n\n".join(user_parts)
 
         pipeline = self.pipeline(use_mock=use_mock)
-        # Direct call (bypass build_extraction_messages because we built a custom system)
+        # Chiamata diretta con il prompt costruito qui (regole, brani delle fonti, richiesta).
+        # Prima si usava pipeline.extract(schema, "") che NON riceveva questi messaggi:
+        # l'AI vedeva una richiesta vuota e restituiva solo "NON_SPECIFICATO".
         messages = [
             {"role": "system", "content": system_text},
             {"role": "user", "content": user_text},
         ]
-        extraction = pipeline.extract(
-            schema,
-            "",  # operator_description is already in user_text
-            reference_docs=None,
-            history_snippets=None,
-            extra={"_custom_messages": messages} if False else None,
-        )
-        # Patch pipeline.extract con chiamata diretta se extra non supporta custom messages:
-        if extraction.attempts == 0 or not extraction.success and not extraction.raw:
-            # Fallback: direct chat
-            extraction = self._direct_structured_call(
-                pipeline, schema, messages
-            )
+        self.touch()
+        extraction = self._direct_structured_call(pipeline, schema, messages)
+        self.touch()
         files_list = []
         sources_list = []
         if retrieved_chunks:

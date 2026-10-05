@@ -10,7 +10,7 @@ import customtkinter as ctk
 from ..design import C, GAP, font
 from ..i18n import t
 from ..icons import icon
-from ..widgets import Card, button, label, scrollable
+from ..widgets import Card, autowrap, button, label, scrollable
 
 LOG = logging.getLogger(__name__)
 
@@ -22,8 +22,8 @@ class DocumentsPage(ctk.CTkFrame):
         page = scrollable(self)
         page.pack(fill="both", expand=True)
         label(page, t("Documenti AI"), kind="h2").pack(anchor="w")
-        label(page, t("Strumenti sui documenti con l'AI locale. Gli originali non vengono mai modificati: "
-                      "ogni risultato è una nuova versione da confermare."), muted=True, wraplength=900).pack(
+        autowrap(label(page, t("Strumenti sui documenti con l'AI locale. Gli originali non vengono mai modificati: "
+                               "ogni risultato è una nuova versione da confermare."), muted=True, wraplength=900)).pack(
             fill="x", pady=(2, 14))
         grid = ctk.CTkFrame(page, fg_color="transparent")
         grid.pack(fill="both", expand=True)
@@ -53,8 +53,8 @@ class DocumentsPage(ctk.CTkFrame):
             box = ctk.CTkFrame(top, fg_color="transparent")
             box.pack(side="left", fill="x", expand=True, padx=12)
             ctk.CTkLabel(box, text=title, font=font("h4"), text_color=C["text"], anchor="w").pack(fill="x")
-            ctk.CTkLabel(box, text=desc, font=font("small"), text_color=C["text_muted"], anchor="w",
-                         justify="left", wraplength=360).pack(fill="x")
+            autowrap(ctk.CTkLabel(box, text=desc, font=font("small"), text_color=C["text_muted"], anchor="w",
+                                  justify="left", wraplength=360)).pack(fill="x")
             button(card.body, t("Apri"), cmd, kind="primary", icon_name="arrow-right", height=30).pack(
                 anchor="e", pady=(10, 0))
 

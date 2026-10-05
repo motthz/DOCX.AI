@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
 from typing import Any, Optional
@@ -23,7 +24,7 @@ DOC_TYPES = ["Rapporto di intervento", "Verbale di riunione", "Richiesta d'acqui
 
 class NewModuleDialog(Dialog):
     def __init__(self, win: Any):
-        super().__init__(win.root, t("Nuovo modulo"), width=760, height=600, icon_name="file-plus",
+        super().__init__(win.root, t("Nuovo modulo"), width=760, height=680, icon_name="file-plus",
                          subtitle=t("Un modulo è il modello di un documento (rapporto, verbale, scheda, richiesta…): l'AI ne compila i campi "
                                     "{{come_questo}} partendo dalle informazioni che fornisci."))
         self.win = win
@@ -68,7 +69,7 @@ class NewModuleDialog(Dialog):
         self.desc = ctk.CTkTextbox(form, height=80, border_width=1, border_color=C["border"])
         self.desc.grid(row=2, column=1, sticky="ew", pady=6)
         label(form, t("Tipo di documento"), kind="body_b").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=6)
-        self.doc_type = ctk.CTkComboBox(form, height=34, values=DOC_TYPES)
+        self.doc_type = ctk.CTkComboBox(form, height=34, values=[t(d) for d in DOC_TYPES])
         self.doc_type.set("")
         self.doc_type.grid(row=4, column=1, sticky="ew", pady=6)
         label(form, t("Codice (opzionale)"), kind="body_b").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=6)
@@ -78,7 +79,8 @@ class NewModuleDialog(Dialog):
         self.create_btn = button(self.footer, t("Crea modulo"), self._create, kind="primary", icon_name="check")
         self.create_btn.pack(side="right", padx=(8, 20), pady=12)
         button(self.footer, t("Annulla"), self.cancel).pack(side="right", pady=12)
-        self.bind("<Return>", lambda e: self._create())
+        # Invio crea il modulo, ma non mentre si va a capo nella descrizione
+        self.bind("<Return>", lambda e: None if isinstance(e.widget, tk.Text) else self._create())
         self._choose("template")
         self.after(200, self.name.focus_set)
 
@@ -130,9 +132,18 @@ class NewModuleDialog(Dialog):
             self.win.app.rules_manager.ensure_module_rules_exist(mod.folder_path)
         except Exception:  # noqa: BLE001
             pass
+        invalid = list(getattr(self.win.mm, "last_invalid_placeholders", []) or [])             if self.mode.get() == "template" else []
         self.close()
         self.win.refresh_modules(quiet=True)
         self.win.select_module(mod.slug)
         self.win.show_page("module")
         self.win.toast(t("Modulo creato: {name}", name=mod.name), "success",
                        action=(t("Nuovo documento"), lambda: self.win.show_page("report")))
+        if invalid:
+            from tkinter import messagebox
+            messagebox.showwarning(
+                t("Segnaposto non riconosciuti"),
+                t("Questi segnaposto del template non sono validi e resteranno così nel documento:\n\n{items}\n\n"
+                  "Il nome di un campo può contenere solo lettere, numeri e _ (niente spazi o trattini), "
+                  "es. {example}. Correggi il template e ricrea il modulo, oppure usa l'Editor template.",
+                  items="\n".join(invalid[:15]), example="{{nome_cliente}}"), parent=self.win.root)

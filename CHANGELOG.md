@@ -2,9 +2,41 @@
 
 Formato basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 versionamento [SemVer](https://semver.org/lang/it/). La versione ha un'unica
-fonte: `src/maintenance_ai/__init__.py`.
+fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
+
+## [0.4.2] - 2026-10-05
+
+### Corretto
+- **Documenti AI** (crea, modifica, audit, compila da documenti): l'AI riceveva una richiesta vuota e
+  restituiva solo "NON_SPECIFICATO"; ora riceve davvero la richiesta, le regole e i brani dei documenti.
+- Template DOCX: i campi `{{...}}` in **intestazioni/piè di pagina**, tabelle annidate e caselle di testo
+  e quelli con **lettere accentate** (es. `{{città}}`) venivano ignorati e restavano nel documento finale.
+  I campi seguono ora l'ordine del modulo; i segnaposto scritti male vengono segnalati.
+- Editor dei campi (schema): salvare, anche senza modifiche, cancellava i **valori degli elenchi** e i
+  formati data; il pulsante Annulla era fuori dalla finestra.
+- Nei documenti esportati (Word/Excel/PDF) compariva la scritta interna `NON_SPECIFICATO`.
+- Importare un modulo ZIP già presente lo annidava dentro quello esistente: ora diventa una copia.
+- Con un Ollama locale e modelli "thinking" (Qwen3) la compilazione falliva con un errore interno.
+- La barra in alto restava su "AI al lavoro…" dopo ogni compilazione; ora rileva anche Ollama all'avvio.
+- Punteggio di qualità: un modulo compilato per intero valeva 40/100.
+- Dialoghi Documenti AI: pulsanti Salva/Chiudi fuori dalla finestra, intestazione con riquadri neri,
+  salvataggio della compilazione smart sempre in errore, testo originale non mostrato in "Modifica",
+  sottosezioni perse nel Word generato, contenuto duplicato con un template.
+- Audit: le incoerenze tra documenti ora compaiono tra le criticità (prima solo in una scheda secondaria).
+- Procedura guidata: scegliendo un'altra cartella dati si perdevano lingua e configurazione.
+- Nuovo modulo: Invio nella descrizione creava il modulo; campo "Tipo di documento" tagliato.
+- Storico: il pulsante Elimina sembrava attivo senza selezione; conteggi della barra laterale non aggiornati.
+- Testo tagliato con la dimensione del testo ingrandita; varie etichette non tradotte o al plurale errato.
+- OCR: "Usa come informazioni" sostituiva il testo già scritto invece di aggiungerlo.
+
+### Aggiunto
+- Pulsante **Aggiungi moduli di esempio** (i moduli di esempio ora sono inclusi nell'installer).
+- **Ripristino dei moduli archiviati** da Impostazioni → Dati e backup.
+- Compila → Da documenti: **Crea il documento con questi dati** porta i dati letti nel flusso normale
+  (revisione, documento compilato, Storico) e la lettura parte subito.
+- Editor template: **Aggiungi allo schema i campi mancanti** (campi aggiunti modificando il file in Word).
 
 ## [0.4.1] - 2026-10-05
 
@@ -92,7 +124,9 @@ fonte: `src/maintenance_ai/__init__.py`.
 
 - Prima versione pubblica (portable onedir).
 
-[Non rilasciato]: https://github.com/motthz/DOCX.AI/compare/v0.4.0...HEAD
+[Non rilasciato]: https://github.com/motthz/DOCX.AI/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/motthz/DOCX.AI/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/motthz/DOCX.AI/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/motthz/DOCX.AI/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/motthz/DOCX.AI/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/motthz/DOCX.AI/compare/v0.1.0...v0.2.0

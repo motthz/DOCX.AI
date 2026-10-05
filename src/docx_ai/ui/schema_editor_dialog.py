@@ -7,7 +7,10 @@ Before saving, prevalidates via jsonschema Draft7Validator.check_schema.
 
 from __future__ import annotations
 
+import copy
+import re
 import tkinter as tk
+from tkinter import messagebox, simpledialog
 from typing import Any, Dict, List, Optional
 
 try:
@@ -30,7 +33,8 @@ class SchemaEditorDialog:
         self._descriptions = dict(initial_descriptions or {})
         self.top = tk.Toplevel(master)
         self.top.title(title)
-        self.top.geometry("820x560")
+        self.top.geometry("940x560")
+        self.top.minsize(820, 400)
         self.top.transient(master)
         self.top.grab_set()
         self._build()
@@ -38,7 +42,7 @@ class SchemaEditorDialog:
     # --------------------------------------------------------------
     def _build(self) -> None:
         pad = {"padx": 10, "pady": 6}
-        ttk.Label(self.top, text="Schema JSON per il modulo — modifica i campi strutturali:",
+        ttk.Label(self.top, text="Campi del modulo — doppio clic su una riga per modificarla:",
                   style="Title.H4.TLabel").pack(anchor="w", **pad)
         frame = ttk.Frame(self.top)
         frame.pack(fill="both", expand=True, **pad)
@@ -74,112 +78,132 @@ class SchemaEditorDialog:
             b.pack(side="left", padx=4, pady=2)
         self._load_from_schema()
 
+    @staticmethod
+    def _type_str(spec: Dict[str, Any]) -> str:
+        if isinstance(spec.get("enum"), list):
+            return "enum"
+        t = spec.get("type", "string")
+        if isinstance(t, list):
+            t = next((x for x in t if x != "null"), "string")
+        if t == "array":
+            return "array<string>"
+        return t if t in ALLOWED_TYPES else "string"
+
+    def _row_values(self, name: str, spec: Dict[str, Any], required: bool) -> tuple:
+        desc = spec.get("description", self._descriptions.get(name, ""))
+        if isinstance(spec.get("enum"), list):
+            desc = (desc + "  " if desc else "") + "[" + ", ".join(str(v) for v in spec["enum"]) + "]"
+        return (name, self._type_str(spec), "✓" if required else "", desc)
+
     def _load_from_schema(self) -> None:
+        # Ogni riga conserva la definizione completa del campo (formato data, valori
+        # dell'elenco, titolo...): salvare senza modifiche non deve perdere nulla.
         props = (self._schema or {}).get("properties", {}) or {}
         req = set((self._schema or {}).get("required", []) or [])
+        self._specs: Dict[str, Dict[str, Any]] = {}
+        self._orig_names: Dict[str, str] = {}
         for field, spec in props.items():
-            t = spec.get("type", "string")
-            if t == "array":
-                items = spec.get("items", {})
-                if isinstance(items, dict) and items.get("type") == "string":
-                    type_str = "array<string>"
-                else:
-                    type_str = "array<string>"
-            else:
-                type_str = t if t in ALLOWED_TYPES else "string"
-            if isinstance(spec.get("enum"), list):
-                type_str = "enum"
-            desc = spec.get("description", self._descriptions.get(field, ""))
-            values = (field, type_str, "✓" if field in req else "", desc)
-            self._tv.insert("", "end", values=values)
+            spec = copy.deepcopy(spec if isinstance(spec, dict) else {})
+            iid = self._tv.insert("", "end", values=self._row_values(field, spec, field in req))
+            self._specs[iid] = spec
+            self._orig_names[iid] = field
+
+    def _ask_enum(self, initial: str = "") -> Optional[List[str]]:
+        vals = simpledialog.askstring("Valori ammessi",
+                                      "Valori separati da virgola (es. Sì, No, Non specificato):",
+                                      initialvalue=initial, parent=self.top)
+        if vals is None:
+            return None
+        return [v.strip() for v in vals.split(",") if v.strip()]
+
+    def _valid_name(self, name: str) -> bool:
+        if re.fullmatch(r"[^\W\d]\w*", name):
+            return True
+        messagebox.showwarning("Attenzione", "Il nome può contenere solo lettere, numeri e _ "
+                               "(niente spazi) e non può iniziare con un numero.", parent=self.top)
+        return False
 
     def _add_row(self, type_str: str) -> None:
-        name = tk.simpledialog.askstring("Nuovo campo", "Nome campo (lettere/numeri/_):",
-                                         parent=self.top)
-        if not name:
+        name = simpledialog.askstring("Nuovo campo", "Nome campo (lettere/numeri/_):", parent=self.top)
+        if not name or not name.strip():
             return
         name = name.strip()
-        if not name:
+        if not self._valid_name(name):
             return
         existing = set(self._tv.set(r, "field") for r in self._tv.get_children(""))
         if name in existing:
-            tk.messagebox.showwarning("Attenzione", f"Campo '{name}' già esistente.", parent=self.top)
+            messagebox.showwarning("Attenzione", f"Campo '{name}' già esistente.", parent=self.top)
             return
-        desc = ""
         if type_str == "enum":
-            vals = tk.simpledialog.askstring("Enum values",
-                                             "Valori separati da virgola (es. Sì,No,Non specificato):",
-                                             parent=self.top)
+            vals = self._ask_enum()
             if not vals:
                 return
-            desc = f"VALORI_AMMESSI: {vals}"
-        self._tv.insert("", "end", values=(name, type_str, "", desc))
+            spec: Dict[str, Any] = {"type": "string", "enum": vals}
+        elif type_str == "array<string>":
+            spec = {"type": "array", "items": {"type": "string"}}
+        else:
+            spec = {"type": type_str}
+        iid = self._tv.insert("", "end", values=self._row_values(name, spec, False))
+        self._specs[iid] = spec
 
     def _delete_selected(self) -> None:
         for iid in self._tv.selection():
             self._tv.delete(iid)
+            self._specs.pop(iid, None)
 
     def _on_double(self, _evt=None) -> None:
         sel = self._tv.selection()
         if not sel:
             return
         iid = sel[0]
-        field, type_str, req, desc = self._tv.item(iid, "values")
-        new_name = tk.simpledialog.askstring("Modifica nome", "Nome campo:",
-                                             initialvalue=field, parent=self.top)
+        field = str(self._tv.item(iid, "values")[0])
+        spec = self._specs.setdefault(iid, {"type": "string"})
+        new_name = simpledialog.askstring("Modifica nome", "Nome campo:", initialvalue=field, parent=self.top)
         if new_name is None:
             return
-        new_desc = tk.simpledialog.askstring("Descrizione / Note",
-                                             "Descrizione (o VALORI_AMMESSI: A,B,C per enum):",
-                                             initialvalue=desc, parent=self.top)
+        new_name = new_name.strip() or field
+        if not self._valid_name(new_name):
+            return
+        new_desc = simpledialog.askstring("Descrizione", "Descrizione per l'AI (cosa inserire nel campo):",
+                                          initialvalue=spec.get("description", ""), parent=self.top)
         if new_desc is None:
             return
-        req_val = tk.messagebox.askyesno("Obbligatorio?", f"Il campo '{new_name}' è obbligatorio?",
-                                         parent=self.top)
-        self._tv.item(iid, values=(new_name.strip() or field, type_str,
-                                   "✓" if req_val else "", new_desc or ""))
+        if isinstance(spec.get("enum"), list):
+            vals = self._ask_enum(", ".join(str(v) for v in spec["enum"]))
+            if vals is None:
+                return
+            if vals:
+                spec["enum"] = vals
+        req_val = messagebox.askyesno("Obbligatorio?", f"Il campo '{new_name}' è obbligatorio?",
+                                      parent=self.top)
+        if new_desc.strip():
+            spec["description"] = new_desc.strip()
+        else:
+            spec.pop("description", None)
+        old = self._orig_names.get(iid)
+        if old and new_name != old:
+            messagebox.showinfo("Campo rinominato",
+                                "Ricorda di rinominare anche il segnaposto {{" + old + "}} in {{" + new_name
+                                + "}} nel template, altrimenti il campo non verrà compilato.", parent=self.top)
+        self._tv.item(iid, values=self._row_values(new_name, spec, req_val))
 
     # --------------------------------------------------------------
     def _collect_schema(self) -> Dict[str, Any]:
         properties: Dict[str, Any] = {}
         required: List[str] = []
         for iid in self._tv.get_children(""):
-            field, type_str, req, desc = self._tv.item(iid, "values")
+            field, _type_str, req, _desc = self._tv.item(iid, "values")
             field = str(field).strip()
             if not field:
                 continue
-            spec: Dict[str, Any] = {}
-            if desc:
-                spec["description"] = str(desc)
-            t = str(type_str)
-            if t == "enum" or (desc and desc.startswith("VALORI_AMMESSI:")):
-                vals: List[str] = []
-                if desc and desc.startswith("VALORI_AMMESSI:"):
-                    vs = str(desc)[len("VALORI_AMMESSI:"):].strip()
-                    vals = [v.strip() for v in vs.split(",") if v.strip()]
-                if vals:
-                    spec["enum"] = vals
-                    spec["type"] = "string"
-                else:
-                    spec["type"] = "string"
-            elif t == "array<string>":
-                spec["type"] = "array"
-                spec["items"] = {"type": "string"}
-            elif t in ("string", "integer", "number", "boolean"):
-                spec["type"] = t
-            else:
-                spec["type"] = "string"
-            properties[field] = spec
+            properties[field] = copy.deepcopy(self._specs.get(iid) or {"type": "string"})
             if "✓" in str(req):
                 required.append(field)
-        out: Dict[str, Any] = {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": (self._schema or {}).get("title", "Modulo"),
-            "type": "object",
-            "additionalProperties": False,
-            "properties": properties,
-            "required": required,
-        }
+        out: Dict[str, Any] = dict(self._schema or {})  # conserva $schema, title e altre chiavi
+        out.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
+        out.setdefault("title", "Modulo")
+        out.update({"type": "object", "additionalProperties": False, "properties": properties,
+                    "required": required})
         return out
 
     def _on_save(self) -> None:
@@ -194,7 +218,7 @@ class SchemaEditorDialog:
                 except Exception as ve2:  # noqa: BLE001
                     raise ve2
         except Exception as exc:  # noqa: BLE001
-            tk.messagebox.showerror("Schema non valido",
+            messagebox.showerror("Schema non valido",
                                     f"Lo schema prodotto non è valido per jsonschema Draft-07:\n{exc}",
                                     parent=self.top)
             return

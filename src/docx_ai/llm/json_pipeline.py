@@ -115,6 +115,7 @@ def _lenient_json_parse(text: str) -> Tuple[Optional[Any], Optional[str]]:
     cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
     # Try to grab a JSON object sub-region if whole text isn't JSON
     candidates = [cleaned, _extract_json_object(cleaned)]
+    last: Optional[str] = None
     for c in candidates:
         if not c:
             continue
@@ -122,6 +123,8 @@ def _lenient_json_parse(text: str) -> Tuple[Optional[Any], Optional[str]]:
             return json.loads(c), None
         except json.JSONDecodeError as exc:
             last = f"JSONDecodeError: {exc.msg} at line {exc.lineno} col {exc.colno}"
+    if not text.strip():
+        return None, "Risposta vuota dal modello"
     return None, last or "Impossibile interpretare la risposta come JSON"
 
 

@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Tuple
 
 import customtkinter as ctk
 
-from ...parsers.docx_parser import _PLACEHOLDER_RE, _iter_block_items
+from ...parsers.docx_parser import _PLACEHOLDER_RE, _iter_all_paragraphs, _iter_block_items
 from ..design import C, col
 from ..i18n import t
 from ..widgets import Chip, button, label
@@ -83,11 +83,8 @@ class TemplateEditor(Dialog):
         side = ctk.CTkScrollableFrame(self.body, fg_color=C["surface"], corner_radius=10, border_width=1,
                                       border_color=C["border"])
         side.grid(row=1, column=1, sticky="nsew")
-        label(side, t("Campi del modulo"), kind="h4").pack(anchor="w", padx=12, pady=(12, 4))
-        self.fields_box = ctk.CTkFrame(side, fg_color="transparent")
-        self.fields_box.pack(fill="both", expand=True, padx=6)
         add = ctk.CTkFrame(side, fg_color="transparent")
-        add.pack(fill="x", padx=12, pady=8)
+        add.pack(fill="x", padx=12, pady=(12, 8))
         label(add, t("Selezione → campo"), kind="small_b").pack(anchor="w")
         self.field_name = ctk.CTkComboBox(add, values=self._field_names(), height=30)
         self.field_name.set("")
@@ -106,10 +103,15 @@ class TemplateEditor(Dialog):
             fill="x", pady=(6, 0))
         self.info = label(add, "", kind="caption", muted=True, wraplength=320)
         self.info.pack(fill="x", pady=(6, 0))
+        self.sync_btn = button(add, t("Aggiungi allo schema i campi mancanti"), self.add_missing,
+                               icon_name="plus")
+        label(side, t("Campi del modulo"), kind="h4").pack(anchor="w", padx=12, pady=(8, 4))
+        self.fields_box = ctk.CTkFrame(side, fg_color="transparent")
+        self.fields_box.pack(fill="both", expand=True, padx=6)
 
         button(self.footer, t("Salva template"), self.save, kind="primary", icon_name="save").pack(
             side="right", padx=(8, 20), pady=12)
-        button(self.footer, t("Apri in Word"), self.open_word, icon_name="external-link").pack(side="right", pady=12)
+        button(self.footer, t("Anteprima in Word"), self.open_word, icon_name="external-link").pack(side="right", pady=12)
         button(self.footer, t("Chiudi"), self.cancel, kind="ghost").pack(side="right", padx=8, pady=12)
         self.render()
         self._render_fields()
@@ -119,10 +121,24 @@ class TemplateEditor(Dialog):
         return list(self.schema.get("properties", {}))
 
     def _used(self) -> set:
+        """Campi presenti nel template, anche in intestazioni, pie' di pagina e caselle di testo."""
         used = set()
-        for _i, p in self._all_paragraphs(self.doc):
+        for p in _iter_all_paragraphs(self.doc):
             used.update(m.group(1) for m in _PLACEHOLDER_RE.finditer(p.text))
         return used
+
+    def add_missing(self) -> None:
+        """Campi {{...}} scritti nel template (es. modificandolo in Word) ma assenti dallo schema:
+        senza questo passaggio resterebbero come testo nel documento esportato."""
+        props = self.schema.setdefault("properties", {})
+        missing = [n for n in sorted(self._used()) if n not in props]
+        for name in missing:
+            props[name] = {"type": "string"}
+            self.schema.setdefault("required", []).append(name)
+        if missing:
+            self.dirty = True
+            self._render_fields()
+            self.win.toast(t("Aggiunti {n} campi allo schema.", n=len(missing)), "success")
 
     @staticmethod
     def _all_paragraphs(doc):
@@ -157,6 +173,10 @@ class TemplateEditor(Dialog):
         missing = used - set(self.schema.get("properties", {}))
         self.info.configure(text=t("Campi nel template ma non nello schema: {f}", f=", ".join(sorted(missing)))
                             if missing else "")
+        if missing:
+            self.sync_btn.pack(fill="x", pady=(6, 0))
+        else:
+            self.sync_btn.pack_forget()
 
     def _sample_values(self) -> Dict[str, Any]:
         rows, _n = self.win.db.search_reports(module_id=self.mod.id, limit=1)
@@ -244,9 +264,13 @@ class TemplateEditor(Dialog):
         self.close()
 
     def open_word(self) -> None:
+        """Apre in Word una COPIA del template con le modifiche correnti (solo da consultare:
+        per cambiare il modello usa "Salva template" o modifica il file nella cartella del modulo)."""
         tmp = Path(tempfile.mkdtemp(prefix="mai_tpl_")) / self.path.name
         self.doc.save(str(tmp))
         os.startfile(str(tmp))  # type: ignore[attr-defined]
+        self.win.toast(t("Aperta una copia di consultazione: le modifiche fatte in Word non vengono salvate nel "
+                         "modulo."), "info")
 
     def cancel(self) -> None:
         if self.dirty:

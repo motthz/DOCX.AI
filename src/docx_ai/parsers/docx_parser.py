@@ -25,7 +25,10 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 
-_PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_\.]*)\s*\}\}")
+# Nome campo: lettere (anche accentate, es. {{città}}), cifre, "_" e "."; non inizia con una cifra.
+_PLACEHOLDER_RE = re.compile(r"\{\{\s*([^\W\d][\w\.]*)\s*\}\}")
+# Qualsiasi {{...}}: serve a segnalare i segnaposto scritti male (spazi, trattini…)
+_ANY_BRACES_RE = re.compile(r"\{\{([^{}]{1,80})\}\}")
 
 
 LOG = logging.getLogger(__name__)
@@ -69,8 +72,19 @@ def extract_text(doc: DocxDocument) -> DocxExtraction:
         for row in matrix:
             chunks.append(" | ".join(c.strip() for c in row))
     out.full_text = "\n".join(chunks)
-    placeholders = set(_PLACEHOLDER_RE.findall(out.full_text))
-    out.placeholders = sorted(placeholders)
+    # segnaposto in ordine di apparizione, cercati ovunque: corpo, tabelle annidate,
+    # caselle di testo, intestazioni e pie' di pagina
+    seen: Dict[str, None] = {}
+    invalid: Dict[str, None] = {}
+    for p in _iter_all_paragraphs(doc):
+        text = "".join(r.text for r in p.runs)
+        for m in _PLACEHOLDER_RE.finditer(text):
+            seen.setdefault(m.group(1), None)
+        for m in _ANY_BRACES_RE.finditer(text):
+            if not _PLACEHOLDER_RE.fullmatch(m.group(0)):
+                invalid.setdefault(m.group(0), None)
+    out.placeholders = list(seen)
+    out.meta["invalid_placeholders"] = list(invalid)
     out.meta["paragraph_count"] = len(out.paragraphs)
     out.meta["table_count"] = len(out.tables)
     out.meta["max_paragraph_chars"] = max((len(p) for p in out.paragraphs), default=0)
@@ -95,15 +109,35 @@ def _iter_block_items(doc: DocxDocument) -> Iterable[Any]:
             yield Table(child, doc)
 
 
+def _story_elements(doc: DocxDocument) -> Iterable[Tuple[Any, Any]]:
+    """(elemento XML, parent) del corpo e di ogni intestazione/pie' di pagina definiti."""
+    yield doc.element.body, doc
+    seen = set()
+    for section in doc.sections:
+        for attr in ("header", "first_page_header", "even_page_header",
+                     "footer", "first_page_footer", "even_page_footer"):
+            try:
+                part = getattr(section, attr)
+                # un'intestazione "collegata alla precedente" non ha contenuto proprio:
+                # accedervi la creerebbe nel documento
+                if part.is_linked_to_previous:
+                    continue
+                el = part._element
+            except Exception:  # noqa: BLE001
+                continue
+            if id(el) in seen:
+                continue
+            seen.add(id(el))
+            yield el, part
+
+
 def _iter_all_paragraphs(doc: DocxDocument) -> Iterable[Paragraph]:
-    for block in _iter_block_items(doc):
-        if isinstance(block, Paragraph):
-            yield block
-        elif isinstance(block, Table):
-            for row in block.rows:
-                for cell in row.cells:
-                    for p in cell.paragraphs:
-                        yield p
+    """Tutti i paragrafi: corpo, tabelle (anche annidate), caselle di testo,
+    intestazioni e pie' di pagina. Le celle unite non vengono ripetute."""
+    from docx.oxml.ns import qn
+    for element, parent in _story_elements(doc):
+        for p in element.iter(qn("w:p")):
+            yield Paragraph(p, parent)
 
 
 def _replace_in_paragraph(paragraph: Paragraph, replacements: Dict[str, str]) -> None:

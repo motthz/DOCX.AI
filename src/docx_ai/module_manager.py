@@ -23,7 +23,7 @@ import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 _SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
@@ -41,7 +41,8 @@ from .db import Database
 
 SUBFOLDERS = ("01_modulo_vuoto", "02_documenti_riferimento", "03_storico")
 
-_PH_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_\.]*)\s*\}\}")
+# stesso formato di parsers.docx_parser._PLACEHOLDER_RE (qui senza importare python-docx all'avvio)
+_PH_RE = re.compile(r"\{\{\s*([^\W\d][\w\.]*)\s*\}\}")
 
 
 @dataclass
@@ -89,6 +90,7 @@ class ModuleManager:
         self.limits = limits or SecurityLimits()
         self.workspace = config.workspace_root()
         self.workspace.mkdir(parents=True, exist_ok=True)
+        self.last_invalid_placeholders: List[str] = []  # {{...}} scritti male nell'ultimo template
 
     # ------------------------------------------------------------------
     # Factory / disk creation
@@ -196,7 +198,7 @@ class ModuleManager:
             raise ValueError(f"Estensione template non supportata: .{ext} (usare .docx o .xlsx)")
 
         # 1. Extract placeholders and (for XLSX) cell locations
-        phs: Set[str]
+        phs: List[str]
         xlsx_cell_map: Dict[str, Dict[str, Any]] = {}
         if ext == "docx":
             phs = self._scan_placeholders_docx(template_file)
@@ -207,7 +209,7 @@ class ModuleManager:
             raise ValueError(
                 "Nessun placeholder {{nome_campo}} rilevato nel template. "
                 "Inserire nel documento alcuni segnaposto nel formato {{nome_campo}} "
-                "(es. {{data_intervento}}, {{operatore}}, ...) e riprovare."
+                "(es. {{data}}, {{nome_cliente}}, {{descrizione}}) e riprovare."
             )
 
         # 2. Guess schema: arrays for placeholders whose label sounds plural (heuristic)
@@ -254,7 +256,7 @@ class ModuleManager:
             "created_at": created_at,
             "_adaptive": {
                 "source_template": template_file.name,
-                "placeholders_detected": sorted(phs),
+                "placeholders_detected": list(phs),
             },
         }
 
@@ -296,17 +298,59 @@ class ModuleManager:
     # ------------------------------------------------------------------
     # Placeholder scanners + schema guesser (adaptive / zero-code)
     # ------------------------------------------------------------------
-    def _scan_placeholders_docx(self, path: Path) -> Set[str]:
+    def examples_dir(self) -> Path:
+        """Moduli di esempio: nell'exe PyInstaller stanno in _internal (sys._MEIPASS)."""
+        import sys
+        roots = [Path(getattr(sys, "_MEIPASS", "")) if getattr(sys, "_MEIPASS", None) else None,
+                 Path(self.config.app_root), Path(self.config.app_root) / "_internal"]
+        for r in roots:
+            if r is not None and (r / "examples" / "modules").is_dir():
+                return r / "examples" / "modules"
+        return Path(self.config.app_root) / "examples" / "modules"
+
+    def list_archived(self) -> List[Tuple[str, str]]:
+        """Moduli archiviati: (nome cartella, nome del modulo)."""
+        root = self.workspace / "_archived"
+        out: List[Tuple[str, str]] = []
+        if not root.is_dir():
+            return out
+        for folder in sorted(p for p in root.iterdir() if p.is_dir()):
+            try:
+                name = json.loads((folder / "module.json").read_text(encoding="utf-8")).get("name") or folder.name
+            except (OSError, ValueError):
+                name = folder.name
+            out.append((folder.name, name))
+        return out
+
+    def install_examples(self) -> List[str]:
+        """Copia nel workspace i moduli di esempio forniti con l'app (quelli non ancora
+        presenti). Ritorna gli slug aggiunti."""
+        src = self.examples_dir()
+        added: List[str] = []
+        if not src.is_dir():
+            return added
+        for folder in sorted(p for p in src.iterdir() if (p / "module.json").is_file()):
+            dest = safe_resolve_name(self.workspace, folder.name, allow_subdirs=False)
+            if dest.exists():
+                continue
+            shutil.copytree(folder, dest)
+            self.load_module(folder.name)  # registra il modulo nel database
+            added.append(folder.name)
+        return added
+
+    def _scan_placeholders_docx(self, path: Path) -> List[str]:
         from .parsers.docx_parser import extract_text, load_document
         doc = load_document(path)
         ext = extract_text(doc)
-        return set(ext.placeholders)
+        self.last_invalid_placeholders = list(ext.meta.get("invalid_placeholders") or [])
+        return list(ext.placeholders)
 
-    def _scan_placeholders_xlsx(self, path: Path) -> Tuple[Set[str], Dict[str, Dict[str, Any]]]:
+    def _scan_placeholders_xlsx(self, path: Path) -> Tuple[List[str], Dict[str, Dict[str, Any]]]:
         from .parsers.xlsx_parser import extract_text as xlsx_extract, load_workbook_safe
         wb = load_workbook_safe(path)
         ext = xlsx_extract(wb)
-        phs = set(ext.placeholders)
+        phs = list(ext.placeholders)
+        self.last_invalid_placeholders = []
         mapping: Dict[str, Dict[str, Any]] = {}
         # Also record cell locations for auto-mapping
         from openpyxl.utils import get_column_letter
@@ -327,7 +371,7 @@ class ModuleManager:
                         }
         return phs, mapping
 
-    def _guess_schema_from_placeholders(self, placeholders: Set[str]) -> Dict[str, Any]:
+    def _guess_schema_from_placeholders(self, placeholders: Iterable[str]) -> Dict[str, Any]:
         """Heuristic adaptive schema generator.
 
         Rules (kept simple so llama.cpp grammar handles them):
@@ -337,10 +381,11 @@ class ModuleManager:
           (Italian) → array of strings
         - Otherwise just strings.
 
-        All top-level properties are marked required.
+        All top-level properties are marked required. Fields keep the order in which
+        they appear in the template (that is the order shown in review and to the AI).
         """
         props: Dict[str, Any] = {}
-        ordered = sorted(placeholders)
+        ordered = list(dict.fromkeys(placeholders))
         for ph in ordered:
             low = ph.lower()
             if low.startswith("chk_") or low.endswith("_si") or low.endswith("_no"):
@@ -690,10 +735,19 @@ class ModuleManager:
             module_json = json.loads((module_root / "module.json").read_text(encoding="utf-8"))
             slug = safe_slug(module_json.get("slug") or module_json.get("name") or zip_path.stem)
             target = safe_resolve_name(self.workspace, slug, allow_subdirs=False)
-            try:
-                shutil.move(str(module_root), str(target))
-            except FileExistsError:
-                raise SecurityError(f"Modulo già esistente: {slug}")
+            if target.exists():
+                # shutil.move dentro una cartella esistente ve la annidava (modulo corrotto e
+                # importazione segnalata come riuscita): si importa come copia con un nome nuovo
+                base, n = slug, 2
+                while target.exists():
+                    slug = safe_slug(f"{base}_{n}")
+                    target = safe_resolve_name(self.workspace, slug, allow_subdirs=False)
+                    n += 1
+                module_json["slug"] = slug
+                module_json["name"] = f"{module_json.get('name') or base} ({n - 1})"
+                (module_root / "module.json").write_text(
+                    json.dumps(module_json, indent=2, ensure_ascii=False), encoding="utf-8")
+            shutil.move(str(module_root), str(target))
         finally:
             if tmp_dir.exists():
                 shutil.rmtree(tmp_dir, ignore_errors=True)

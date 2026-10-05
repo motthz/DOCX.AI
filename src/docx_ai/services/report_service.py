@@ -9,6 +9,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +63,17 @@ def _export_pdf_isolated(pdf_path: Path, data: Dict[str, Any], schema: Dict[str,
         logging.getLogger(__name__).info("PDF nel processo principale (%s)", exc)
         _PDF_POOL = None
     export_pdf(pdf_path, data, schema, **kw)
+
+
+def _for_document(value: Any) -> Any:
+    """Copia dei dati per i documenti esportati: "NON_SPECIFICATO" -> "" (e tolto dagli elenchi)."""
+    if isinstance(value, dict):
+        return {k: _for_document(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_for_document(v) for v in value if not (isinstance(v, str) and v.strip() == "NON_SPECIFICATO")]
+    if isinstance(value, str) and value.strip() == "NON_SPECIFICATO":
+        return ""
+    return value
 
 
 def shutdown_pdf_pool() -> None:
@@ -186,7 +198,7 @@ class ReportService:
             status="draft",
             input_description=description,
             draft_json=json.dumps(extraction.data, ensure_ascii=False) if extraction.success else None,
-            model_filename=Path(self.config.llm_effective.get("model", "")).name,
+            model_filename=self._model_used(extraction),
             model_sha256="",  # optionally populated at build/package time
             llama_build=self.config.get_setting("llama_build") or "",
             source_document_hashes=json.dumps(hashes, ensure_ascii=False),
@@ -199,6 +211,15 @@ class ReportService:
             error=first_err or extraction.error_message,
             source_doc_hashes=hashes,
         )
+
+    def _model_used(self, extraction: ExtractionResult) -> str:
+        """Modello che ha prodotto davvero la bozza (non quello configurato)."""
+        used = extraction.failover_used or ""
+        if used.startswith("Llama(") or used.startswith("Ollama("):
+            return used[used.index("(") + 1:-1]
+        if used.startswith("Mock"):
+            return ""  # nessuna AI: campi da compilare a mano
+        return Path(self.config.llm_effective.get("model", "")).name
 
     def _hash_of_paths(self, path_groups: Any) -> List[str]:
         out: List[str] = []
@@ -261,15 +282,19 @@ class ReportService:
         json_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
         # 2. DOCX/XLSX output (only if template exists + mapping filled for xlsx)
+        # Nei documenti il segnaposto interno NON_SPECIFICATO diventa un campo vuoto
+        # (prima finiva stampato cosi' nel Word/Excel/PDF); il JSON resta il dato completo.
+        shown = _for_document(data)
         doc_path: Optional[Path] = None
         try:
             if mod.template_type == "docx":
                 doc_path = base / f"{base.name}.docx"
-                export_docx(mod.template_path, doc_path, data)
+                export_docx(mod.template_path, doc_path, shown)
             elif mod.template_type == "xlsx":
                 doc_path = base / f"{base.name}.xlsx"
-                export_xlsx(mod.template_path, doc_path, mod.mapping or {}, data)
+                export_xlsx(mod.template_path, doc_path, mod.mapping or {}, shown)
         except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("Esportazione %s non riuscita", mod.template_type)
             doc_path = None
             # Log an error column? Keep as string for UI.
             self.db.update_report(report_id, status="approved")
@@ -279,7 +304,7 @@ class ReportService:
         review_notes = row.get("review_notes") or ""
         photos = [(Path(a["path"]), a.get("caption") or "") for a in self.db.list_attachments(report_id)
                   if Path(a["path"]).is_file()]
-        _export_pdf_isolated(pdf_path, data, mod.schema, report_id=f"#{report_id}", module_name=mod.name,
+        _export_pdf_isolated(pdf_path, shown, mod.schema, report_id=f"#{report_id}", module_name=mod.name,
                              review_notes=review_notes, photos=photos)
         if photos:
             photo_dir = base / "foto"

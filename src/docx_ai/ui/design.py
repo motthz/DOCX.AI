@@ -162,5 +162,13 @@ def set_ui_scale(factor: float) -> None:
     ctk.set_widget_scaling(factor)
 
 
+def user_scale() -> float:
+    """Dimensione del testo scelta dall'utente (1.0 = 100%)."""
+    try:
+        return float(ctk.ScalingTracker.widget_scaling) or 1.0
+    except Exception:  # noqa: BLE001
+        return 1.0
+
+
 def init_ctk() -> None:
     ctk.set_default_color_theme("blue")

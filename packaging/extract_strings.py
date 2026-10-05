@@ -64,11 +64,19 @@ def extract() -> set:
     out.update(lbl for _k, lbl, _i in PAGES)
     out.update(lbl for _k, lbl in STATUS)
     out.update(STATUS_LABEL.values())
-    out.update(("Approvazione", "Importazione"))
+    out.update(("Approvazione", "Importazione", "Riepilogo_documenti"))
+    from docx_ai.ui.dialogs.new_module import DOC_TYPES
+    from docx_ai.ui.dialogs.review import STATUS_CHIP
+    from docx_ai.ui.pages.module import TYPE_LABELS
+    out.update(DOC_TYPES)
+    out.update(text for text, _tone in STATUS_CHIP.values())
+    out.update(TYPE_LABELS.values())
     return out
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):  # console Windows (cp1252): stringhe con → « » ecc.
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.path.insert(0, str(ROOT / "src"))
     keys = extract()
     cat = json.loads(CATALOG.read_text(encoding="utf-8")) if CATALOG.is_file() else {}
