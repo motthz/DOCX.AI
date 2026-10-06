@@ -1116,8 +1116,17 @@ class PageTemplateEditor(TemplateEditor):
         self._post(lambda: self._render_done(gen, pdf, layout, pages, scale))
 
     def _post(self, fn) -> None:
+        def run() -> None:
+            # l'impaginazione puo' finire dopo la chiusura dell'editor (o il passaggio
+            # alla vista semplificata): il canvas non esiste piu'
+            try:
+                if not (self.winfo_exists() and self.cv.winfo_exists()):
+                    return
+            except tk.TclError:
+                return
+            fn()
         try:
-            self.after(0, fn)
+            self.after(0, run)
         except (RuntimeError, tk.TclError):
             pass  # finestra chiusa nel frattempo
 

@@ -33,6 +33,10 @@ fonte: `src/docx_ai/__init__.py`.
   rilevata dal registro di Windows invece che con PowerShell), la pagina del modulo non viene più
   ricostruita a ogni apertura.
 
+### Corretto
+- Editor visuale: un errore compariva se l'impaginazione del modulo terminava dopo la chiusura
+  dell'editor (o il passaggio alla vista semplificata).
+
 ## [0.7.0] - 2026-10-06
 
 ### Aggiunto
