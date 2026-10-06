@@ -73,6 +73,8 @@ def extract() -> set:
     out.update(TYPE_LABELS.values())
     from docx_ai.ui.dialogs.template_editor import KINDS
     out.update(x for name, _ic, example in KINDS.values() for x in (name, example))
+    from docx_ai.llm.ai_installer import EMBEDDING_MODEL, MODELS
+    out.update(info["label"] for info in [*MODELS.values(), *EMBEDDING_MODEL.values()])
     return out
 
 

@@ -37,6 +37,8 @@ class DraftOutcome:
     data: Optional[Dict[str, Any]]
     error: str = ""
     source_doc_hashes: List[str] = None  # type: ignore[assignment]
+    # l'AI reale ha fallito e i campi sono vuoti da compilare a mano (motivo)
+    ai_failed: str = ""
 
     def __post_init__(self):
         if self.source_doc_hashes is None:
@@ -204,7 +206,13 @@ class ReportService:
             source_document_hashes=json.dumps(hashes, ensure_ascii=False),
         )
         _tick(4, "Pronto per la revisione.")
+        ai_failed = ""
+        real = [srv for srv in getattr(pipeline, "server_chain", []) if not isinstance(srv, MockLlamaServer)]
+        if real and extraction.failover_used.startswith("Mock"):
+            # prima la bozza vuota del fallback sembrava una risposta (sbagliata) dell'AI
+            ai_failed = extraction.error_message or "risposta non valida"
         return DraftOutcome(
+            ai_failed=ai_failed,
             report_id=report_id,
             success=extraction.success,
             data=extraction.data,

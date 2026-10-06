@@ -12,7 +12,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from . import __version__
 
@@ -145,6 +145,10 @@ class Config:
             "runtime_exe", "llama-server.exe")
         model = self.resolve_ai_path(eff["model"]) if eff.get("model") else None
         fallback = self.resolve_ai_path(eff["fallback_model"]) if eff.get("fallback_model") else None
+        installed = self.installed_chat_models()
+        if installed:  # mostra i modelli che verranno usati davvero
+            model = installed[0]
+            fallback = installed[1] if len(installed) > 1 else fallback
         return {
             "runtime": runtime,
             "runtime_ok": runtime.is_file(),
@@ -153,6 +157,32 @@ class Config:
             "fallback": fallback,
             "fallback_ok": bool(fallback and fallback.is_file()),
         }
+
+    def installed_chat_models(self) -> List[Path]:
+        """Modelli di chat installati, in ordine di preferenza.
+
+        Prima un eventuale modello personalizzato indicato nella configurazione, poi
+        quelli noti dal piu' capace al piu' leggero: installando il 4B l'app lo usa
+        al posto dell'1.7B senza altre impostazioni. Il profilo "compatibility"
+        mantiene il proprio modello (leggero) per primo.
+        """
+        from .llm.ai_installer import MODELS
+
+        eff = self.llm_effective
+        model_dir = eff.get("model_dir", "models")
+        configured = [eff[k] for k in ("model", "fallback_model") if eff.get(k)]
+        known = [f"{model_dir}/{name}" for name in MODELS]
+        if self.llm_profile == "compatibility":
+            order = configured + known
+        else:
+            custom = [m for m in configured if Path(m).name not in MODELS]
+            order = custom + known + configured
+        out: List[Path] = []
+        for rel in order:
+            path = self.resolve_ai_path(rel)
+            if path.is_file() and path not in out:
+                out.append(path)
+        return out
 
     def resolve_data_path(self, relative: str) -> Path:
         if not relative:
@@ -182,13 +212,13 @@ class Config:
         base: Dict[str, Any] = {
             "backend": llm.get("backend", "llama_server"),
             "ollama_url": llm.get("ollama_url", "http://127.0.0.1:11434"),
-            "ollama_model": llm.get("ollama_model", "qwen3:0.6b-instruct-q8_0"),
+            "ollama_model": llm.get("ollama_model", "qwen3:4b"),
             "runtime_dir": llm.get("runtime_dir", "runtime/llama"),
             "runtime_exe": llm.get("runtime_exe", "llama-server.exe"),
             "model_dir": llm.get("model_dir", "models"),
             "model": llm.get("model"),
             "fallback_model": llm.get("fallback_model"),
-            "context_size": llm.get("context_size", 4096),
+            "context_size": llm.get("context_size", 8192),
             "host": llm.get("host", "127.0.0.1"),
             "port_min": llm.get("port_min", 39280),
             "port_max": llm.get("port_max", 39299),

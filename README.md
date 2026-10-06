@@ -53,7 +53,7 @@ Guida completa: [docs/guida-utente.md](docs/guida-utente.md) ·
 | | Minimo | Consigliato |
 |---|---|---|
 | Sistema | Windows 10 22H2 x64 | Windows 11 |
-| RAM | 4 GB (senza AI o modello 0.6B) | 8 GB (modello 1.7B) |
+| RAM | 4 GB (senza AI o modello 0.6B) | 8 GB (modello 1.7B), 12–16 GB (modello 4B, più preciso) |
 | Disco | 300 MB + 0,7–2 GB per l'AI | SSD |
 | GPU | non necessaria | scheda con driver Vulkan |
 | Internet | solo per scaricare l'AI una volta | |

@@ -28,6 +28,7 @@ from ..llm.prompt_builder import (
     SYSTEM_POLICY as EXTRACTION_POLICY,
     _schema_semantics,
     _truncate,
+    today_line,
 )
 from ..services.context_service import ContextService
 from ..module_manager import LoadedModule
@@ -89,6 +90,15 @@ INTERNAL_SOFTWARE_RULES: Dict[str, str] = {
 - Estrazione strutturata JSON. NON testo libero.
 """,
 }
+
+
+def _params_b(model: str) -> float:
+    """Miliardi di parametri dal nome Ollama ("qwen3:4b" -> 4); oltre 14B conta 0
+    (troppo lento su un PC d'ufficio)."""
+    import re
+    m = re.search(r"(\d+(?:\.\d+)?)b\b", model.lower())
+    size = float(m.group(1)) if m else 0.0
+    return size if size <= 14 else 0.0
 
 
 @dataclass
@@ -206,41 +216,35 @@ class AIService:
                 return None
             if model not in installed:
                 qwen = [m for m in installed if m.lower().startswith("qwen")]
-                # a parita' preferisce i modelli solo testo (piu' leggeri dei "-vl")
-                qwen.sort(key=lambda m: "vl" in m.lower())
+                # il piu' capace (piu' parametri) fino a 14B; a parita' i modelli solo testo
+                qwen.sort(key=lambda m: ("vl" in m.lower(), -_params_b(m)))
                 srv.options.model = (qwen or installed)[0]
         srv.start(timeout=2.0)
         return srv
 
     def _model_candidates(self, eff: Dict[str, Any]) -> List[Tuple[Path, int]]:
-        """Modelli installati in ordine di preferenza, tenendo conto della RAM:
-        se il modello principale non entra nella RAM libera ma il leggero si',
-        si parte dal leggero (il PC non va in swap)."""
+        """Modelli installati in ordine di preferenza (dal piu' capace), tenendo conto
+        della RAM: i modelli che non entrano nella RAM libera passano in fondo, cosi'
+        si parte dal migliore che il PC regge senza andare in swap."""
         from ..llm import hardware
-        ctx_size = int(self._setting("ai.context", 0) or 0) or int(eff.get("context_size", 4096))
-        cands: List[Tuple[Path, int]] = []
-        if eff.get("model"):
-            cands.append((self.config.resolve_ai_path(eff["model"]), ctx_size))
-        if eff.get("fallback_model"):
-            cands.append((self.config.resolve_ai_path(eff["fallback_model"]), max(512, ctx_size // 2)))
-        cands = [c for c in cands if c[0].is_file()]
+        ctx_size = int(self._setting("ai.context", 0) or 0) or int(eff.get("context_size", 8192))
+        cands: List[Tuple[Path, int]] = [(p, ctx_size) for p in self.config.installed_chat_models()]
         if len(cands) < 2:
             return cands
         hw = hardware.refresh_memory()
         if not hw.ram_available:
             return cands
-        need_main = hardware.model_ram_need(cands[0][0], cands[0][1])
-        need_small = hardware.model_ram_need(cands[1][0], cands[1][1])
-        if need_main > hw.ram_available and need_small <= hw.ram_available:
-            self.ram_warning = (f"RAM libera {hw.ram_available_gb} GB insufficiente per "
-                                f"{cands[0][0].name}: uso {cands[1][0].name}.")
-            LOG.warning(self.ram_warning)
-            return [cands[1], cands[0]]
-        if need_main > hw.ram_available:
+        fits = [c for c in cands if hardware.model_ram_need(c[0], c[1]) <= hw.ram_available]
+        if not fits:
             self.ram_warning = (f"RAM libera {hw.ram_available_gb} GB: l'AI potrebbe essere lenta. "
                                 "Chiudi altri programmi o usa il profilo 'compatibility'.")
             LOG.warning(self.ram_warning)
-        return cands
+            return cands
+        if fits[0] != cands[0]:
+            self.ram_warning = (f"RAM libera {hw.ram_available_gb} GB insufficiente per "
+                                f"{cands[0][0].name}: uso {fits[0][0].name}.")
+            LOG.warning(self.ram_warning)
+        return fits + [c for c in cands if c not in fits]
 
     def _build_pipeline(self) -> JsonPipeline:
         eff = self.config.llm_effective
@@ -440,6 +444,7 @@ class AIService:
         system_text = (
             combined.all_text() + "\n\n"
             + EXTRACTION_POLICY + "\n"
+            + today_line() + "\n\n"
             + _schema_semantics(schema)
         )
         user_parts: List[str] = []
@@ -545,7 +550,7 @@ class AIService:
         combined = self.rules.get_combined_rules(
             feature_key, module_folder, internal_rules=internal_block
         )
-        system_text = combined.all_text() + "\n\n" + (extra_instructions or "")
+        system_text = combined.all_text() + "\n" + today_line() + "\n\n" + (extra_instructions or "")
         if output_schema_hints:
             system_text += "\n\n" + _schema_semantics(output_schema_hints)
         user_parts: List[str] = []
@@ -595,6 +600,8 @@ class AIService:
             )
             choices = resp.get("choices") or []
             content = (choices[0].get("message") or {}).get("content", "") if choices else ""
+            import re as _re
+            content = _re.sub(r"<think>.*?</think>", "", content or "", flags=_re.S).strip()
             # Validate JSON if schema requested
             data = None
             if output_schema_hints and content:
@@ -630,6 +637,22 @@ class AIService:
             self._log_op(feature_key, user_request, [], [], "error", str(exc))
             return AIResult(success=False, error=str(exc), attempts=0)
 
+    @staticmethod
+    def _fit_messages(messages: List[Dict[str, str]], budget: int) -> List[Dict[str, str]]:
+        """Accorcia i brani delle fonti (inizio del messaggio utente) quando il prompt
+        supera il contesto del modello, conservando la richiesta in fondo."""
+        total = sum(len(m.get("content", "")) for m in messages)
+        if total <= budget or not messages or messages[-1].get("role") != "user":
+            return messages
+        user = messages[-1]["content"]
+        marker = user.rfind("=== RICHIESTA UTENTE ===")
+        if marker <= 0:
+            return messages
+        head, tail = user[:marker], user[marker:]
+        keep = max(0, len(head) - (total - budget))
+        head = head[:keep] + ("\n...[fonti accorciate per il limite di contesto]...\n\n" if keep < len(head) else "")
+        return messages[:-1] + [{"role": "user", "content": head + tail}]
+
     # --------------------------------------------------------------
     # Helper: bypass structured extraction fallback via direct call
     # --------------------------------------------------------------
@@ -640,8 +663,11 @@ class AIService:
         messages: List[Dict[str, str]],
     ) -> ExtractionResult:
         from ..llm.json_pipeline import (
-            _fill_missing_defaults, _lenient_json_parse,
+            _fill_missing_defaults, _lenient_json_parse, llm_schema, prompt_char_budget,
         )
+        model_schema = llm_schema(schema)
+        max_tokens = pipeline._estimate_max_tokens(schema, pipeline.server)
+        messages = self._fit_messages(messages, prompt_char_budget(pipeline.server, max_tokens))
         last_error = ""
         attempts = 0
         for attempt in range(pipeline.max_retries + 1):
@@ -650,8 +676,8 @@ class AIService:
                 resp = pipeline.chat(
                     messages=messages,
                     temperature=0.05 if attempt == 0 else 0.2,
-                    max_tokens=pipeline._estimate_max_tokens(schema),
-                    json_schema=schema,
+                    max_tokens=max_tokens,
+                    json_schema=model_schema,
                 )
             except Exception as exc:  # noqa: BLE001
                 last_error = f"Chiamata LLM fallita: {exc}"
@@ -671,7 +697,7 @@ class AIService:
             repaired = _fill_missing_defaults(parsed, schema)
             import jsonschema
             try:
-                jsonschema.validate(repaired, schema)
+                jsonschema.validate(repaired, model_schema)
             except jsonschema.ValidationError as exc:
                 last_error = f"Schema validation fallito: {exc.message}"
                 messages = pipeline._append_repair_messages(messages, raw, last_error)

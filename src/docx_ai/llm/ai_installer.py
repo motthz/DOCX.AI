@@ -31,11 +31,18 @@ LOG = logging.getLogger(__name__)
 LLAMA_RELEASES_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 PREFERRED_LLAMA_TAG = "b10655"
 
+# Modelli di chat, dal piu' capace al piu' leggero: l'app usa il migliore installato
+# che entra nella RAM libera (vedi Config.installed_chat_models).
 MODELS: Dict[str, Dict[str, Any]] = {
+    "Qwen3-4B-Q4_K_M.gguf": {
+        "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
+        "sha256": None,
+        "label": "Qwen3 4B (risposte più precise, ~2.5 GB, almeno 10 GB di RAM)",
+    },
     "Qwen3-1.7B-Q8_0.gguf": {
         "url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf",
         "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
-        "label": "Qwen3 1.7B (consigliato, ~1.8 GB)",
+        "label": "Qwen3 1.7B (equilibrato, ~1.8 GB)",
     },
     "Qwen3-0.6B-Q8_0.gguf": {
         "url": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",

@@ -62,12 +62,16 @@ it.AiPageDesc=Scegli il modello AI da scaricare al primo avvio (una sola volta).
 en.AiPageDesc=Choose the AI model to download on first launch (only once).
 it.AiPageSub=Il modello viene scaricato da Internet al primo avvio dell'app e poi funziona offline. Potrai cambiarlo in seguito da Impostazioni → Componenti AI.
 en.AiPageSub=The model is downloaded on the app's first launch and then works offline. You can change it later in Settings → AI components.
-it.AiOpt1=Qwen3 1.7B - consigliato (circa 1,8 GB, servono almeno 6 GB di RAM)
-en.AiOpt1=Qwen3 1.7B - recommended (about 1.8 GB, needs at least 6 GB RAM)
-it.AiOpt2=Qwen3 0.6B - per PC lenti o con poca memoria (circa 640 MB)
-en.AiOpt2=Qwen3 0.6B - for slow PCs or little memory (about 640 MB)
-it.AiOpt3=Non ora: deciderò in seguito
-en.AiOpt3=Not now: I will decide later
+it.AiOpt0=Automatico - il modello più preciso che il PC regge (consigliato)
+en.AiOpt0=Automatic - the most accurate model this PC can run (recommended)
+it.AiOpt1=Qwen3 4B - risposte più precise (circa 2,5 GB, servono almeno 10 GB di RAM)
+en.AiOpt1=Qwen3 4B - more accurate answers (about 2.5 GB, needs at least 10 GB RAM)
+it.AiOpt2=Qwen3 1.7B - equilibrato (circa 1,8 GB, servono almeno 6 GB di RAM)
+en.AiOpt2=Qwen3 1.7B - balanced (about 1.8 GB, needs at least 6 GB RAM)
+it.AiOpt3=Qwen3 0.6B - per PC lenti o con poca memoria (circa 640 MB)
+en.AiOpt3=Qwen3 0.6B - for slow PCs or little memory (about 640 MB)
+it.AiOpt4=Non ora: deciderò in seguito
+en.AiOpt4=Not now: I will decide later
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -130,12 +134,16 @@ var
 begin
   AiPage := CreateInputOptionPage(wpSelectTasks, CustomMessage('AiPageTitle'), CustomMessage('AiPageDesc'),
     CustomMessage('AiPageSub'), True, False);
+  AiPage.Add(CustomMessage('AiOpt0'));
   AiPage.Add(CustomMessage('AiOpt1'));
   AiPage.Add(CustomMessage('AiOpt2'));
   AiPage.Add(CustomMessage('AiOpt3'));
-  Param := Lowercase(ExpandConstant('{param:AIMODEL|1.7b}'));
-  if Param = '0.6b' then AiPage.SelectedValueIndex := 1
-  else if Param = 'none' then AiPage.SelectedValueIndex := 2
+  AiPage.Add(CustomMessage('AiOpt4'));
+  Param := Lowercase(ExpandConstant('{param:AIMODEL|auto}'));
+  if Param = '4b' then AiPage.SelectedValueIndex := 1
+  else if Param = '1.7b' then AiPage.SelectedValueIndex := 2
+  else if Param = '0.6b' then AiPage.SelectedValueIndex := 3
+  else if Param = 'none' then AiPage.SelectedValueIndex := 4
   else AiPage.SelectedValueIndex := 0;
 end;
 
@@ -146,8 +154,10 @@ begin
   if CurStep = ssPostInstall then
   begin
     case AiPage.SelectedValueIndex of
-      0: Model := 'Qwen3-1.7B-Q8_0.gguf';
-      1: Model := 'Qwen3-0.6B-Q8_0.gguf';
+      0: Model := 'auto';
+      1: Model := 'Qwen3-4B-Q4_K_M.gguf';
+      2: Model := 'Qwen3-1.7B-Q8_0.gguf';
+      3: Model := 'Qwen3-0.6B-Q8_0.gguf';
     else
       Model := '';
     end;

@@ -373,7 +373,10 @@ class ReportPage(ctk.CTkFrame):
         self.stepper.set(1, "ok")
         self.stepper.set(2, "ok")
         self.stepper.set(3, "run")
-        if not self.win.ai.is_real_ai:
+        if getattr(outcome, "ai_failed", ""):
+            self.win.toast(t("L'AI non è riuscita a compilare il modulo: completa i campi nella revisione."),
+                           "warning")
+        elif not self.win.ai.is_real_ai:
             self.win.toast(t("AI non installata: compila i campi a mano nella revisione."), "warning",
                            action=(t("Installa AI"), self.win.open_ai_setup))
         self.win.emit("reports")

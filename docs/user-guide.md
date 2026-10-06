@@ -107,7 +107,7 @@ other documents, extract text from scans (Windows OCR), AI rules. Originals are 
 with `{{field_name}}` (or use the template editor).
 
 **Does the AI invent data?** Built-in rules forbid it and the *source check* highlights
-in red the values not found in the sources. The light model (0.6B) makes more mistakes.
+in red the values not found in the sources. Smaller models make more mistakes: with at least 10 GB of RAM install **Qwen3 4B** (Settings → AI components); the app automatically uses the most accurate installed model that fits in free memory.
 
 **Is Internet required?** Only to download the AI components once.
 

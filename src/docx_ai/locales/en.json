@@ -341,6 +341,7 @@
  "Installa AI": "Install AI",
  "Installa AI (una volta)": "Install AI (once)",
  "Installa o aggiorna runtime, modelli, GPU e ricerca semantica.": "Install or update runtime, models, GPU and semantic search.",
+ "Installa un modello più preciso": "Install a more accurate model",
  "Installazione AI non riuscita": "AI installation failed",
  "Installazione completata.": "Installation completed.",
  "Installazione non riuscita.": "Installation failed.",
@@ -352,6 +353,7 @@
  "L'AI funziona offline: i dati non lasciano mai questo PC. Il download serve una sola volta.": "The AI works offline: data never leaves this PC. The download is needed only once.",
  "L'AI legge queste regole ma non può modificarle. Un file vuoto = comportamento standard.": "The AI reads these rules but cannot change them. An empty file = standard behaviour.",
  "L'AI locale non è ancora installata. Senza AI puoi comunque compilare i documenti a mano.": "The local AI is not installed yet. Without AI you can still fill in documents manually.",
+ "L'AI non è riuscita a compilare il modulo: completa i campi nella revisione.": "The AI could not fill in the form: complete the fields in the review.",
  "L'AI segue queste regole ogni volta che compila, ma non può modificarle:\nle cambi solo tu, da questa finestra, premendo Salva.": "The AI follows these rules every time it fills in a document, but it cannot change them:\nonly you can, from this window, by pressing Save.",
  "L'AI sta riscrivendo il testo…": "The AI is rewriting the text…",
  "La cella {c} contiene «{v}».\nNel documento compilato verrà sostituita dal valore del campo. Continuare?\n\n(Di solito il campo va nella cella accanto all'etichetta.)": "Cell {c} contains «{v}».\nIn the filled document it will be replaced by the field value. Continue?\n\n(The field usually goes in the cell next to the label.)",
@@ -494,6 +496,9 @@
  "Questo mese": "This month",
  "Questo modulo non ha ancora campi da compilare.": "This module has no fields to fill in yet.",
  "Qui trovi i modelli dei tuoi documenti. Un modulo nasce da un tuo DOCX/XLSX con i campi {{nome_campo}}.": "Here you find your document templates. A module is created from your own DOCX/XLSX with {{field_name}} fields.",
+ "Qwen3 0.6B (PC lenti, ~640 MB)": "Qwen3 0.6B (slow PCs, ~640 MB)",
+ "Qwen3 1.7B (equilibrato, ~1.8 GB)": "Qwen3 1.7B (balanced, ~1.8 GB)",
+ "Qwen3 4B (risposte più precise, ~2.5 GB, almeno 10 GB di RAM)": "Qwen3 4B (more accurate answers, ~2.5 GB, at least 10 GB RAM)",
  "Rapporto di intervento": "Job report",
  "Regole AI": "AI rules",
  "Regole AI del modulo": "Module AI rules",
@@ -511,6 +516,7 @@
  "Riavvio necessario": "Restart required",
  "Ricerca semantica": "Semantic search",
  "Ricerca semantica nei documenti": "Semantic search in documents",
+ "Ricerca semantica nei documenti (~640 MB)": "Semantic search in documents (~640 MB)",
  "Richiede il riavvio dell'app.": "Requires restarting the app.",
  "Richiede il runtime GPU (Componenti AI).": "Requires the GPU runtime (AI components).",
  "Richiesta d'acquisto": "Purchase request",
@@ -747,5 +753,6 @@
  "{n} valori da verificare": "{n} values to check",
  "{n} valori non compaiono nelle fonti e potrebbero essere stati inventati dall'AI.\n\nLi hai controllati e vuoi approvare comunque?": "{n} values do not appear in the sources and may have been invented by the AI.\n\nHave you checked them and want to approve anyway?",
  "«Come Windows» segue automaticamente il tema chiaro/scuro del sistema.": "«Like Windows» automatically follows the system light/dark theme.",
- "È disponibile DOCX.AI {v}.": "DOCX.AI {v} is available."
+ "È disponibile DOCX.AI {v}.": "DOCX.AI {v} is available.",
+ "È disponibile un modello AI più preciso per questo PC (Qwen3 4B).": "A more accurate AI model is available for this PC (Qwen3 4B)."
 }

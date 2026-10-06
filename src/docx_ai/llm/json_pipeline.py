@@ -25,7 +25,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import jsonschema
 
-from .llama_server import MockLlamaServer
 from .prompt_builder import build_extraction_messages
 from . import quality_scorer as _qs
 
@@ -160,6 +159,10 @@ def _fill_missing_defaults(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict
                 data[key] = bool(value)
         elif expected == "string" and not isinstance(value, str):
             data[key] = _NON_SPEC if value is None else str(value)
+        elif isinstance(spec.get("enum"), list) and isinstance(value, str) and value not in spec["enum"]:
+            # "approvato" -> "Approvato": stessa opzione scritta diversamente
+            norm = value.strip().casefold()
+            data[key] = next((e for e in spec["enum"] if str(e).strip().casefold() == norm), value)
         elif expected == "array" and not isinstance(value, list):
             data[key] = []
         elif expected == "object" and not isinstance(value, dict):
@@ -169,11 +172,15 @@ def _fill_missing_defaults(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict
             or (expected == "number" and (not isinstance(value, (int, float)) or isinstance(value, bool)))
         ):
             try:
-                cast = int(value) if expected == "integer" else float(value)
+                if isinstance(value, str):
+                    value = value.strip().replace(" ", "")
+                    if "," in value:  # formato italiano: 1.234,50
+                        value = value.replace(".", "").replace(",", ".")
+                cast = int(float(value)) if expected == "integer" else float(value)
                 data[key] = cast
             except (TypeError, ValueError):
-                # Leave as-is; validation will fail and trigger a repair retry
-                pass
+                # "NON_SPECIFICATO", "n.d." ... -> numero non indicato
+                data[key] = None
 
     # ---- Second pass: fill missing required fields with schema-appropriate default ----
     for key in required:
@@ -189,10 +196,11 @@ def _fill_missing_defaults(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict
         elif t == "object":
             data[key] = {}
         elif t in ("integer", "number"):
-            data[key] = 0 if t == "integer" else 0.0
+            # mai 0: sarebbe un valore inventato. Vuoto, da compilare in revisione
+            data[key] = None
         elif enum:
-            pick = next((e for e in enum if "non_specificato" in str(e).lower()), enum[0])
-            data[key] = pick
+            # mai la prima opzione a caso: il sentinella "non specificato" se c'e'
+            data[key] = next((e for e in enum if "non_specificato" in str(e).lower()), _NON_SPEC)
         else:
             data[key] = _NON_SPEC
 
@@ -207,6 +215,8 @@ def _fill_missing_defaults(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict
                 data[key] = []
             elif t == "object":
                 data[key] = {}
+            elif t in ("integer", "number") or (isinstance(t, list) and "null" in t):
+                pass  # null ammesso (vedi llm_schema): numero non indicato
             else:
                 data[key] = _NON_SPEC
         # Handle nested array<object> items: fill missing fields recursively
@@ -300,19 +310,55 @@ def _write_debug(dump_dir: Optional[Path], name: str, content: Any) -> None:
         pass
 
 
-def _required_only_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
-    """Strip optional properties for retry-3 "required only" schema."""
-    if not isinstance(schema, dict):
-        return schema or {}
-    props = schema.get("properties") or {}
-    req = schema.get("required") or []
-    trimmed_props = {k: v for k, v in props.items() if k in req}
-    out = dict(schema)
-    out["properties"] = trimmed_props
-    out["required"] = list(req)
-    if "additionalProperties" not in out:
-        out["additionalProperties"] = False
+def _relax_props(props: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for key, spec in (props or {}).items():
+        if not isinstance(spec, dict):
+            out[key] = spec
+            continue
+        spec = dict(spec)
+        t = spec.get("type")
+        enum = spec.get("enum")
+        if isinstance(enum, list) and enum and not any("specificato" in str(e).lower() for e in enum):
+            spec["enum"] = list(enum) + [_NON_SPEC]
+        elif t in ("number", "integer"):
+            spec["type"] = [t, "null"]
+        elif t == "array" and isinstance(spec.get("items"), dict):
+            items = dict(spec["items"])
+            if items.get("type") == "object" and isinstance(items.get("properties"), dict):
+                items["properties"] = _relax_props(items["properties"])
+            spec["items"] = items
+        out[key] = spec
     return out
+
+
+def llm_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Schema imposto al modello: come quello del modulo, ma con un'uscita per i dati
+    che il testo non contiene. Senza, la grammatica JSON costringeva il modello a
+    scegliere comunque un'opzione (la prima) o a scrivere 0 nei campi numerici:
+    risposte sbagliate presentate come certe. In revisione questi campi risultano
+    vuoti e l'approvazione (validata sullo schema originale) li richiede."""
+    if not isinstance(schema, dict) or not isinstance(schema.get("properties"), dict):
+        return schema or {}
+    out = dict(schema)
+    out["properties"] = _relax_props(schema["properties"])
+    return out
+
+
+def prompt_char_budget(server: Any, max_tokens: int) -> int:
+    """Caratteri di prompt che entrano nel contesto del modello lasciando spazio
+    alla risposta. Prima il prompt (fino a 14000 caratteri) + la risposta potevano
+    superare il contesto da 4096 token: llama-server rifiutava la richiesta o
+    perdeva l'inizio del prompt."""
+    ctx = 0
+    opts = getattr(server, "options", None)
+    if opts is not None:
+        ctx = int(getattr(opts, "context_size", 0) or 0)
+    if not ctx:
+        ctx = 4096 if type(server).__name__ == "OllamaBackend" else 8192
+    tokens = ctx - int(max_tokens) - 256
+    # ~2.8 caratteri per token per testo italiano misto a JSON (stima prudente)
+    return max(3000, min(40000, int(tokens * 2.8)))
 
 
 # ---------------------------------------------------------------------------
@@ -367,16 +413,18 @@ class JsonPipeline:
             if on_progress:
                 on_progress(0, 3, f"Backend {server_index+1}/{len(self.server_chain)}: {server_name}")
 
+            max_tokens = self._estimate_max_tokens(schema, server)
+            budget = prompt_char_budget(server, max_tokens)
             # Build base messages for THIS backend (reset per backend)
             messages = build_extraction_messages(
                 schema,
                 operator_description,
                 reference_docs=reference_docs,
                 history_snippets=history_snippets,
-                append_no_think=not isinstance(server, MockLlamaServer) or True,
                 document_context=document_context,
+                max_prompt_chars=budget,
             )
-            max_tokens = self._estimate_max_tokens(schema)
+            model_schema = llm_schema(schema)
 
             # Retry escalation WITHIN this backend (attempts 0..max_retries)
             for attempt in range(self.max_retries + 1):
@@ -385,25 +433,19 @@ class JsonPipeline:
                     on_progress(attempt + 1, self.max_retries + 1,
                                 f"{server_name} tentativo {attempt+1}/{self.max_retries+1}")
 
-                # --- Prepare schema/references per RETRY escalation ---
-                use_schema = schema
+                # --- Prepare references per RETRY escalation ---
+                use_schema = model_schema
                 use_messages = list(messages)
-                use_refs = reference_docs
-                # attempt 0 → default; attempt 1 → prepend repair if available;
-                # attempt 2 → strip 50% references + required-only schema (FR33)
-                if attempt == 2:
-                    # strip every other doc (retain first, skip 50% historical)
-                    if len(use_refs) > 1:
-                        half = use_refs[: max(1, (len(use_refs) + 1) // 2)]
-                        use_refs = half
-                    use_schema = _required_only_schema(schema)
+                # attempt 2 -> meta' dei documenti e dello storico (prompt piu' corto).
+                # Lo schema resta completo: togliere i campi facoltativi li perdeva.
+                if attempt == 2 and (len(reference_docs) > 1 or history_snippets):
                     use_messages = build_extraction_messages(
-                        use_schema,
+                        schema,
                         operator_description,
-                        reference_docs=use_refs,
-                        history_snippets=history_snippets[: max(0, len(history_snippets) // 2)],
-                        append_no_think=not isinstance(server, MockLlamaServer) or True,
-                document_context=document_context,
+                        reference_docs=reference_docs[: max(1, (len(reference_docs) + 1) // 2)],
+                        history_snippets=history_snippets[: len(history_snippets) // 2],
+                        document_context=document_context,
+                        max_prompt_chars=budget,
                     )
                     if last_error:
                         use_messages = self._append_repair_messages(use_messages, "", last_error)
@@ -449,7 +491,7 @@ class JsonPipeline:
                 repaired = _fill_missing_defaults(parsed, schema)
                 _write_debug(dump_dir, f"{server_index}_{attempt}_3_parsed.json", repaired)
                 try:
-                    jsonschema.validate(repaired, schema)
+                    jsonschema.validate(repaired, model_schema)
                 except jsonschema.ValidationError as exc:
                     last_error = (
                         f"[{server_name}] Schema validation fallito: {exc.message} "
@@ -530,8 +572,9 @@ class JsonPipeline:
         return cls
 
     @staticmethod
-    def _estimate_max_tokens(schema: Dict[str, Any]) -> int:
-        """Very rough estimate of required tokens based on field count."""
+    def _estimate_max_tokens(schema: Dict[str, Any], server: Any = None) -> int:
+        """Very rough estimate of required tokens based on field count, capped to
+        half of the model context (the rest is for the prompt)."""
         props = schema.get("properties", {}) or {}
         field_count = len(props)
         for spec in props.values():
@@ -539,7 +582,11 @@ class JsonPipeline:
                 items = spec.get("items") or {}
                 if isinstance(items, dict) and items.get("type") == "object":
                     field_count += len(items.get("properties", {}) or {}) * 3
-        return max(500, min(3200, 400 + field_count * 100))
+        estimate = max(500, min(3200, 400 + field_count * 100))
+        ctx = int(getattr(getattr(server, "options", None), "context_size", 0) or 0)
+        if ctx:
+            estimate = min(estimate, max(400, ctx // 2))
+        return estimate
 
     @staticmethod
     def _append_repair_messages(messages: List[Dict[str, str]],

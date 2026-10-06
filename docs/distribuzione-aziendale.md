@@ -12,7 +12,7 @@ silenziosa e non richiede interazione.
 | Senza collegamento sul Desktop | aggiungere `/TASKS=""` |
 | Cartella personalizzata | aggiungere `/DIR="C:\Programmi\DOCX.AI"` |
 | Log dell'installazione | aggiungere `/LOG="C:\Temp\mai-setup.log"` |
-| Modello AI preselezionato | aggiungere `/AIMODEL=1.7b` (oppure `0.6b`, `none`) |
+| Modello AI preselezionato | aggiungere `/AIMODEL=4b` (oppure `1.7b`, `0.6b`, `none`; predefinito `auto`: in base alla RAM) |
 
 Disinstallazione silenziosa:
 

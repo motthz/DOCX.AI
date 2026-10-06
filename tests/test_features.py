@@ -211,7 +211,11 @@ class HardwareTests(unittest.TestCase):
         from docx_ai.llm import hardware
         hw = hardware.detect()
         self.assertGreater(hw.cpu_cores, 0)
-        self.assertIn(hw.recommended_model(), ("Qwen3-1.7B-Q8_0.gguf", "Qwen3-0.6B-Q8_0.gguf"))
+        from docx_ai.llm.ai_installer import MODELS
+        self.assertIn(hw.recommended_model(), MODELS)
+        self.assertEqual(hardware.Hardware(ram_total=16 * hardware.GB).recommended_model(), "Qwen3-4B-Q4_K_M.gguf")
+        self.assertEqual(hardware.Hardware(ram_total=8 * hardware.GB).recommended_model(), "Qwen3-1.7B-Q8_0.gguf")
+        self.assertEqual(hardware.Hardware(ram_total=4 * hardware.GB).recommended_model(), "Qwen3-0.6B-Q8_0.gguf")
         self.assertIn("CPU", hw.summary())
 
 

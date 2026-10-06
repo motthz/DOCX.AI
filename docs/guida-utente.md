@@ -178,8 +178,9 @@ tipo di documento l'AI è più precisa.
 
 **L'AI inventa dei dati?** Le regole interne le vietano di inventare date, nomi, codici,
 importi e numeri, e il *controllo delle fonti* evidenzia in rosso i valori che non
-compaiono nelle fonti. Il modello leggero (0.6B) sbaglia più spesso: con almeno 6 GB di
-RAM usa l'1.7B.
+compaiono nelle fonti. I modelli più piccoli sbagliano più spesso: con almeno 10 GB di RAM
+installa il **Qwen3 4B** (Impostazioni → Componenti AI), con almeno 6 GB l'1.7B. L'app usa
+automaticamente il modello più preciso installato che entra nella memoria libera.
 
 **Serve Internet?** Solo per scaricare una volta i componenti AI.
 

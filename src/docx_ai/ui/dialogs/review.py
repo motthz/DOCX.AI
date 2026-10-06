@@ -149,6 +149,8 @@ class ReviewDialog(Dialog):
         # il segnaposto interno "NON_SPECIFICATO" non va mostrato: il campo resta vuoto (chip "Mancante")
         if isinstance(value, str) and value.strip().upper() == "NON_SPECIFICATO" and not spec.get("enum"):
             value = ""
+        elif spec.get("enum") and value not in spec["enum"]:
+            value = ""  # l'AI non ha trovato il valore: scelta lasciata all'utente
         elif isinstance(value, list):
             value = [v for v in value if not (isinstance(v, str) and v.strip().upper() == "NON_SPECIFICATO")]
         typ = spec.get("type")
@@ -405,8 +407,11 @@ class ReviewDialog(Dialog):
         except ValueError as exc:
             self.win.toast(str(exc), "error")
             return
-        for key, spec in self.props.items():  # campi numerici vuoti -> rimossi se non obbligatori
+        required = set(self.schema.get("required") or [])
+        for key, spec in self.props.items():  # campi numerici/scelte vuoti -> rimossi se non obbligatori
             if data.get(key) is None and (spec or {}).get("type") in ("number", "integer"):
+                data.pop(key, None)
+            elif data.get(key) == "" and (spec or {}).get("enum") and key not in required:
                 data.pop(key, None)
         try:
             import jsonschema

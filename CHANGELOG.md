@@ -6,6 +6,35 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.6.0] - 2026-10-06
+
+### Corretto
+- **Risposte dell'AI sbagliate o vuote.** Il prompt (fino a 14.000 caratteri) più la risposta superavano
+  il contesto del modello (4096 token): llama-server rifiutava la richiesta o ne perdeva una parte, e il
+  modulo restava pieno di "NON_SPECIFICATO" o di valori casuali. Ora il contesto è di 8192 token e il
+  prompt viene dimensionato sul modello in uso.
+- Quando il prompt era troppo lungo veniva tagliato **proprio il testo scritto dall'utente** (che era in
+  fondo): ora si accorciano prima documenti di riferimento ed esempi dello storico, mai la richiesta.
+- I campi a scelta senza informazione ricevevano **sempre la prima opzione** e i campi numerici **0**:
+  valori inventati presentati come certi. Ora l'AI può rispondere "non specificato" e il campo resta da
+  compilare in revisione. Accettati anche numeri all'italiana (`1.250,50`).
+- L'AI non conosceva la data di oggi: "ieri", "lunedì scorso", "oggi" diventavano date inventate.
+- Il ragionamento ("thinking") di Qwen3 restava attivo e consumava la risposta: ora è disattivato tramite
+  il template di chat del modello.
+- Al terzo tentativo i campi facoltativi venivano tolti dallo schema e andavano persi.
+- Se l'AI falliva tutti i tentativi, la bozza vuota sembrava una risposta dell'AI: ora c'è un avviso.
+- Documenti AI (compilazione smart, audit): stesse correzioni (contesto, data, "non specificato");
+  il testo generato non contiene più blocchi `<think>`.
+
+### Aggiunto
+- **Modello Qwen3 4B** (~2,5 GB) per risposte molto più precise, consigliato dai 10 GB di RAM.
+  L'app usa automaticamente il **modello più preciso installato** che entra nella RAM libera; a chi
+  ha già l'AI installata e un PC adatto viene proposto una volta.
+- Installer: scelta "Automatico" del modello in base alla RAM (`/AIMODEL=auto|4b|1.7b|0.6b|none`).
+- Il prompt descrive meglio i campi (titolo, formato data, sotto-campi degli elenchi) e dà istruzioni
+  precise su date, elenchi, Sì/No e campi descrittivi.
+- Con Ollama viene scelto il modello Qwen più capace installato (fino a 14B).
+
 ## [0.5.0] - 2026-10-05
 
 ### Aggiunto

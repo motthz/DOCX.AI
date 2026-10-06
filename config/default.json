@@ -7,13 +7,13 @@
   "llm": {
     "backend": "llama_server",
     "ollama_url": "http://127.0.0.1:11434",
-    "ollama_model": "qwen3:0.6b-instruct-q8_0",
+    "ollama_model": "qwen3:4b",
     "runtime_dir": "runtime/llama",
     "runtime_exe": "llama-server.exe",
     "model_dir": "models",
     "model": "models/Qwen3-1.7B-Q8_0.gguf",
     "fallback_model": "models/Qwen3-0.6B-Q8_0.gguf",
-    "context_size": 4096,
+    "context_size": 8192,
     "profile": "balanced",
     "host": "127.0.0.1",
     "port_min": 39280,
@@ -25,17 +25,17 @@
     "profiles": {
       "compatibility": {
         "model": "models/Qwen3-0.6B-Q8_0.gguf",
-        "context_size": 2048,
+        "context_size": 4096,
         "thread_override": 2
       },
       "balanced": {
         "model": "models/Qwen3-1.7B-Q8_0.gguf",
-        "context_size": 4096,
+        "context_size": 8192,
         "thread_override": null
       },
       "fastest": {
         "model": "models/Qwen3-1.7B-Q8_0.gguf",
-        "context_size": 4096,
+        "context_size": 8192,
         "thread_override": 8
       }
     }

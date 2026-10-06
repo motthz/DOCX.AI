@@ -50,7 +50,9 @@ def model_ram_need(model_path: Path, context_size: int = 4096) -> int:
         size = Path(model_path).stat().st_size
     except OSError:
         return 0
-    kv = int(context_size * 0.11 * 1024 * 1024 / 1024 * 1.0)  # ~0.11 MB per token (modelli <2B)
+    # KV cache: ~0.11 MB per token per i modelli <2B, ~0.15 MB per il 4B
+    per_token = 0.15 if size > 2 * GB else 0.11
+    kv = int(context_size * per_token * 1024 * 1024)
     return int(size * 1.1) + kv + 300 * 1024 * 1024
 
 
@@ -74,6 +76,8 @@ class Hardware:
         """Modello consigliato in base alla RAM disponibile."""
         if self.ram_total and self.ram_total < 6 * GB:
             return "Qwen3-0.6B-Q8_0.gguf"
+        if self.ram_total and self.ram_total >= 10 * GB:
+            return "Qwen3-4B-Q4_K_M.gguf"
         return "Qwen3-1.7B-Q8_0.gguf"
 
     def summary(self) -> str:

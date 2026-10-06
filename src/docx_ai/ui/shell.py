@@ -321,6 +321,23 @@ class MainWindow:
         from .ai_setup_dialog import AISetupDialog
         AISetupDialog(self.root, self.config, on_installed=self._on_ai_installed, auto_model=auto_model)
 
+    def _suggest_better_model(self) -> None:
+        """Una volta sola: se il PC regge il modello 4B ma e' installato solo uno piu'
+        piccolo (risposte meno precise), propone di installarlo."""
+        try:
+            from ..llm import hardware
+            if self.db.get_setting("ai.better_model_hint") or self.config.llm_profile == "compatibility":
+                return
+            rec = hardware.detect().recommended_model()
+            installed = {p.name for p in self.config.installed_chat_models()}
+            if not installed or rec in installed or rec != "Qwen3-4B-Q4_K_M.gguf":
+                return
+            self.db.set_setting("ai.better_model_hint", "1")
+            self.toast(t("È disponibile un modello AI più preciso per questo PC (Qwen3 4B)."), "info",
+                       action=(t("Installa un modello più preciso"), self.open_ai_setup))
+        except Exception:  # noqa: BLE001
+            LOG.debug("suggerimento modello non mostrato", exc_info=True)
+
     def _installer_ai_request(self) -> Optional[str]:
         """Modello scelto nell'installer (file ai_request.json nella cartella locale dell'app)."""
         import json
@@ -432,6 +449,8 @@ class MainWindow:
                 finally:
                     self.root.after(0, lambda: (setattr(self, "ai_state", "idle"), self.refresh_ai()))
             threading.Thread(target=_preload, daemon=True, name="ai-preload").start()
+        if not requested:
+            self.root.after(5000, self._suggest_better_model)
         self.app.start_background_tasks()
         if self.settings.get("updates.auto"):
             self.root.after(8000, self.check_updates)

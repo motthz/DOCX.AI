@@ -146,6 +146,10 @@ class LlamaServer:
             cmd += ["--embedding", "--pooling", "last"]
         if opts.no_webui:
             cmd.append("--no-webui")
+        if not opts.embedding:
+            # template di chat del modello (Qwen3): necessario perche' enable_thinking=false
+            # disattivi davvero il ragionamento invece di affidarsi al solo "/no_think"
+            cmd.append("--jinja")
         # Disable MMAP/MLock where not applicable: keep defaults, they work on CPU
         creationflags = 0
         if os.name == "nt":
@@ -333,13 +337,7 @@ class LlamaServer:
         if json_schema:
             payload["response_format"] = {"type": "json_object", "schema": json_schema}
             payload["json_schema"] = json_schema
-        if self.options.no_think:
-            # Qwen3 tag - instructs the model to skip thinking tokens.
-            # llama.cpp supports passing extra stop via "stop" or "min_p" etc.;
-            # we simply add the tag at the END of the user message in
-            # prompt_builder; here we do not double-encode it. Some builds
-            # expose "no_think" parameter but this is version-dependent.
-            pass
+        payload.update(self._thinking_params())
         if extra:
             payload.update(extra)
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -367,6 +365,13 @@ class LlamaServer:
             ) from exc
 
 
+    def _thinking_params(self) -> Dict[str, Any]:
+        """Qwen3 senza ragionamento: risposte dirette (il "pensiero" consumava i token
+        della risposta e, con lo schema JSON, finiva troncato)."""
+        if not self.options.no_think:
+            return {}
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+
     def chat_completions_stream(self, messages: list, *, on_delta, temperature: float = 0.1,
                                 max_tokens: int = 1200, json_schema: Optional[Dict[str, Any]] = None,
                                 timeout: float = 600.0, extra: Optional[Dict[str, Any]] = None
@@ -381,6 +386,9 @@ class LlamaServer:
         if json_schema:
             payload["response_format"] = {"type": "json_object", "schema": json_schema}
             payload["json_schema"] = json_schema
+        thinking = getattr(self, "_thinking_params", None)
+        if callable(thinking):
+            payload.update(thinking())
         if extra:
             payload.update(extra)
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -470,7 +478,7 @@ class MockLlamaServer:
                 if const is not None:
                     obj[k] = copy.deepcopy(const)
                 elif enum:
-                    obj[k] = enum[0]
+                    obj[k] = next((e for e in enum if "specificato" in str(e).lower()), enum[0])
                 elif t == "array":
                     obj[k] = []
                 elif t == "object":
