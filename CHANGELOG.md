@@ -6,6 +6,34 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.7.0] - 2026-10-06
+
+### Aggiunto
+- **Controllo automatico dei fatti, anche con il modello piccolo.** Dopo ogni compilazione l'app, senza
+  usare l'AI, confronta con il testo dell'utente (e i documenti di riferimento):
+  - **date**, in qualsiasi formato (`05/10/2026`, `5 ottobre`, `2026-10-05`) o a parole ("oggi",
+    "ieri", "lunedì scorso", "tra due settimane"): giorno/mese scambiati e anno sbagliato vengono
+    corretti, una data senza riscontro viene tolta;
+  - **numeri** dei campi numerici (anche `1.250,50` o "due ore");
+  - **codici** e matricole nei campi brevi e **nomi** di persone/aziende.
+  Un valore senza riscontro non arriva nel documento: il campo resta da compilare e un avviso indica
+  quali campi sono stati corretti. Vale anche per la compilazione da documenti.
+- **Editor visuale fedele al modulo.** Il documento Word si vede con le sue pagine vere (caratteri,
+  tabelle, immagini, intestazioni, margini), impaginato da Microsoft Word o LibreOffice se presenti; i
+  campi si trascinano direttamente sulla pagina e si può selezionare col mouse un testo d'esempio da
+  sostituire. Senza Word/LibreOffice resta la vista semplificata, con un collegamento per scaricare
+  LibreOffice (gratuito).
+- **Editor Excel fedele**: larghezze e altezze reali, righe/colonne nascoste, celle unite, colori (anche
+  del tema), bordi, caratteri, allineamenti, testo a capo, formati numerici e immagini.
+- **PDF esportato identico al modulo**: con Word o LibreOffice il PDF è il modulo compilato impaginato
+  (note di revisione e foto in coda); senza, resta il PDF riassuntivo.
+
+### Corretto
+- Editor (vista semplificata): le celle unite in verticale venivano ripetute in ogni riga e il testo
+  perdeva grassetto, corsivo, sottolineato e allineamento.
+- Il controllo delle fonti in revisione segnava in rosso date corrette scritte a parole ("ieri") o senza
+  anno ("5 ottobre").
+
 ## [0.6.0] - 2026-10-06
 
 ### Corretto

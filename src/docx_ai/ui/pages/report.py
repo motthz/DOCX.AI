@@ -373,6 +373,13 @@ class ReportPage(ctk.CTkFrame):
         self.stepper.set(1, "ok")
         self.stepper.set(2, "ok")
         self.stepper.set(3, "run")
+        fixes = getattr(outcome, "corrections", None) or []
+        if fixes:
+            LOG.info("Controllo dei fatti: %s", "; ".join(fixes))
+            fields = sorted({f.split(":", 1)[0].split("[", 1)[0] for f in fixes})
+            self.win.toast(t("Controllo automatico: {n} valori dell'AI non trovati nel tuo testo sono stati "
+                             "tolti o corretti ({f}). Verificali nella revisione.",
+                             n=len(fixes), f=", ".join(fields[:4])), "warning")
         if getattr(outcome, "ai_failed", ""):
             self.win.toast(t("L'AI non è riuscita a compilare il modulo: completa i campi nella revisione."),
                            "warning")

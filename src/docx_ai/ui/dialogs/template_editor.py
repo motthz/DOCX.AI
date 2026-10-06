@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import copy
 import io
+import logging
 import os
 import shutil
 import tempfile
+import threading
 import time
 import tkinter as tk
 from pathlib import Path
@@ -36,6 +38,8 @@ from ..i18n import t
 from ..icons import icon
 from ..widgets import Chip, button, label
 from .base import Dialog
+
+LOG = logging.getLogger(__name__)
 
 # tipo -> (nome, icona, esempio)
 KINDS: Dict[str, Tuple[str, str, str]] = {
@@ -56,7 +60,18 @@ def open_visual_editor(win: Any, mod, *, first_time: bool = False) -> Optional[D
         return None
     if mod.template_type == "xlsx":
         return SheetEditor(win, mod, first_time=first_time)
+    from ... import docx_layout as dl
+    if dl.converter().available:  # pagine vere, impaginate da Word o LibreOffice
+        return PageTemplateEditor(win, mod, first_time=first_time)
+    win.toast(t("Per vedere il modulo esattamente com'è serve Microsoft Word o LibreOffice (gratuito): "
+                "per ora uso la vista semplificata."), "warning",
+              action=(t("Scarica LibreOffice"), _open_libreoffice_download))
     return TemplateEditor(win, mod, first_time=first_time)
+
+
+def _open_libreoffice_download() -> None:
+    import webbrowser
+    webbrowser.open("https://it.libreoffice.org/download/download/")
 
 
 # ====================================================================== nuovo campo
@@ -570,7 +585,12 @@ class TemplateEditor(_VisualEditor):
                                                 command=lambda v: self._mode_changed())
         self.view_mode.set(t("Modifica"))
         self.view_mode.pack(side="right")
+        self._build_view()
+        self.refresh()
+        self._welcome()
 
+    def _build_view(self) -> None:
+        """Vista semplificata (testo e tabelle): usata solo senza Word/LibreOffice."""
         box = self.canvas_box
         box.rowconfigure(0, weight=1)
         box.columnconfigure(0, weight=1)
@@ -591,6 +611,13 @@ class TemplateEditor(_VisualEditor):
         tx.tag_configure("h1", font=("Calibri", 18, "bold"), spacing1=10, spacing3=6)
         tx.tag_configure("h2", font=("Calibri", 15, "bold"), spacing1=8, spacing3=4)
         tx.tag_configure("cell", lmargin1=8, lmargin2=8)
+        tx.tag_configure("f_b", font=("Calibri", 12, "bold"))
+        tx.tag_configure("f_i", font=("Calibri", 12, "italic"))
+        tx.tag_configure("f_bi", font=("Calibri", 12, "bold italic"))
+        tx.tag_configure("u", underline=True)
+        tx.tag_configure("al_center", justify="center")
+        tx.tag_configure("al_right", justify="right")
+        tx.tag_raise("ph")
         tx.tag_configure("sep", foreground=col("border"))
         tx.tag_configure("empty", foreground=col("text_faint"), background=col("surface_alt"))
         tx.tag_configure("blank", foreground=col("text_faint"))
@@ -608,8 +635,6 @@ class TemplateEditor(_VisualEditor):
         tx.bind("<ButtonRelease-1>", self.drag.release)
         tx.bind("<Motion>", self._hover_cursor)
         self.drag.add_target(tx, hover=self._hover, drop=self._drop, leave=self._clear_drop)
-        self.refresh()
-        self._welcome()
 
     def _footer_extra(self) -> None:
         button(self.footer, t("Apri copia in Word"), self.open_word, icon_name="external-link").pack(
@@ -690,8 +715,18 @@ class TemplateEditor(_VisualEditor):
         def add_par(p, tags=(), hint: str = "") -> None:
             start = tx.index("end-1c")
             if p.text:
-                tx.insert("end", p.text, tags)
+                runs = list(p.runs)
+                if "".join(r.text for r in runs) == p.text:  # grassetto/corsivo/sottolineato dei run
+                    for r in runs:
+                        style = ("b" if r.bold else "") + ("i" if r.italic else "")
+                        extra = tuple(x for x in (style and "f_" + style, "u" if r.underline else "") if x)
+                        tx.insert("end", r.text, (*tags, *extra))
+                else:
+                    tx.insert("end", p.text, tags)
                 end = tx.index("end-1c")
+                align = getattr(p.alignment, "name", "") if p.alignment is not None else ""
+                if align in ("CENTER", "RIGHT") and not tags:
+                    tx.tag_add("al_" + align.lower(), start, end)
                 tx.tag_add("p", start, end)
             else:
                 tx.insert("end", "  " + t("(vuota)") + "  " if tags else " ", (*tags, "empty") if tags else tags)
@@ -710,8 +745,8 @@ class TemplateEditor(_VisualEditor):
                     tx.tag_add(tag, line_start, "end-1c")
                 tx.insert("end", "\n")
             elif isinstance(block, Table):
+                seen = set()  # celle unite in verticale: python-docx le ripete in ogni riga
                 for r in block.rows:
-                    seen = set()
                     left = ""
                     first = True
                     for cell in r.cells:
@@ -969,6 +1004,497 @@ class TemplateEditor(_VisualEditor):
                          "modulo."), "info")
 
 
+class PageTemplateEditor(TemplateEditor):
+    """Editor Word con le pagine vere del documento (impaginate da Word o LibreOffice).
+
+    Il modulo si vede esattamente com'e': caratteri, tabelle, immagini, intestazioni,
+    margini. Dopo ogni modifica la pagina viene impaginata di nuovo; nel frattempo
+    il rilascio dei campi e' sospeso (le posizioni non sarebbero aggiornate).
+    """
+
+    GAP = 18
+
+    def __init__(self, win: Any, mod, *, first_time: bool = False):
+        self.layout: Optional[Any] = None
+        self.infos: List[Any] = []
+        self.pages: List[Dict[str, Any]] = []  # {"img", "x", "y", "w", "h"}
+        self.scale = 1.0
+        self.busy = False
+        self._gen = 0
+        self._pdf: Optional[Path] = None
+        self._tmp = Path(tempfile.mkdtemp(prefix="docxai_edit_"))
+        self._sel: Optional[Tuple[int, int, int]] = None      # (paragrafo, inizio, fine)
+        self._anchor: Optional[Tuple[int, int]] = None
+        self._last_width = 0
+        self._resize_job: Optional[str] = None
+        self.error = ""
+        super().__init__(win, mod, first_time=first_time)
+
+    # ------------------------------------------------------------ vista
+    def _build_view(self) -> None:
+        box = self.canvas_box
+        box.rowconfigure(0, weight=1)
+        box.columnconfigure(0, weight=1)
+        self.cv = tk.Canvas(box, bg=col("surface_alt"), highlightthickness=1, highlightbackground=col("border"),
+                            cursor="arrow")
+        self.cv.grid(row=0, column=0, sticky="nsew")
+        vs = ctk.CTkScrollbar(box, command=self.cv.yview)
+        vs.grid(row=0, column=1, sticky="ns")
+        hs = ctk.CTkScrollbar(box, command=self.cv.xview, orientation="horizontal")
+        hs.grid(row=1, column=0, sticky="ew")
+        self.cv.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
+        self.cv.bind("<ButtonPress-1>", self._press)
+        self.cv.bind("<B1-Motion>", self._motion)
+        self.cv.bind("<ButtonRelease-1>", self._release)
+        self.cv.bind("<Motion>", self._hover_cursor)
+        self.cv.bind("<MouseWheel>", lambda e: self.cv.yview_scroll(-1 if e.delta > 0 else 1, "units"))
+        self.cv.bind("<Button-4>", lambda e: self.cv.yview_scroll(-1, "units"))
+        self.cv.bind("<Button-5>", lambda e: self.cv.yview_scroll(1, "units"))
+        self.cv.bind("<Configure>", self._on_resize)
+        self.cv.bind("<Destroy>", lambda e: shutil.rmtree(self._tmp, ignore_errors=True)
+                     if e.widget is self.cv else None)
+        self.drag.add_target(self.cv, hover=self._hover, drop=self._drop, leave=self._clear_drop)
+        self.text = None  # type: ignore[assignment] - la vista testuale non esiste
+
+    def tips(self) -> List[str]:
+        return [t("Il modulo è mostrato esattamente come in Word: i campi sono evidenziati in azzurro."),
+                t("Seleziona col mouse un testo d'esempio (es. «Mario Rossi») e trascinaci sopra un campo: "
+                  "lo sostituisce."),
+                *_VisualEditor.tips(self)]
+
+    # ------------------------------------------------------------ impaginazione (in background)
+    def render_canvas(self) -> None:
+        if not hasattr(self, "cv"):
+            return
+        from ... import docx_layout as dl
+        self._gen += 1
+        gen = self._gen
+        self.busy = True
+        self._sel = None
+        self._anchor = None
+        self._draw_busy()
+        preview = self._preview()
+        try:
+            if preview:
+                import docx
+                from ...parsers.docx_parser import apply_placeholders
+                doc = docx.Document(io.BytesIO(self.doc_state()))
+                apply_placeholders(doc, self._sample_values())
+                buf = io.BytesIO()
+                doc.save(buf)
+                data, texts = buf.getvalue(), []
+            else:
+                self.infos = dl.paragraphs(self.doc)
+                self.segments = [{"p": i.paragraph} for i in self.infos]
+                data, texts = dl.render_copy(self.doc), dl.snapshot(self.infos)
+        except Exception as exc:  # noqa: BLE001
+            LOG.exception("preparazione anteprima")
+            self._render_failed(str(exc))
+            return
+        self.cv.update_idletasks()
+        width = max(400, self.cv.winfo_width())
+        colors = (col("primary"), col("primary_soft"))
+        threading.Thread(target=self._render_worker, args=(gen, data, texts, preview, width, colors),
+                         daemon=True, name="docx-render").start()
+
+    def _render_worker(self, gen: int, data: bytes, texts: List[Any], preview: bool, width: int,
+                       colors: Tuple[str, str]) -> None:
+        from ... import docx_layout as dl
+        try:
+            src = self._tmp / f"modulo_{gen}.docx"
+            pdf = self._tmp / f"modulo_{gen}.pdf"
+            src.write_bytes(data)
+            dl.converter().convert(src, pdf)
+            layout = None if preview else dl.build_layout(pdf, texts)
+            pages, scale = self._rasterize(pdf, width, layout, texts, colors)
+            src.unlink(missing_ok=True)
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("Impaginazione del modulo non riuscita: %s", exc)
+            err = str(exc)
+            self._post(lambda: self._render_failed(err) if gen == self._gen else None)
+            return
+        self._post(lambda: self._render_done(gen, pdf, layout, pages, scale))
+
+    def _post(self, fn) -> None:
+        try:
+            self.after(0, fn)
+        except (RuntimeError, tk.TclError):
+            pass  # finestra chiusa nel frattempo
+
+    @staticmethod
+    def _rasterize(pdf: Path, width: int, layout: Any, texts: List[Any],
+                   colors: Tuple[str, str]) -> Tuple[List[Any], float]:
+        import pypdfium2 as pdfium
+        from PIL import Image, ImageDraw
+        from ... import docx_layout as dl
+        doc = pdfium.PdfDocument(str(pdf))
+        try:
+            pw = max((doc[i].get_size()[0] for i in range(len(doc))), default=595.0)
+            scale = max(0.6, min(2.5, (width - 2 * PageTemplateEditor.GAP - 8) / pw))
+            pages = []
+            for i in range(len(doc)):
+                img = doc[i].render(scale=scale).to_pil().convert("RGB")
+                pages.append(img)
+        finally:
+            doc.close()
+        if layout is not None:  # campi {{...}} evidenziati sulla pagina (riempimento semitrasparente)
+            fill = Image.new("RGBA", (1, 1), colors[0]).getpixel((0, 0))[:3] + (60,)
+            line = Image.new("RGBA", (1, 1), colors[0]).getpixel((0, 0))[:3] + (200,)
+            overlays: Dict[int, Any] = {}
+            for idx, (ptext, _story, _cell) in enumerate(texts):
+                pl = layout.paras.get(idx)
+                if pl is None:
+                    continue
+                for m in tt.PLACEHOLDER_RE.finditer(ptext):
+                    for (x0, y0, x1, y1) in dl.span_boxes(pl, m.start(), m.end()):
+                        ov = overlays.get(pl.page)
+                        if ov is None:
+                            ov = overlays[pl.page] = Image.new("RGBA", pages[pl.page].size, (0, 0, 0, 0))
+                        ImageDraw.Draw(ov).rounded_rectangle(
+                            (x0 * scale - 2, y0 * scale - 2, x1 * scale + 2, y1 * scale + 2), radius=3,
+                            fill=fill, outline=line, width=1)
+            for pi, ov in overlays.items():
+                pages[pi] = Image.alpha_composite(pages[pi].convert("RGBA"), ov).convert("RGB")
+        return pages, scale
+
+    def _render_done(self, gen: int, pdf: Path, layout: Any, pages: List[Any], scale: float) -> None:
+        if gen != self._gen or not self.cv.winfo_exists():
+            return
+        from PIL import ImageTk
+        old, self._pdf = self._pdf, pdf
+        if old is not None and old != pdf:
+            old.unlink(missing_ok=True)
+        self.layout = layout
+        self.scale = scale
+        self.busy = False
+        self.error = ""
+        cv = self.cv
+        y_view = cv.yview()[0]
+        cv.delete("all")
+        self.pages = []
+        width = max(cv.winfo_width(), 400)
+        y = self.GAP
+        max_w = 0
+        for img in pages:
+            photo = ImageTk.PhotoImage(img)
+            w, h = img.size
+            x = max(self.GAP, (width - w) // 2)
+            cv.create_rectangle(x + 3, y + 3, x + w + 3, y + h + 3, fill=col("border"), outline="")
+            cv.create_image(x, y, image=photo, anchor="nw")
+            self.pages.append({"img": photo, "x": x, "y": y, "w": w, "h": h})
+            y += h + self.GAP
+            max_w = max(max_w, x + w + self.GAP)
+        if not self._preview():
+            cv.create_text(width // 2, y + 4, anchor="n", tags=("append",), fill=col("text_faint"),
+                           font=font("small"),
+                           text="＋  " + t("Rilascia qui per aggiungere una nuova riga in fondo"))
+            y += 40
+        cv.configure(scrollregion=(0, 0, max(max_w, width), y))
+        cv.yview_moveto(y_view)
+        self._last_width = width
+        self.highlight_selected()
+        # la finestra ha cambiato dimensione mentre si impaginava: pagina adattata alla larghezza
+        if abs(max(cv.winfo_width(), 400) - (max(p["w"] for p in self.pages) + 2 * self.GAP + 8)) > 60 \
+                and self._resize_job is None:
+            self._resize_job = self.after(200, self._rerasterize)
+
+    def _draw_busy(self) -> None:
+        cv = self.cv
+        cv.delete("busy")
+        if not self.pages:
+            cv.create_text(max(cv.winfo_width(), 400) // 2, 80, tags=("busy",), fill=col("text_muted"),
+                           font=font("body"), text=t("Impaginazione del modulo in corso…"))
+            return
+        x = cv.canvasx(cv.winfo_width() // 2)
+        y = cv.canvasy(14)
+        cv.create_rectangle(x - 150, y, x + 150, y + 30, fill=col("info_soft"), outline=col("border"),
+                            tags=("busy",))
+        cv.create_text(x, y + 15, tags=("busy",), fill=col("link"), font=font("small_b"),
+                       text=t("Aggiornamento della pagina…"))
+
+    def _render_failed(self, err: str) -> None:
+        from ... import docx_layout as dl
+        self.busy = False
+        self.error = err
+        if not dl.converter().available:  # nessun motore utilizzabile: vista semplificata
+            self.win.toast(t("Impaginazione non disponibile su questo PC: uso la vista semplificata."),
+                           "warning")
+            self.after(0, self._to_simple)
+            return
+        cv = self.cv
+        cv.delete("all")
+        self.pages = []
+        w = max(cv.winfo_width(), 400)
+        cv.create_text(w // 2, 70, width=w - 80, fill=col("text"), font=font("body"), justify="center",
+                       text=t("Non è stato possibile impaginare il modulo con {e}.", e=_engine_name())
+                       + "\n" + _short(err, 300))
+        frame = ctk.CTkFrame(cv, fg_color="transparent")
+        button(frame, t("Riprova"), self.render_canvas, icon_name="refresh-cw").pack(side="left", padx=6)
+        button(frame, t("Usa la vista semplificata"), self._to_simple, kind="secondary").pack(side="left", padx=6)
+        cv.create_window(w // 2, 140, window=frame, anchor="n")
+
+    def _to_simple(self) -> None:
+        """Riapre l'editor nella vista semplificata, conservando le modifiche in corso."""
+        state, schema, dirty, selected = self.doc_state(), copy.deepcopy(self.schema), self.dirty, self.selected
+        win, mod = self.win, self.mod
+        self.dirty = False
+        self.close()
+        ed = TemplateEditor(win, mod)
+        ed.restore_doc_state(state)
+        ed.schema, ed.dirty, ed.selected = schema, dirty, selected
+        ed.refresh()
+
+    def _on_resize(self, e) -> None:
+        if abs(e.width - self._last_width) < 40 or not self.pages:
+            return
+        if self._resize_job is not None:
+            self.after_cancel(self._resize_job)
+        self._resize_job = self.after(350, self._rerasterize)
+
+    def _rerasterize(self) -> None:
+        self._resize_job = None
+        if self.busy or self._pdf is None or not self._pdf.is_file():
+            return
+        from ... import docx_layout as dl
+        self._gen += 1
+        gen, pdf, layout = self._gen, self._pdf, self.layout
+        texts = dl.snapshot(self.infos) if layout is not None else []
+        width = max(400, self.cv.winfo_width())
+        colors = (col("primary"), col("primary_soft"))
+        self.busy = True
+
+        def work() -> None:
+            try:
+                pages, scale = self._rasterize(pdf, width, layout, texts, colors)
+            except Exception as exc:  # noqa: BLE001
+                err = str(exc)
+                self._post(lambda: self._render_failed(err))
+                return
+            self._post(lambda: self._render_done(gen, pdf, layout, pages, scale))
+        threading.Thread(target=work, daemon=True, name="docx-raster").start()
+
+    # ------------------------------------------------------------ coordinate
+    def _to_page(self, x_root: int, y_root: int) -> Optional[Tuple[int, float, float]]:
+        """(pagina, x, y in punti) sotto il puntatore; pagina -1 = sotto l'ultima pagina."""
+        cx = self.cv.canvasx(x_root - self.cv.winfo_rootx())
+        cy = self.cv.canvasy(y_root - self.cv.winfo_rooty())
+        for i, pg in enumerate(self.pages):
+            if pg["y"] <= cy < pg["y"] + pg["h"] and pg["x"] <= cx <= pg["x"] + pg["w"]:
+                return i, (cx - pg["x"]) / self.scale, (cy - pg["y"]) / self.scale
+        if self.pages and cy >= self.pages[-1]["y"] + self.pages[-1]["h"]:
+            return -1, 0.0, 0.0
+        return None
+
+    def _rect(self, page: int, box: Tuple[float, float, float, float], pad: float = 2) -> Tuple[float, ...]:
+        pg = self.pages[page]
+        s = self.scale
+        return (pg["x"] + box[0] * s - pad, pg["y"] + box[1] * s - pad,
+                pg["x"] + box[2] * s + pad, pg["y"] + box[3] * s + pad)
+
+    def _hit(self, x_root: int, y_root: int) -> Optional[Tuple[int, int]]:
+        from ... import docx_layout as dl
+        if self.layout is None or self.busy:
+            return None
+        pos = self._to_page(x_root, y_root)
+        if pos is None or pos[0] < 0:
+            return None
+        return dl.locate(self.layout, *pos)
+
+    # ------------------------------------------------------------ dove finirebbe il campo
+    def locate(self, x_root: int, y_root: int, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        from ... import docx_layout as dl
+        if self.layout is None or self.busy:
+            return None
+        pos = self._to_page(x_root, y_root)
+        if pos is None:
+            return None
+        last_page, bottom = self.layout.content_bottom
+        if pos[0] < 0 or (pos[0] == len(self.pages) - 1 and pos[0] >= last_page and pos[2] > bottom + 24):
+            return {"mode": "append", "suggest": ""}
+        hit = dl.locate(self.layout, *pos)
+        if hit is None:
+            return None
+        i, off = hit
+        info = self.infos[i]
+        ptext = info.paragraph.text
+        pl = self.layout.paras[i]
+        if not ptext:
+            return {"mode": "insert", "seg": i, "start": 0, "end": None, "area": (pl.page, pl.area),
+                    "suggest": tt.suggest_label(info.hint)}
+        off = min(off, len(ptext))
+        if self._sel and self._sel[0] == i and self._sel[1] <= off <= self._sel[2]:
+            a, b = self._sel[1], self._sel[2]
+            return {"mode": "replace", "seg": i, "start": a, "end": b, "span": (i, a, b),
+                    "suggest": tt.suggest_label(ptext[:a]) or tt.suggest_label(info.hint)}
+        ph = tt.placeholder_at(ptext, off) or (tt.placeholder_at(ptext, off - 1) if off else None)
+        if ph:
+            return {"mode": "replace", "seg": i, "start": ph[0], "end": ph[1], "on_key": ph[2],
+                    "span": (i, ph[0], ph[1]), "suggest": ""}
+        blank = tt.blank_at(ptext, off)
+        if blank:
+            return {"mode": "replace", "seg": i, "start": blank[0], "end": blank[1], "span": (i, *blank[:2]),
+                    "suggest": tt.suggest_label(ptext[:blank[0]]) or tt.suggest_label(info.hint)}
+        off = tt.snap_offset(ptext, off)
+        return {"mode": "insert", "seg": i, "start": off, "end": None, "caret": (i, off),
+                "suggest": tt.suggest_label(ptext[:off]) or tt.suggest_label(info.hint)}
+
+    def _caret_box(self, i: int, off: int) -> Optional[Tuple[int, Tuple[float, float, float, float]]]:
+        pl = self.layout.paras.get(i) if self.layout else None
+        if pl is None or not pl.boxes:
+            return None
+        if off in pl.boxes:
+            b = pl.boxes[off]
+            return pl.page, (b[0] - 1, b[1], b[0] + 1, b[3])
+        prev = max((o for o in pl.boxes if o < off), default=None)
+        b = pl.boxes[prev] if prev is not None else next(iter(pl.boxes.values()))
+        x = b[2] + (2 if prev is not None and off > prev + 1 else 0)
+        return pl.page, (x - 1, b[1], x + 1, b[3])
+
+    # ------------------------------------------------------------ disegno di evidenziazioni
+    def _clear_drop(self) -> None:
+        self.cv.delete("drop")
+
+    def _draw_span(self, span: Tuple[int, int, int], tag: str, outline: str, fill: str = "",
+                   width: int = 2, stipple: str = "") -> None:
+        from ... import docx_layout as dl
+        i, a, b = span
+        pl = self.layout.paras.get(i) if self.layout else None
+        if pl is None:
+            return
+        for box in dl.span_boxes(pl, a, b):
+            self.cv.create_rectangle(*self._rect(pl.page, box), outline=outline, width=width, fill=fill,
+                                     stipple=stipple, tags=(tag,))
+
+    def _hover(self, x_root: int, y_root: int, payload: Dict[str, Any]) -> bool:
+        self._clear_drop()
+        if self._preview() or self.busy:
+            return False
+        cv = self.cv
+        y = y_root - cv.winfo_rooty()
+        if y < 30:
+            cv.yview_scroll(-1, "units")
+        elif y > cv.winfo_height() - 30:
+            cv.yview_scroll(1, "units")
+        loc = self.locate(x_root, y_root, payload)
+        if loc is None:
+            return False
+        ok = col("success")
+        if loc["mode"] == "append":
+            for item in cv.find_withtag("append"):
+                x1, y1, x2, y2 = cv.bbox(item)
+                cv.create_rectangle(x1 - 10, y1 - 6, x2 + 10, y2 + 6, outline=ok, width=2, tags=("drop",))
+        elif "span" in loc:
+            self._draw_span(loc["span"], "drop", ok, width=3)
+        elif "area" in loc:
+            page, area = loc["area"]
+            cv.create_rectangle(*self._rect(page, area, 0), outline=ok, width=3, tags=("drop",))
+        elif "caret" in loc:
+            cb = self._caret_box(*loc["caret"])
+            if cb:
+                x1, y1, x2, y2 = self._rect(cb[0], cb[1], 0)
+                cv.create_rectangle(x1 - 1, y1 - 3, x2 + 1, y2 + 3, fill=ok, outline=ok, tags=("drop",))
+        return True
+
+    def highlight_selected(self) -> None:
+        if not hasattr(self, "cv"):
+            return
+        self.cv.delete("selph")
+        if not self.selected or self.layout is None or self.busy:
+            return
+        for i, info in enumerate(self.infos):
+            for m in tt.PLACEHOLDER_RE.finditer(info.paragraph.text):
+                if m.group(1) == self.selected:
+                    self._draw_span((i, m.start(), m.end()), "selph", col("primary"), width=3)
+
+    def _draw_selection(self) -> None:
+        self.cv.delete("textsel")
+        if self._sel and self._sel[2] > self._sel[1]:
+            self._draw_span(self._sel, "textsel", col("primary"), fill=col("primary"), width=1, stipple="gray25")
+
+    # ------------------------------------------------------------ eventi
+    def _occurrence(self, x_root: int, y_root: int) -> Optional[Dict[str, Any]]:
+        hit = self._hit(x_root, y_root)
+        if hit is None:
+            return None
+        i, off = hit
+        p = self.infos[i].paragraph
+        ph = tt.placeholder_at(p.text, off) or (tt.placeholder_at(p.text, off - 1) if off else None)
+        if not ph:
+            return None
+        return {"kind": "placed", "key": ph[2], "p": p, "start": ph[0], "end": ph[1], "seg": i}
+
+    def _press(self, e) -> Optional[str]:
+        self.cv.focus_set()
+        if self._preview():
+            return None
+        if self.armed is not None:
+            payload = self.armed
+            self.disarm()
+            self.after_idle(lambda: self._drop(e.x_root, e.y_root, payload))
+            return "break"
+        occ = self._occurrence(e.x_root, e.y_root)
+        if occ is not None:
+            click = (lambda k=occ["key"]: self.after_idle(lambda: self.select(k))) \
+                if occ["key"] in self.schema["properties"] else None
+            self.drag.press(e, occ, self.name_of(occ["key"]), click)
+            return "break"
+        hit = self._hit(e.x_root, e.y_root)
+        self._anchor = hit
+        self._sel = None
+        self._draw_selection()
+        return "break"
+
+    def _motion(self, e) -> Optional[str]:
+        if self.drag._pending is not None:
+            return self.drag.motion(e)
+        if self._anchor is None:
+            return None
+        hit = self._hit(e.x_root, e.y_root)
+        if hit is None or hit[0] != self._anchor[0]:
+            return "break"  # la selezione resta dentro un paragrafo
+        a, b = sorted((self._anchor[1], hit[1]))
+        self._sel = (hit[0], a, b) if b > a else None
+        self._draw_selection()
+        return "break"
+
+    def _release(self, e) -> Optional[str]:
+        self._anchor = None
+        if self.drag._pending is not None:
+            return self.drag.release(e)
+        return None
+
+    def _hover_cursor(self, e) -> None:
+        if self.drag.dragging:
+            return
+        if self.armed is not None:
+            cur = "crosshair"
+        elif self._preview() or self.busy:
+            cur = "arrow"
+        elif self._occurrence(e.x_root, e.y_root) is not None:
+            cur = "hand2"
+        elif self._hit(e.x_root, e.y_root) is not None:
+            cur = "xterm"
+        else:
+            cur = "arrow"
+        if str(self.cv.cget("cursor")) != cur:
+            self.cv.configure(cursor=cur)
+
+    def on_arm(self, on: bool) -> None:
+        if hasattr(self, "cv"):
+            self.cv.configure(cursor="crosshair" if on else "arrow")
+
+    def _drop(self, x_root: int, y_root: int, payload: Dict[str, Any]) -> None:
+        if self.busy and not self._preview():
+            self.win.toast(t("Attendi l'aggiornamento della pagina, poi rilascia di nuovo il campo."), "info")
+            return
+        super()._drop(x_root, y_root, payload)
+
+
+def _engine_name() -> str:
+    from ... import docx_layout as dl
+    return dl.converter().engine or "Word"
+
+
 # ====================================================================== Excel
 class SheetEditor(_VisualEditor):
     HEAD_W, HEAD_H = 44, 24
@@ -978,7 +1504,7 @@ class SheetEditor(_VisualEditor):
         self.wb = load_workbook_safe(Path(mod.template_path))
         self.mapping: Dict[str, Any] = copy.deepcopy(mod.mapping or {})
         self.sheet = self.wb.sheetnames[0] if self.wb.sheetnames else ""
-        self.cells: Dict[Tuple[int, int], Tuple[int, int, int, int]] = {}
+        self.model: Any = None
         self.CANVAS_HINT = t("Rilasciala sulla cella dove va scritto il valore (di solito accanto "
                              "all'etichetta).")
         super().__init__(win, mod, t("Editor visuale · {name}", name=mod.name), first_time=first_time)
@@ -990,7 +1516,7 @@ class SheetEditor(_VisualEditor):
         box = self.canvas_box
         box.rowconfigure(0, weight=1)
         box.columnconfigure(0, weight=1)
-        self.cv = tk.Canvas(box, bg=col("surface"), highlightthickness=1, highlightbackground=col("border"))
+        self.cv = tk.Canvas(box, bg=col("surface_alt"), highlightthickness=1, highlightbackground=col("border"))
         self.cv.grid(row=0, column=0, sticky="nsew")
         vs = ctk.CTkScrollbar(box, command=self.cv.yview)
         vs.grid(row=0, column=1, sticky="ns")
@@ -1043,73 +1569,196 @@ class SheetEditor(_VisualEditor):
         return self.wb[self.sheet] if self.sheet in self.wb.sheetnames else self.wb.active
 
     def render_canvas(self) -> None:
+        """Il foglio come in Excel: larghezze/altezze reali, celle unite, colori, bordi,
+        caratteri, allineamenti, a capo, immagini (sfondo bianco anche col tema scuro)."""
         if not hasattr(self, "cv"):
             return
         from openpyxl.utils import get_column_letter
+        from ... import xlsx_layout as xl
         cv, ws = self.cv, self._ws()
         cv.delete("all")
-        self.cells = {}
-        n_cols = min(max(ws.max_column + 2, 8), 40)
-        n_rows = min(max(ws.max_row + 4, 30), 300)
-        xs = [self.HEAD_W]
-        for c in range(1, n_cols + 1):
-            w = ws.column_dimensions[get_column_letter(c)].width or 10
-            xs.append(xs[-1] + int(max(40, min(380, w * 7.5 + 6))))
-        ys = [self.HEAD_H]
-        for r in range(1, n_rows + 1):
-            h = ws.row_dimensions[r].height or 15
-            ys.append(ys[-1] + int(max(22, min(140, h * 1.45))))
-        merged: Dict[Tuple[int, int], Tuple[int, int]] = {}
-        hidden = set()
-        for rng in ws.merged_cells.ranges:
-            merged[(rng.min_row, rng.min_col)] = (min(rng.max_row, n_rows), min(rng.max_col, n_cols))
-            for r in range(rng.min_row, rng.max_row + 1):
-                for c in range(rng.min_col, rng.max_col + 1):
-                    if (r, c) != (rng.min_row, rng.min_col):
-                        hidden.add((r, c))
-        grid, head, txt, faint = col("border"), col("surface_alt"), col("text"), col("text_faint")
+        self._photos: List[Any] = []
+        if not hasattr(self, "_theme"):
+            self._theme = xl.theme_colors(self.wb)
+        model = self.model = xl.build(ws, self._theme)
+        ox, oy = self.HEAD_W, self.HEAD_H
+        W, H = ox + model.width, oy + model.height
+        head_bg, head_line, head_txt = "#F3F3F3", "#D4D4D4", "#555555"
+        grid = "#E1E1E1"
+        cv.create_rectangle(ox, oy, W, H, fill="#FFFFFF", outline="")
+        # intestazioni di colonna e riga (come in Excel)
+        cv.create_rectangle(0, 0, ox, oy, fill=head_bg, outline=head_line)
+        for c in range(1, len(model.xs)):
+            x1, x2 = ox + model.xs[c - 1], ox + model.xs[c]
+            if x2 <= x1:
+                continue
+            cv.create_rectangle(x1, 0, x2, oy, fill=head_bg, outline=head_line)
+            cv.create_text((x1 + x2) / 2, oy / 2, text=get_column_letter(c), fill=head_txt, font=("Segoe UI", 9))
+        for r in range(1, len(model.ys)):
+            y1, y2 = oy + model.ys[r - 1], oy + model.ys[r]
+            if y2 <= y1:
+                continue
+            cv.create_rectangle(0, y1, ox, y2, fill=head_bg, outline=head_line)
+            cv.create_text(ox / 2, (y1 + y2) / 2, text=str(r), fill=head_txt, font=("Segoe UI", 9))
+        # griglia
+        if model.gridlines:
+            for x in sorted(set(model.xs[1:])):
+                cv.create_line(ox + x, oy, ox + x, H, fill=grid)
+            for y in sorted(set(model.ys[1:])):
+                cv.create_line(ox, oy + y, W, oy + y, fill=grid)
+        # celle unite: niente griglia all'interno
+        for (r, c), _end in model.merged.items():
+            x1, y1, x2, y2 = xl.cell_box(model, (r, c))
+            if (r, c) not in model.cells or not model.cells[(r, c)].fill:
+                cv.create_rectangle(ox + x1 + 1, oy + y1 + 1, ox + x2 - 1, oy + y2 - 1, fill="#FFFFFF", outline="")
+        for d in model.cells.values():
+            if d.fill:
+                x1, y1, x2, y2 = d.box
+                cv.create_rectangle(ox + x1, oy + y1, ox + x2, oy + y2, fill=d.fill, outline="")
         by_cell = {(v.get("sheet") or self.sheet, str(v.get("cell")).upper()): k
                    for k, v in self.mapping.items() if isinstance(v, dict) and v.get("cell")}
-        for c in range(1, n_cols + 1):
-            cv.create_rectangle(xs[c - 1], 0, xs[c], self.HEAD_H, fill=head, outline=grid)
-            cv.create_text((xs[c - 1] + xs[c]) / 2, self.HEAD_H / 2, text=get_column_letter(c), fill=faint,
-                           font=font("caption"))
-        for r in range(1, n_rows + 1):
-            cv.create_rectangle(0, ys[r - 1], self.HEAD_W, ys[r], fill=head, outline=grid)
-            cv.create_text(self.HEAD_W / 2, (ys[r - 1] + ys[r]) / 2, text=str(r), fill=faint, font=font("caption"))
-            for c in range(1, n_cols + 1):
-                if (r, c) in hidden:
-                    continue
-                r2, c2 = merged.get((r, c), (r, c))
-                x1, y1, x2, y2 = xs[c - 1], ys[r - 1], xs[c2], ys[r2]
-                self.cells[(r, c)] = (x1, y1, x2, y2)
-                cv.create_rectangle(x1, y1, x2, y2, outline=grid, fill=col("surface"))
-                ref = f"{get_column_letter(c)}{r}"
-                key = by_cell.get((self.sheet, ref))
-                if key is not None:
-                    on = key == self.selected
-                    cv.create_rectangle(x1 + 3, y1 + 3, x2 - 3, y2 - 3, outline=col("primary"), width=1,
-                                        fill=col("primary") if on else col("primary_soft"),
-                                        tags=("pill", f"k:{key}"))
-                    cv.create_text(x1 + 8, (y1 + y2) / 2, anchor="w", text="▣ " + self.name_of(key),
-                                   fill="#ffffff" if on else col("link"), font=font("small_b"),
-                                   width=max(20, x2 - x1 - 12), tags=("pill", f"k:{key}"))
-                    continue
-                v = ws.cell(row=r, column=c).value
-                if v is not None and str(v).strip():
-                    s = str(v).replace("\n", " ")
-                    maxc = max(2, int((x2 - x1 - 8) / 7))
-                    cv.create_text(x1 + 4, (y1 + y2) / 2, anchor="w", text=_short(s, maxc), fill=txt,
-                                   font=font("small"))
-        cv.configure(scrollregion=(0, 0, xs[-1] + 20, ys[-1] + 20))
+        placed = {}
+        for (sheet, ref), key in by_cell.items():
+            if sheet == self.sheet:
+                rc = self._rc(ref)
+                if rc:
+                    placed[model.anchor.get(rc, rc)] = key
+        for (r, c), d in model.cells.items():
+            if d.text and (r, c) not in placed:
+                self._draw_cell_text(d, ox, oy)
+        for d in model.cells.values():
+            x1, y1, x2, y2 = d.box
+            for side, (width, color, dash) in d.borders.items():
+                pts = {"left": (x1, y1, x1, y2), "right": (x2, y1, x2, y2), "top": (x1, y1, x2, y1),
+                       "bottom": (x1, y2, x2, y2)}[side]
+                cv.create_line(ox + pts[0], oy + pts[1], ox + pts[2], oy + pts[3], fill=color, width=width,
+                               dash=dash or None)
+        self._draw_images(model, ox, oy)
+        for rc, key in placed.items():
+            x1, y1, x2, y2 = xl.cell_box(model, rc)
+            if x2 <= x1 or y2 <= y1:
+                continue
+            on = key == self.selected
+            cv.create_rectangle(ox + x1 + 2, oy + y1 + 2, ox + x2 - 2, oy + y2 - 2, outline=col("primary"),
+                                width=2 if on else 1, fill=col("primary") if on else "#E8EFFF",
+                                tags=("pill", f"k:{key}"))
+            cv.create_text(ox + x1 + 6, oy + (y1 + y2) / 2, anchor="w", text="▣ " + self.name_of(key),
+                           fill="#ffffff" if on else "#1D4ED8", font=font("small_b"),
+                           width=max(20, x2 - x1 - 10), tags=("pill", f"k:{key}"))
+        cv.configure(scrollregion=(0, 0, W + 20, H + 20))
+
+    def _font(self, spec: Tuple[str, int, bool, bool, bool, bool]):
+        import tkinter.font as tkfont
+        cache = self.__dict__.setdefault("_fonts", {})
+        f = cache.get(spec)
+        if f is None:
+            name, size, bold, italic, under, strike = spec
+            f = cache[spec] = tkfont.Font(family=name, size=-max(6, round(size * 96 / 72)),
+                                          weight="bold" if bold else "normal",
+                                          slant="italic" if italic else "roman", underline=under,
+                                          overstrike=strike)
+        return f
+
+    @staticmethod
+    def _fit(text: str, f, width: int) -> str:
+        """Il testo che entra in ``width`` pixel (Excel taglia, senza puntini)."""
+        if width <= 0:
+            return ""
+        if f.measure(text) <= width:
+            return text
+        lo, hi = 0, len(text)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if f.measure(text[:mid]) <= width:
+                lo = mid
+            else:
+                hi = mid - 1
+        return text[:lo]
+
+    def _wrap(self, text: str, f, width: int, max_h: int) -> List[str]:
+        lines: List[str] = []
+        line_h = f.metrics("linespace")
+        for para in text.split("\n"):
+            cur = ""
+            for word in para.split(" "):
+                cand = word if not cur else cur + " " + word
+                if f.measure(cand) <= width or not cur:
+                    cur = cand if f.measure(cand) <= width else self._fit(cand, f, width)
+                else:
+                    lines.append(cur)
+                    cur = self._fit(word, f, width)
+            lines.append(cur)
+        return lines[:max(1, max_h // max(1, line_h))]
+
+    def _draw_cell_text(self, d: Any, ox: int, oy: int) -> None:
+        x1, y1, x2, y2 = d.box
+        if x2 - x1 <= 2 or y2 - y1 <= 2:
+            return
+        f = self._font(d.font)
+        pad = 3
+        right = max(x2, d.clip_right)
+        if d.wrap or "\n" in d.text:
+            lines = self._wrap(d.text, f, x2 - x1 - 2 * pad, y2 - y1) if d.wrap else \
+                [self._fit(s, f, right - x1 - 2 * pad) for s in d.text.split("\n")][:max(
+                    1, (y2 - y1) // max(1, f.metrics("linespace")))]
+            text = "\n".join(lines)
+        else:
+            avail = (right if d.halign == "left" else x2) - x1 - 2 * pad
+            text = self._fit(d.text, f, avail)
+            if d.halign == "right" and text != d.text and d.text[:1].isdigit():
+                text = "#" * max(1, avail // max(1, f.measure("#")))  # numero troppo lungo: ###
+        anchor_x = {"left": ("w", x1 + pad), "center": ("", (x1 + x2) / 2), "right": ("e", x2 - pad)}[d.halign]
+        lines_n = text.count("\n") + 1
+        th = lines_n * f.metrics("linespace")
+        if d.valign == "top":
+            cy = y1 + 1 + th / 2
+        elif d.valign == "center":
+            cy = (y1 + y2) / 2
+        else:
+            cy = y2 - 2 - th / 2
+        anchor = anchor_x[0] or "center"
+        justify = {"left": "left", "center": "center", "right": "right"}[d.halign]
+        self.cv.create_text(ox + anchor_x[1], oy + cy, text=text, anchor=anchor, font=f, fill=d.color,
+                            justify=justify)
+
+    def _draw_images(self, model: Any, ox: int, oy: int) -> None:
+        if not model.images:
+            return
+        try:
+            from PIL import Image, ImageTk
+        except ImportError:
+            return
+        for x, y, w, h, data in model.images:
+            try:
+                img = Image.open(io.BytesIO(data)).convert("RGBA").resize((w, h))
+                photo = ImageTk.PhotoImage(img)
+            except Exception:  # noqa: BLE001
+                continue
+            self._photos.append(photo)
+            self.cv.create_image(ox + x, oy + y, image=photo, anchor="nw")
+
+    @staticmethod
+    def _rc(ref: str) -> Optional[Tuple[int, int]]:
+        from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+        try:
+            letters, row = coordinate_from_string(str(ref).upper())
+            return int(row), column_index_from_string(letters)
+        except Exception:  # noqa: BLE001
+            return None
 
     def _cell_at(self, x_root: int, y_root: int) -> Optional[Tuple[int, int]]:
-        x = self.cv.canvasx(x_root - self.cv.winfo_rootx())
-        y = self.cv.canvasy(y_root - self.cv.winfo_rooty())
-        for rc, (x1, y1, x2, y2) in self.cells.items():
-            if x1 <= x < x2 and y1 <= y < y2:
-                return rc
-        return None
+        from ... import xlsx_layout as xl
+        model = getattr(self, "model", None)
+        if model is None:
+            return None
+        x = self.cv.canvasx(x_root - self.cv.winfo_rootx()) - self.HEAD_W
+        y = self.cv.canvasy(y_root - self.cv.winfo_rooty()) - self.HEAD_H
+        return xl.cell_at(model, x, y)
+
+    def _box(self, rc: Tuple[int, int]) -> Tuple[int, int, int, int]:
+        from ... import xlsx_layout as xl
+        x1, y1, x2, y2 = xl.cell_box(self.model, rc)
+        return x1 + self.HEAD_W, y1 + self.HEAD_H, x2 + self.HEAD_W, y2 + self.HEAD_H
 
     def _ref(self, rc: Tuple[int, int]) -> str:
         from openpyxl.utils import get_column_letter
@@ -1183,7 +1832,7 @@ class SheetEditor(_VisualEditor):
             self.cv.xview_scroll(-1, "units")
         text = self._cell_text(rc)
         busy = bool(text) and not tt.PLACEHOLDER_RE.fullmatch(text)
-        x1, y1, x2, y2 = self.cells[rc]
+        x1, y1, x2, y2 = self._box(rc)
         color = col("warning") if busy else col("success")
         self.cv.create_rectangle(x1 + 1, y1 + 1, x2 - 1, y2 - 1, outline=color, width=3, tags=("drop",))
         self.cv.create_text(x2 - 4, y1 + 2, anchor="ne", text=self._ref(rc), fill=color, font=font("caption"),

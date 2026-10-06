@@ -39,6 +39,8 @@ class ExtractionResult:
     failover_used: str = ""  # backend name used to get a result
     quality_score: int = 0  # 0..100 rubric
     debug_dir: Optional[str] = None  # path to artifact dump (if debug)
+    # valori dell'AI tolti/corretti dal controllo dei fatti (fact_guard), leggibili
+    corrections: Optional[List[str]] = None
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -501,6 +503,12 @@ class JsonPipeline:
                     _write_debug(dump_dir, f"{server_index}_{attempt}_4_validation_error.txt", str(exc))
                     continue
 
+                # Controllo deterministico: date, numeri, codici e nomi devono avere
+                # riscontro nel testo dell'utente o nei documenti (non nello storico).
+                from .fact_guard import verify as _verify_facts
+                repaired, fixes = _verify_facts(
+                    repaired, schema, [operator_description] + [t for _n, t in reference_docs])
+                _write_debug(dump_dir, "98_fact_guard.json", [c.describe() for c in fixes])
                 quality = _qs.score(repaired, schema)
                 _write_debug(dump_dir, "99_final_validated.json", repaired)
                 _write_debug(dump_dir, "99_meta.json", {
@@ -519,6 +527,7 @@ class JsonPipeline:
                     failover_used=server_name,
                     quality_score=quality,
                     debug_dir=str(dump_dir) if dump_dir else None,
+                    corrections=[c.describe() for c in fixes],
                 )
             # End of retry loop for this backend: fall back to next in chain
             logger.warning(f"[{server_name}] Esauriti tutti i tentativi — passo al fallback successivo.")

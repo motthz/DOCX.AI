@@ -506,6 +506,13 @@ class AIService:
         self.touch()
         extraction = self._direct_structured_call(pipeline, schema, messages)
         self.touch()
+        if extraction.success and extraction.data:
+            from ..llm.fact_guard import verify as _verify_facts
+            sources = [user_request or ""] + [rc.text for rc in (retrieved_chunks or [])] \
+                + [t for _n, t in (reference_docs or [])]
+            extraction.data, fixes = _verify_facts(extraction.data, schema, sources)
+            for fix in fixes:
+                LOG.info("Controllo dei fatti (%s): %s", feature_key, fix.describe())
         files_list = []
         sources_list = []
         if retrieved_chunks:

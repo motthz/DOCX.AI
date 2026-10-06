@@ -34,8 +34,11 @@ i punti da compilare sono scritti come `{{nome_campo}}`, per esempio
 - **Nuovo modulo** (barra laterale o `Ctrl+N`): scegli *Da un mio file* e seleziona il
   DOCX/XLSX. Campi e mappatura vengono creati da soli. Indica il **tipo di documento**
   (es. "verbale di riunione", "richiesta d'acquisto"): l'AI lo usa per capire il contesto.
-- **Editor template** (scheda *Modulo*): seleziona un testo nell'anteprima del
-  documento e trasformalo in un campo, senza aprire Word né scrivere JSON.
+- **Editor template** (scheda *Modulo*): trascina i campi direttamente sulle pagine del
+  documento, senza aprire Word né scrivere JSON. Il modulo è mostrato **esattamente com'è**
+  (caratteri, tabelle, immagini, intestazioni, margini) se sul PC c'è Microsoft Word o
+  LibreOffice (gratuito); senza, l'editor usa una vista semplificata. I moduli Excel
+  mostrano il foglio con larghezze, colori, bordi e celle unite reali.
 
   ![Editor del template](img/editor-template.png)
 
@@ -177,12 +180,19 @@ compilare con `{{nome_campo}}` (o usare l'editor template). Con descrizioni dei 
 tipo di documento l'AI è più precisa.
 
 **L'AI inventa dei dati?** Le regole interne le vietano di inventare date, nomi, codici,
-importi e numeri, e il *controllo delle fonti* evidenzia in rosso i valori che non
-compaiono nelle fonti. I modelli più piccoli sbagliano più spesso: con almeno 10 GB di RAM
+importi e numeri. In più, dopo ogni compilazione un **controllo automatico** (che non usa
+l'AI) confronta date, numeri, codici e nomi con quanto hai scritto: una data o un numero
+che non compare nel tuo testo viene tolto (o corretto, se giorno e mese erano scambiati) e
+il campo resta da compilare in revisione. Il *controllo delle fonti* evidenzia in rosso
+gli altri valori che non compaiono nelle fonti. I modelli più piccoli sbagliano più spesso: con almeno 10 GB di RAM
 installa il **Qwen3 4B** (Impostazioni → Componenti AI), con almeno 6 GB l'1.7B. L'app usa
 automaticamente il modello più preciso installato che entra nella memoria libera.
 
 **Serve Internet?** Solo per scaricare una volta i componenti AI.
+
+**Il PDF esportato è uguale al modulo?** Sì, se c'è Microsoft Word o LibreOffice: il PDF è
+il modulo compilato impaginato da Word (note di revisione e foto in coda). Senza, l'app
+crea un PDF riassuntivo con i dati.
 
 **L'AI è lenta.** Usa il profilo *compatibility*, attiva la GPU se disponibile, chiudi i
 programmi che occupano RAM.

@@ -220,6 +220,11 @@ class App:
                 self.semantic.stop()
             except Exception:  # noqa: BLE001
                 pass
+            try:  # Word/LibreOffice usati dall'editor visuale per impaginare i moduli
+                from . import docx_layout
+                docx_layout.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 self.db.maintenance()
             except Exception:  # noqa: BLE001

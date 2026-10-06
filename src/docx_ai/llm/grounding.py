@@ -64,6 +64,9 @@ class GroundingChecker:
         self._norm = _norm(raw)
         self._compact = re.sub(r"[\s\-/.]", "", self._norm)
         self._dates = _dates(raw)
+        # anche "ieri", "lunedì scorso", "5 ottobre" senza anno: non sono date inventate
+        from .fact_guard import source_dates
+        self._dates |= {(d.year, d.month, d.day) for d in source_dates(raw)}
 
     def _present(self, token: str) -> bool:
         n = _norm(token).strip()

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -39,6 +39,8 @@ class DraftOutcome:
     source_doc_hashes: List[str] = None  # type: ignore[assignment]
     # l'AI reale ha fallito e i campi sono vuoti da compilare a mano (motivo)
     ai_failed: str = ""
+    # valori dell'AI tolti o corretti perche' senza riscontro nel testo
+    corrections: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         if self.source_doc_hashes is None:
@@ -76,6 +78,35 @@ def _for_document(value: Any) -> Any:
     if isinstance(value, str) and value.strip() == "NON_SPECIFICATO":
         return ""
     return value
+
+
+def _faithful_pdf(doc_path: Path, pdf_path: Path, shown: Dict[str, Any], mod: Any, report_id: int,
+                  review_notes: str, photos: List[Tuple[Path, str]]) -> bool:
+    """PDF identico al modulo compilato (impaginato da Word o LibreOffice), con note e foto
+    in coda. False se nessun motore e' disponibile: si usa il PDF riassuntivo."""
+    try:
+        from .. import docx_layout
+        conv = docx_layout.converter()
+        if not conv.can_convert(doc_path.suffix):
+            return False
+        conv.convert(doc_path, pdf_path)
+        if review_notes or photos:  # in coda: riepilogo con note di revisione e foto
+            from pypdf import PdfReader, PdfWriter
+            extra = pdf_path.with_name(pdf_path.stem + "_allegati.pdf")
+            _export_pdf_isolated(extra, shown, mod.schema, report_id=f"#{report_id}", module_name=mod.name,
+                                 review_notes=review_notes, photos=photos)
+            writer = PdfWriter()
+            for part in (pdf_path, extra):
+                for page in PdfReader(str(part)).pages:
+                    writer.add_page(page)
+            with open(pdf_path, "wb") as fh:
+                writer.write(fh)
+            extra.unlink(missing_ok=True)
+        return True
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("PDF fedele al modulo non riuscito: uso il PDF riassuntivo",
+                                            exc_info=True)
+        return False
 
 
 def shutdown_pdf_pool() -> None:
@@ -213,6 +244,7 @@ class ReportService:
             ai_failed = extraction.error_message or "risposta non valida"
         return DraftOutcome(
             ai_failed=ai_failed,
+            corrections=list(extraction.corrections or []),
             report_id=report_id,
             success=extraction.success,
             data=extraction.data,
@@ -312,8 +344,10 @@ class ReportService:
         review_notes = row.get("review_notes") or ""
         photos = [(Path(a["path"]), a.get("caption") or "") for a in self.db.list_attachments(report_id)
                   if Path(a["path"]).is_file()]
-        _export_pdf_isolated(pdf_path, shown, mod.schema, report_id=f"#{report_id}", module_name=mod.name,
-                             review_notes=review_notes, photos=photos)
+        if not (doc_path is not None and _faithful_pdf(doc_path, pdf_path, shown, mod, report_id,
+                                                       review_notes, photos)):
+            _export_pdf_isolated(pdf_path, shown, mod.schema, report_id=f"#{report_id}", module_name=mod.name,
+                                 review_notes=review_notes, photos=photos)
         if photos:
             photo_dir = base / "foto"
             photo_dir.mkdir(exist_ok=True)

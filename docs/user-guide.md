@@ -29,7 +29,9 @@ the parts to fill in are written as `{{field_name}}`, e.g. `Customer: {{customer
 - **New module** (sidebar or `Ctrl+N`): choose *From my own file*. Fields and mapping are
   created automatically. Set the **document type** (e.g. "meeting minutes", "purchase
   request"): the AI uses it as context.
-- **Template editor** (*Module* tab): select text in the preview and turn it into a field.
+- **Template editor** (*Module* tab): drag fields straight onto the document pages. The form is
+  shown **exactly as it is** when Microsoft Word or LibreOffice (free) is installed; otherwise a
+  simplified view is used. Excel forms show the real column widths, colours, borders and merged cells.
 - **Reference documents**: price lists, procedures, contracts, manuals (PDF and scans too)
   used by the AI as instructions and context, never as facts of the current document.
 - **Module AI rules**: permanent instructions the AI reads but cannot change.
