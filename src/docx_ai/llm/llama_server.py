@@ -28,10 +28,22 @@ from typing import Any, Dict, List, Optional
 
 
 def _cpu_threads(override: Optional[int]) -> int:
+    """Thread di generazione: un thread per core fisico. La generazione e' limitata
+    dalla banda della memoria, i core logici in piu' (hyper-threading) la rallentano;
+    prima il limite fisso a 6 lasciava inutilizzata meta' delle CPU da 8+ core."""
     logical = os.cpu_count() or 2
     if override:
         return max(1, int(override))
-    return max(1, min(6, logical - 1))
+    if logical >= 8:
+        return min(16, logical // 2)
+    return max(1, logical - 1)
+
+
+def _batch_threads(override: Optional[int]) -> int:
+    """Thread per leggere il prompt (calcolo puro): tutti i core logici."""
+    if override:
+        return max(1, int(override))
+    return max(1, os.cpu_count() or 2)
 
 
 def _random_api_key(length: int = 32) -> str:
@@ -76,6 +88,8 @@ class LlamaServerOptions:
     gpu_layers: int = 0
     # Server di embedding (ricerca semantica) invece che di chat
     embedding: bool = False
+    # slot del server (0 = predefinito di llama.cpp)
+    parallel: int = 1
 
     def executable_path(self) -> Path:
         return Path(self.runtime_dir) / self.runtime_exe
@@ -139,7 +153,12 @@ class LlamaServer:
             "--api-key", self._api_key,
             "--ctx-size", str(max(512, int(opts.context_size))),
             "--threads", str(_cpu_threads(opts.thread_override)),
+            "--threads-batch", str(_batch_threads(opts.thread_override)),
         ]
+        if opts.parallel:
+            # un solo utente: un solo slot con tutto il contesto e la cache del prompt
+            # (con piu' slot la richiesta successiva puo' finire in uno slot "freddo")
+            cmd += ["--parallel", str(int(opts.parallel))]
         if opts.gpu_layers:
             cmd += ["--n-gpu-layers", str(int(opts.gpu_layers))]
         if opts.embedding:
@@ -150,6 +169,10 @@ class LlamaServer:
             # template di chat del modello (Qwen3): necessario perche' enable_thinking=false
             # disattivi davvero il ragionamento invece di affidarsi al solo "/no_think"
             cmd.append("--jinja")
+            if opts.no_think:
+                # blocco anche lato server: alcuni prompt facevano comunque "ragionare"
+                # Qwen3, che esauriva i token e restituiva una risposta vuota (minuti persi)
+                cmd += ["--reasoning-budget", "0"]
         # Disable MMAP/MLock where not applicable: keep defaults, they work on CPU
         creationflags = 0
         if os.name == "nt":

@@ -326,15 +326,32 @@ class MainWindow:
         piccolo (risposte meno precise), propone di installarlo."""
         try:
             from ..llm import hardware
-            if self.db.get_setting("ai.better_model_hint") or self.config.llm_profile == "compatibility":
+            if self.db.get_setting("ai.better_model_hint2") or self.config.llm_profile == "compatibility":
                 return
-            rec = hardware.detect().recommended_model()
-            installed = {p.name for p in self.config.installed_chat_models()}
-            if not installed or rec in installed or rec != "Qwen3-4B-Q4_K_M.gguf":
+            hw = hardware.detect()
+            rec = hw.recommended_model()
+            from ..llm.ai_installer import MODELS
+            installed = [p.name for p in self.config.installed_chat_models()]
+            if not installed:
                 return
-            self.db.set_setting("ai.better_model_hint", "1")
-            self.toast(t("È disponibile un modello AI più preciso per questo PC (Qwen3 4B)."), "info",
-                       action=(t("Installa un modello più preciso"), self.open_ai_setup))
+            order = list(MODELS)
+            best = installed[0]
+            # consigliato non installato e piu' capace, oppure stesso livello ma il modello
+            # installato e' una versione superata (es. 1.7B Q8 -> 1.7B Q4, piu' veloce)
+            better = (rec not in installed and best in MODELS
+                      and (order.index(rec) < order.index(best) or MODELS[best].get("hidden")))
+            # scheda video dedicata ma runtime GPU assente: l'AI gira sulla CPU, molto piu' lenta
+            no_gpu = (hw.gpu_accel and self.settings.get("ai.gpu") != "off"
+                      and not (self.config.resolve_ai_path("runtime/llama-vulkan") / "llama-server.exe").is_file())
+            if not (better or no_gpu):
+                return
+            self.db.set_setting("ai.better_model_hint2", "1")
+            if better:
+                msg = t("È disponibile un modello AI più adatto a questo PC: {m}.",
+                        m=MODELS[rec]["label"].split(" (")[0])
+            else:
+                msg = t("Questo PC ha una scheda video adatta: installa l'accelerazione GPU per un'AI molto più veloce.")
+            self.toast(msg, "info", action=(t("Gestisci componenti AI"), self.open_ai_setup))
         except Exception:  # noqa: BLE001
             LOG.debug("suggerimento modello non mostrato", exc_info=True)
 

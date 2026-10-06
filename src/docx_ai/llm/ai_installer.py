@@ -34,20 +34,37 @@ PREFERRED_LLAMA_TAG = "b10655"
 # Modelli di chat, dal piu' capace al piu' leggero: l'app usa il migliore installato
 # che entra nella RAM libera (vedi Config.installed_chat_models).
 MODELS: Dict[str, Dict[str, Any]] = {
+    # versione "Instruct 2507": niente ragionamento, segue le istruzioni e lo schema
+    # molto meglio del Qwen3 4B originale a parita' di dimensione e velocita'
+    "Qwen3-4B-Instruct-2507-Q4_K_M.gguf": {
+        "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/"
+               "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+        "label": "Qwen3 4B Instruct (il più preciso: per PC recenti o con scheda video, ~2.5 GB)",
+    },
     "Qwen3-4B-Q4_K_M.gguf": {
         "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
         "sha256": None,
-        "label": "Qwen3 4B (risposte più precise, ~2.5 GB, almeno 10 GB di RAM)",
+        "label": "Qwen3 4B (versione precedente, ~2.5 GB)",
+        "hidden": True,  # ancora usato se installato, non piu' proposto
+    },
+    # 1.7B compresso a 4 bit: ~30% piu' veloce del Q8 sulla CPU (meno memoria da
+    # leggere per ogni parola) con la stessa precisione sui moduli di prova
+    "Qwen3-1.7B-Q4_K_M.gguf": {
+        "url": "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
+        "sha256": "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897",
+        "label": "Qwen3 1.7B (veloce: per PC datati o con poca RAM, ~1.1 GB)",
     },
     "Qwen3-1.7B-Q8_0.gguf": {
         "url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf",
         "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
-        "label": "Qwen3 1.7B (equilibrato, ~1.8 GB)",
+        "label": "Qwen3 1.7B (versione precedente, ~1.8 GB)",
+        "hidden": True,
     },
     "Qwen3-0.6B-Q8_0.gguf": {
         "url": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
         "sha256": None,
-        "label": "Qwen3 0.6B (PC lenti, ~640 MB)",
+        "label": "Qwen3 0.6B (solo PC con meno di 4 GB di RAM: risposte poco precise, ~640 MB)",
     },
 }
 # Modello opzionale per la ricerca semantica nei documenti

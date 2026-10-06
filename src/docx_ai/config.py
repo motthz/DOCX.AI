@@ -172,7 +172,7 @@ class Config:
         model_dir = eff.get("model_dir", "models")
         configured = [eff[k] for k in ("model", "fallback_model") if eff.get(k)]
         known = [f"{model_dir}/{name}" for name in MODELS]
-        if self.llm_profile == "compatibility":
+        if self.llm_profile in ("compatibility", "fastest"):  # modello veloce per primo
             order = configured + known
         else:
             custom = [m for m in configured if Path(m).name not in MODELS]

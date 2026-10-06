@@ -363,6 +363,53 @@ def prompt_char_budget(server: Any, max_tokens: int) -> int:
     return max(3000, min(40000, int(tokens * 2.8)))
 
 
+# Peso massimo di un gruppo di campi (un campo semplice pesa 1, un elenco di righe
+# 2 + le sue colonne). Un modello piccolo che deve scrivere 20-40 campi in una sola
+# risposta ne salta molti; a gruppi di ~8 li compila quasi tutti.
+GROUP_WEIGHT = 8
+
+
+def _field_weight(spec: Any) -> int:
+    if isinstance(spec, dict) and spec.get("type") == "array":
+        items = spec.get("items") or {}
+        if isinstance(items, dict) and items.get("type") == "object":
+            return 2 + len(items.get("properties") or {})
+        return 2
+    return 1
+
+
+def split_schema(schema: Dict[str, Any], max_weight: int = GROUP_WEIGHT) -> List[Dict[str, Any]]:
+    """Divide lo schema in gruppi di campi consecutivi (stesso ordine del modulo).
+
+    Gli schemi piccoli restano interi: una sola chiamata. ``max_weight`` <= 0
+    disattiva la divisione."""
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    if not isinstance(props, dict) or max_weight <= 0:
+        return [schema]
+    weights = {k: _field_weight(v) for k, v in props.items()}
+    if sum(weights.values()) <= max_weight * 3 // 2:
+        return [schema]
+    groups: List[List[str]] = []
+    cur: List[str] = []
+    used = 0
+    for key, w in weights.items():
+        if cur and used + w > max_weight:
+            groups.append(cur)
+            cur, used = [], 0
+        cur.append(key)
+        used += w
+    if cur:
+        groups.append(cur)
+    required = list(schema.get("required") or [])
+    out: List[Dict[str, Any]] = []
+    for keys in groups:
+        sub = {k: v for k, v in schema.items() if k not in ("properties", "required")}
+        sub["properties"] = {k: props[k] for k in keys}
+        sub["required"] = [k for k in required if k in keys]
+        out.append(sub)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -377,6 +424,7 @@ class JsonPipeline:
         self.max_retries = max(0, int(max_retries))
         self.debug_root = debug_root
         self._do_debug = bool(debug_root)
+        self.group_weight = GROUP_WEIGHT
 
     # ------------------------------------------------------------------
     def extract(
@@ -408,129 +456,82 @@ class JsonPipeline:
 
         last_error = ""
         total_attempts = 0
+        groups = split_schema(schema, self.group_weight)
+        chunked = len(groups) > 1
 
         # Iterate BACKEND failover chain (primary 1.7B → fallback 0.6B → mock)
         for server_index, server in enumerate(self.server_chain):
             server_name = self._backend_name(server)
             if on_progress:
-                on_progress(0, 3, f"Backend {server_index+1}/{len(self.server_chain)}: {server_name}")
-
-            max_tokens = self._estimate_max_tokens(schema, server)
+                on_progress(0, len(groups), f"Backend {server_index+1}/{len(self.server_chain)}: {server_name}")
+            # stesso budget per tutti i gruppi: prompt identico salvo l'elenco dei campi
+            # finale, cosi' llama-server rielabora solo quello (cache del prompt)
+            max_tokens = max(self._estimate_max_tokens(g, server) for g in groups)
             budget = prompt_char_budget(server, max_tokens)
-            # Build base messages for THIS backend (reset per backend)
-            messages = build_extraction_messages(
-                schema,
-                operator_description,
-                reference_docs=reference_docs,
-                history_snippets=history_snippets,
-                document_context=document_context,
-                max_prompt_chars=budget,
+            merged: Dict[str, Any] = {}
+            raws: List[str] = []
+            failed: List[str] = []
+            for gi, group in enumerate(groups):
+                if on_progress and chunked:
+                    on_progress(gi + 1, len(groups), f"{server_name}: gruppo di campi {gi+1}/{len(groups)}")
+                if on_token is not None and chunked and gi:
+                    on_token("\n")
+                data, raw, err, attempts = self._extract_group(
+                    server, server_name, schema, group, operator_description,
+                    reference_docs=reference_docs, history_snippets=history_snippets,
+                    document_context=document_context, budget=budget, temperature=temperature,
+                    on_token=on_token, extra=extra, dump_dir=dump_dir,
+                    tag=f"{server_index}_{gi}", chunked=chunked)
+                total_attempts += attempts
+                if data is None:
+                    last_error = err
+                    failed += list(group["properties"])
+                    continue
+                merged.update(data)
+                raws.append(raw or "")
+            if not raws:  # nessun gruppo riuscito
+                logger.warning(f"[{server_name}] Esauriti tutti i tentativi — passo al fallback successivo.")
+                continue
+
+            notes: List[str] = []
+            if failed:
+                # un gruppo non riuscito non butta via gli altri: i suoi campi restano
+                # vuoti e vanno completati in revisione
+                props = schema.get("properties") or {}
+                names = [str((props.get(k) or {}).get("title") or k) for k in failed]
+                notes.append("L'AI non ha compilato questi campi (da completare in revisione): "
+                             + ", ".join(names))
+                logger.warning(f"[{server_name}] campi non compilati: {failed} ({last_error})")
+            repaired = _fill_missing_defaults(merged, schema)
+            raw = "\n".join(raws)
+
+            # Controllo deterministico: date, numeri, codici e nomi devono avere
+            # riscontro nel testo dell'utente o nei documenti (non nello storico).
+            from .fact_guard import verify as _verify_facts
+            repaired, fixes = _verify_facts(
+                repaired, schema, [operator_description] + [t for _n, t in reference_docs])
+            _write_debug(dump_dir, "98_fact_guard.json", [c.describe() for c in fixes])
+            quality = _qs.score(repaired, schema)
+            _write_debug(dump_dir, "99_final_validated.json", repaired)
+            _write_debug(dump_dir, "99_meta.json", {
+                "server": server_name,
+                "server_index": server_index,
+                "groups": len(groups),
+                "failed_fields": failed,
+                "total_attempts": total_attempts,
+                "quality": quality,
+            })
+            return ExtractionResult(
+                success=True,
+                data=repaired,
+                error_message="",
+                attempts=total_attempts,
+                raw=raw,
+                failover_used=server_name,
+                quality_score=quality,
+                debug_dir=str(dump_dir) if dump_dir else None,
+                corrections=notes + [c.describe() for c in fixes],
             )
-            model_schema = llm_schema(schema)
-
-            # Retry escalation WITHIN this backend (attempts 0..max_retries)
-            for attempt in range(self.max_retries + 1):
-                total_attempts += 1
-                if on_progress:
-                    on_progress(attempt + 1, self.max_retries + 1,
-                                f"{server_name} tentativo {attempt+1}/{self.max_retries+1}")
-
-                # --- Prepare references per RETRY escalation ---
-                use_schema = model_schema
-                use_messages = list(messages)
-                # attempt 2 -> meta' dei documenti e dello storico (prompt piu' corto).
-                # Lo schema resta completo: togliere i campi facoltativi li perdeva.
-                if attempt == 2 and (len(reference_docs) > 1 or history_snippets):
-                    use_messages = build_extraction_messages(
-                        schema,
-                        operator_description,
-                        reference_docs=reference_docs[: max(1, (len(reference_docs) + 1) // 2)],
-                        history_snippets=history_snippets[: len(history_snippets) // 2],
-                        document_context=document_context,
-                        max_prompt_chars=budget,
-                    )
-                    if last_error:
-                        use_messages = self._append_repair_messages(use_messages, "", last_error)
-
-                base_t = 0.05 if temperature is None else max(0.0, float(temperature))
-                temp = base_t if attempt == 0 else base_t + 0.1 if attempt == 1 else base_t + 0.15
-                try:
-                    stream_fn = getattr(server, "chat_completions_stream", None)
-                    if on_token is not None and stream_fn is not None:
-                        if attempt:
-                            on_token("\n\n— nuovo tentativo —\n")
-                        resp = stream_fn(
-                            use_messages, on_delta=on_token, temperature=temp,
-                            max_tokens=max_tokens, json_schema=use_schema, extra=extra)
-                    else:
-                        resp = server.chat_completions(
-                            messages=use_messages,
-                            temperature=temp,
-                            max_tokens=max_tokens,
-                            json_schema=use_schema,
-                            extra=extra,
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    last_error = f"[{server_name}] Chiamata LLM fallita (tentativo {attempt+1}): {exc}"
-                    logger.warning(last_error)
-                    _write_debug(dump_dir, f"{server_index}_{attempt}_0_call_error.txt", str(exc))
-                    continue
-
-                choices = resp.get("choices") or []
-                if not choices:
-                    last_error = f"[{server_name}] Risposta LLM vuota (choices=[])"
-                    continue
-                raw = (choices[0].get("message") or {}).get("content", "")
-                _write_debug(dump_dir, f"{server_index}_{attempt}_1_raw.txt", raw)
-                parsed, err = _lenient_json_parse(raw)
-                if parsed is None:
-                    last_error = f"[{server_name}] Parsing JSON fallito: {err}"
-                    messages = self._append_repair_messages(messages, raw, last_error)
-                    _write_debug(dump_dir, f"{server_index}_{attempt}_2_parse_error.txt", str(err))
-                    continue
-                if not isinstance(parsed, dict):
-                    parsed = {"value": parsed}
-                repaired = _fill_missing_defaults(parsed, schema)
-                _write_debug(dump_dir, f"{server_index}_{attempt}_3_parsed.json", repaired)
-                try:
-                    jsonschema.validate(repaired, model_schema)
-                except jsonschema.ValidationError as exc:
-                    last_error = (
-                        f"[{server_name}] Schema validation fallito: {exc.message} "
-                        f"(path: {list(exc.absolute_path)})"
-                    )
-                    messages = self._append_repair_messages(messages, raw, last_error)
-                    _write_debug(dump_dir, f"{server_index}_{attempt}_4_validation_error.txt", str(exc))
-                    continue
-
-                # Controllo deterministico: date, numeri, codici e nomi devono avere
-                # riscontro nel testo dell'utente o nei documenti (non nello storico).
-                from .fact_guard import verify as _verify_facts
-                repaired, fixes = _verify_facts(
-                    repaired, schema, [operator_description] + [t for _n, t in reference_docs])
-                _write_debug(dump_dir, "98_fact_guard.json", [c.describe() for c in fixes])
-                quality = _qs.score(repaired, schema)
-                _write_debug(dump_dir, "99_final_validated.json", repaired)
-                _write_debug(dump_dir, "99_meta.json", {
-                    "server": server_name,
-                    "server_index": server_index,
-                    "attempt_in_server": attempt + 1,
-                    "total_attempts": total_attempts,
-                    "quality": quality,
-                })
-                return ExtractionResult(
-                    success=True,
-                    data=repaired,
-                    error_message="",
-                    attempts=total_attempts,
-                    raw=raw,
-                    failover_used=server_name,
-                    quality_score=quality,
-                    debug_dir=str(dump_dir) if dump_dir else None,
-                    corrections=[c.describe() for c in fixes],
-                )
-            # End of retry loop for this backend: fall back to next in chain
-            logger.warning(f"[{server_name}] Esauriti tutti i tentativi — passo al fallback successivo.")
 
         # End of chain: all backends failed
         return ExtractionResult(
@@ -543,6 +544,115 @@ class JsonPipeline:
             quality_score=0,
             debug_dir=str(dump_dir) if dump_dir else None,
         )
+
+    def _extract_group(
+        self,
+        server: ServerLike,
+        server_name: str,
+        schema: Dict[str, Any],
+        group: Dict[str, Any],
+        operator_description: str,
+        *,
+        reference_docs: List[Tuple[str, str]],
+        history_snippets: List[Dict[str, Any]],
+        document_context: str,
+        budget: int,
+        temperature: Optional[float],
+        on_token: Optional[Callable[[str], None]],
+        extra: Optional[Dict[str, Any]],
+        dump_dir: Optional[Path],
+        tag: str,
+        chunked: bool,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], str, int]:
+        """Un gruppo di campi con i suoi tentativi: (dati, testo grezzo, errore, tentativi).
+
+        Il prompt descrive sempre lo schema completo (il modello sa dove va ogni
+        informazione); la grammatica JSON impone solo i campi del gruppo."""
+        logger = _logmod.getLogger(__name__)
+        focus = list(group.get("properties") or {}) if chunked else None
+        max_tokens = self._estimate_max_tokens(group, server)
+        messages = build_extraction_messages(
+            schema,
+            operator_description,
+            reference_docs=reference_docs,
+            history_snippets=history_snippets,
+            document_context=document_context,
+            max_prompt_chars=budget,
+            focus_fields=focus,
+        )
+        model_schema = llm_schema(group)
+        last_error = ""
+
+        # Retry escalation WITHIN this backend (attempts 0..max_retries)
+        for attempt in range(self.max_retries + 1):
+            use_messages = list(messages)
+            # attempt 2 -> meta' dei documenti e dello storico (prompt piu' corto).
+            # Lo schema resta completo: togliere i campi facoltativi li perdeva.
+            if attempt == 2 and (len(reference_docs) > 1 or history_snippets):
+                use_messages = build_extraction_messages(
+                    schema,
+                    operator_description,
+                    reference_docs=reference_docs[: max(1, (len(reference_docs) + 1) // 2)],
+                    history_snippets=history_snippets[: len(history_snippets) // 2],
+                    document_context=document_context,
+                    max_prompt_chars=budget,
+                    focus_fields=focus,
+                )
+                if last_error:
+                    use_messages = self._append_repair_messages(use_messages, "", last_error)
+
+            base_t = 0.05 if temperature is None else max(0.0, float(temperature))
+            temp = base_t if attempt == 0 else base_t + 0.1 if attempt == 1 else base_t + 0.15
+            try:
+                stream_fn = getattr(server, "chat_completions_stream", None)
+                if on_token is not None and stream_fn is not None:
+                    if attempt:
+                        on_token("\n\n— nuovo tentativo —\n")
+                    resp = stream_fn(
+                        use_messages, on_delta=on_token, temperature=temp,
+                        max_tokens=max_tokens, json_schema=model_schema, extra=extra)
+                else:
+                    resp = server.chat_completions(
+                        messages=use_messages,
+                        temperature=temp,
+                        max_tokens=max_tokens,
+                        json_schema=model_schema,
+                        extra=extra,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                last_error = f"[{server_name}] Chiamata LLM fallita (tentativo {attempt+1}): {exc}"
+                logger.warning(last_error)
+                _write_debug(dump_dir, f"{tag}_{attempt}_0_call_error.txt", str(exc))
+                continue
+
+            choices = resp.get("choices") or []
+            if not choices:
+                last_error = f"[{server_name}] Risposta LLM vuota (choices=[])"
+                continue
+            raw = (choices[0].get("message") or {}).get("content", "")
+            _write_debug(dump_dir, f"{tag}_{attempt}_1_raw.txt", raw)
+            parsed, err = _lenient_json_parse(raw)
+            if parsed is None:
+                last_error = f"[{server_name}] Parsing JSON fallito: {err}"
+                messages = self._append_repair_messages(messages, raw, last_error)
+                _write_debug(dump_dir, f"{tag}_{attempt}_2_parse_error.txt", str(err))
+                continue
+            if not isinstance(parsed, dict):
+                parsed = {"value": parsed}
+            repaired = _fill_missing_defaults(parsed, group)
+            _write_debug(dump_dir, f"{tag}_{attempt}_3_parsed.json", repaired)
+            try:
+                jsonschema.validate(repaired, model_schema)
+            except jsonschema.ValidationError as exc:
+                last_error = (
+                    f"[{server_name}] Schema validation fallito: {exc.message} "
+                    f"(path: {list(exc.absolute_path)})"
+                )
+                messages = self._append_repair_messages(messages, raw, last_error)
+                _write_debug(dump_dir, f"{tag}_{attempt}_4_validation_error.txt", str(exc))
+                continue
+            return repaired, raw, "", attempt + 1
+        return None, None, last_error, self.max_retries + 1
 
     # ------------------------------------------------------------------
     @property

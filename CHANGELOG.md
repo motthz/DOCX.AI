@@ -6,6 +6,33 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.8.0] - 2026-10-06
+
+### Migliorato
+- **Moduli lunghi compilati a gruppi di campi.** Invece di chiedere tutti i campi in una sola risposta
+  (un modello piccolo ne saltava molti e, sui PC lenti, la richiesta poteva scadere senza risultato),
+  l'AI compila circa 8 campi alla volta. Il testo dell'utente viene letto una sola volta e riusato dalla
+  cache per i gruppi successivi; se un gruppo non riesce gli altri campi restano compilati e quelli
+  mancanti sono segnalati in revisione.
+- **Date corrette anche con il modello piccolo.** Le date del testo ("1 ottobre 2026", "ieri",
+  `05/10/2026`) vengono convertite dal programma e passate all'AI già pronte: prima il modello piccolo
+  scriveva spesso la data di oggi in ogni campo data e il controllo dei fatti la toglieva.
+- **AI più veloce sulla CPU**: un thread per core fisico (prima al massimo 6), tutti i core per leggere
+  il testo, un solo slot del server, così la cache del prompt resta valida anche tra una bozza e l'altra.
+  Il "ragionamento" del modello è bloccato anche lato server (a volte esauriva i token e la risposta
+  arrivava vuota dopo minuti).
+- **Modelli consigliati in base al PC**: *Qwen3 4B Instruct* (il più preciso) con una scheda video
+  dedicata o una CPU recente; *Qwen3 1.7B a 4 bit* (circa 30% più veloce del precedente, stessa
+  precisione nelle prove) per i PC datati; lo 0.6B solo sotto i 4 GB di RAM. L'app propone una volta il
+  modello più adatto se quello installato è superato. I profili *compatibility* e *fastest* usano il
+  modello veloce invece dello 0.6B con 2 thread.
+- **GPU solo se conviene**: in automatico l'accelerazione si usa con una scheda video dedicata (almeno
+  4 GB); sulla grafica integrata poteva essere più lenta della CPU. Se la scheda c'è ma manca il
+  componente GPU, l'app lo suggerisce.
+- **Interfaccia più reattiva**: le Impostazioni si aprono in 1,5 s invece di 5 (la scheda video viene
+  rilevata dal registro di Windows invece che con PowerShell), la pagina del modulo non viene più
+  ricostruita a ogni apertura.
+
 ## [0.7.0] - 2026-10-06
 
 ### Aggiunto

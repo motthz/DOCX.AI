@@ -213,10 +213,16 @@ class HardwareTests(unittest.TestCase):
         self.assertGreater(hw.cpu_cores, 0)
         from docx_ai.llm.ai_installer import MODELS
         self.assertIn(hw.recommended_model(), MODELS)
-        self.assertEqual(hardware.Hardware(ram_total=16 * hardware.GB).recommended_model(), "Qwen3-4B-Q4_K_M.gguf")
-        self.assertEqual(hardware.Hardware(ram_total=8 * hardware.GB).recommended_model(), "Qwen3-1.7B-Q8_0.gguf")
-        self.assertEqual(hardware.Hardware(ram_total=4 * hardware.GB).recommended_model(), "Qwen3-0.6B-Q8_0.gguf")
-        self.assertIn("CPU", hw.summary())
+        best, fast = "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "Qwen3-1.7B-Q4_K_M.gguf"
+        H, G = hardware.Hardware, hardware.GB
+        self.assertEqual(H(ram_total=16 * G, cpu_cores=8).recommended_model(), best)
+        # PC d'ufficio datato: tanta RAM ma CPU con pochi thread -> modello veloce
+        self.assertEqual(H(ram_total=16 * G, cpu_cores=4).recommended_model(), fast)
+        self.assertEqual(H(ram_total=6 * G, cpu_cores=8).recommended_model(), fast)
+        self.assertEqual(H(ram_total=3 * G, cpu_cores=4).recommended_model(), "Qwen3-0.6B-Q8_0.gguf")
+        self.assertEqual(H(ram_total=0, cpu_cores=4).recommended_model(), fast)  # RAM non rilevata
+        # scheda video dedicata: il 4B gira sulla GPU anche con poca RAM
+        self.assertEqual(H(ram_total=4 * G, cpu_cores=4, vulkan=True, vram=8 * G).recommended_model(), best)
 
 
 if __name__ == "__main__":

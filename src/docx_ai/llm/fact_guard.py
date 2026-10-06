@@ -179,6 +179,47 @@ def _shift(today: date, n: int, unit: str) -> date:
     return date(y, m, d)
 
 
+def date_mentions(text: str, today: Optional[date] = None, limit: int = 12) -> List[Tuple[str, date]]:
+    """Date scritte nel testo con le parole usate, nell'ordine in cui compaiono:
+    [("1 ottobre 2026", date(2026, 10, 1)), ("ieri", ...)]. Date al modello gia'
+    convertite: un modello piccolo altrimenti scrive la data di oggi in ogni campo
+    data (che il controllo dei fatti poi toglie: dato perso)."""
+    today = today or date.today()
+    text = text or ""
+    found: List[Tuple[int, str, date]] = []
+    for m in _ISO_RE.finditer(text):
+        dt = _mkdate(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        if dt:
+            found.append((m.start(), m.group(0), dt))
+    for m in _EU_RE.finditer(text):
+        d, mo, y = m.group(1), m.group(2), m.group(3)
+        if not y:  # "3/4" senza anno: piu' spesso una frazione o una misura che una data
+            continue
+        dt = _mkdate(_year(y, today), int(mo), int(d))
+        if dt:
+            found.append((m.start(), m.group(0).strip(), dt))
+    for m in _TEXT_RE.finditer(text):
+        dt = _mkdate(_year(m.group(3), today), _ALL_MONTHS[m.group(2).lower()], int(m.group(1)))
+        if dt:
+            found.append((m.start(), m.group(0).strip(), dt))
+    for m in _TEXT_EN_RE.finditer(text):
+        if m.group(1).lower() in MONTHS:
+            dt = _mkdate(_year(m.group(3), today), MONTHS[m.group(1).lower()], int(m.group(2)))
+            if dt:
+                found.append((m.start(), m.group(0).strip(), dt))
+    for word, delta in _RELATIVE_DAYS.items():
+        for m in re.finditer(r"(?<![^\W\d_])" + re.escape(word) + r"(?![^\W\d_])", text, re.I):
+            found.append((m.start(), m.group(0), today + timedelta(days=delta)))
+    out: List[Tuple[str, date]] = []
+    seen: Set[Tuple[str, date]] = set()
+    for _pos, words, dt in sorted(found, key=lambda f: f[0]):
+        key = (words.lower(), dt)
+        if key not in seen:
+            seen.add(key)
+            out.append((words, dt))
+    return out[:limit]
+
+
 def source_dates(text: str, today: Optional[date] = None) -> Set[date]:
     return explicit_dates(text, today) | relative_dates(text, today)
 

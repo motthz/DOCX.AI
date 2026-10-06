@@ -24,9 +24,9 @@
     "debug": false,
     "profiles": {
       "compatibility": {
-        "model": "models/Qwen3-0.6B-Q8_0.gguf",
+        "model": "models/Qwen3-1.7B-Q4_K_M.gguf",
         "context_size": 4096,
-        "thread_override": 2
+        "thread_override": null
       },
       "balanced": {
         "model": "models/Qwen3-1.7B-Q8_0.gguf",
@@ -34,9 +34,9 @@
         "thread_override": null
       },
       "fastest": {
-        "model": "models/Qwen3-1.7B-Q8_0.gguf",
+        "model": "models/Qwen3-1.7B-Q4_K_M.gguf",
         "context_size": 8192,
-        "thread_override": 8
+        "thread_override": null
       }
     }
   },

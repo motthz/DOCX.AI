@@ -103,6 +103,76 @@ class ModelSchemaTests(unittest.TestCase):
         self.assertEqual(srv._thinking_params(), {"chat_template_kwargs": {"enable_thinking": False}})
 
 
+def _wide_schema(n: int = 24) -> dict:
+    props = {f"campo_{i:02d}": {"type": "string", "title": f"Campo {i}"} for i in range(n)}
+    props["righe"] = {"type": "array", "items": {"type": "object", "properties": {
+        "descrizione": {"type": "string"}, "quantita": {"type": "string"}}}}
+    return {"type": "object", "additionalProperties": False, "properties": props, "required": list(props)}
+
+
+class GroupedExtractionTests(unittest.TestCase):
+    """Moduli lunghi compilati a gruppi di campi: un modello piccolo che deve scrivere
+    tutti i campi in una sola risposta ne saltava molti."""
+
+    def test_small_schema_single_call(self):
+        from docx_ai.llm.json_pipeline import split_schema
+        self.assertEqual(split_schema(SCHEMA), [SCHEMA])
+
+    def test_wide_schema_split_in_order(self):
+        from docx_ai.llm.json_pipeline import split_schema
+        schema = _wide_schema()
+        groups = split_schema(schema, 8)
+        self.assertGreater(len(groups), 2)
+        keys = [k for g in groups for k in g["properties"]]
+        self.assertEqual(keys, list(schema["properties"]))  # nessun campo perso, stesso ordine
+        for g in groups:
+            self.assertEqual(g["required"], list(g["properties"]))
+            self.assertFalse(g["additionalProperties"])
+        self.assertEqual(split_schema(schema, 0), [schema])  # 0 = divisione disattivata
+
+    def test_groups_merged_and_prompt_prefix_shared(self):
+        from docx_ai.llm.json_pipeline import JsonPipeline
+        from docx_ai.llm.llama_server import MockLlamaServer
+        schema = _wide_schema()
+        calls = []
+
+        def answer(messages, json_schema=None):
+            calls.append((messages, json_schema))
+            return {k: ("riga" if k != "righe" else [{"descrizione": "x", "quantita": "1"}])
+                    for k in json_schema["properties"]}
+        res = JsonPipeline(MockLlamaServer(answer), max_retries=0).extract(schema, "testo dell'utente, 1 pezzo")
+        self.assertTrue(res.success, res.error_message)
+        self.assertGreater(len(calls), 2)
+        self.assertEqual(set(res.data), set(schema["properties"]))
+        self.assertEqual(res.data["righe"], [{"descrizione": "x", "quantita": "1"}])
+        # system identico e messaggio utente che differisce solo in fondo (cache del prompt)
+        systems = {c[0][0]["content"] for c in calls}
+        self.assertEqual(len(systems), 1)
+        first, second = calls[0][0][1]["content"], calls[1][0][1]["content"]
+        head = first.index("=== CAMPI DA COMPILARE")
+        self.assertEqual(first[:head], second[:head])
+        self.assertIn("campo_00", first[head:])
+        self.assertNotIn("campo_00", second[head:])
+
+    def test_failed_group_keeps_other_fields(self):
+        from docx_ai.llm.json_pipeline import JsonPipeline
+        from docx_ai.llm.llama_server import MockLlamaServer
+        schema = _wide_schema()
+
+        class Flaky(MockLlamaServer):
+            def chat_completions(self, messages, *, json_schema=None, **kw):
+                if "campo_00" in json_schema["properties"]:
+                    return {"choices": [{"message": {"content": "non è json"}}]}
+                return super().chat_completions(messages, json_schema=json_schema, **kw)
+
+        srv = Flaky(lambda m, json_schema=None: {k: "ok" for k in json_schema["properties"]})
+        res = JsonPipeline(srv, max_retries=1).extract(schema, "testo")
+        self.assertTrue(res.success)
+        self.assertEqual(res.data["campo_00"], "NON_SPECIFICATO")  # da completare in revisione
+        self.assertEqual(res.data["campo_20"], "ok")
+        self.assertTrue(any("non ha compilato" in c and "Campo 0" in c for c in res.corrections))
+
+
 class BestModelTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="mai_q_"))
@@ -127,6 +197,13 @@ class BestModelTests(unittest.TestCase):
         self._install("Qwen3-0.6B-Q8_0.gguf", "Qwen3-4B-Q4_K_M.gguf")
         self.cfg.set_profile("compatibility")
         self.assertEqual(self.cfg.installed_chat_models()[0].name, "Qwen3-0.6B-Q8_0.gguf")
+        # il modello veloce 1.7B (non il poco preciso 0.6B) e' quello del profilo
+        self._install("Qwen3-1.7B-Q4_K_M.gguf")
+        self.assertEqual(self.cfg.installed_chat_models()[0].name, "Qwen3-1.7B-Q4_K_M.gguf")
+        self.cfg.set_profile("fastest")
+        self.assertEqual(self.cfg.installed_chat_models()[0].name, "Qwen3-1.7B-Q4_K_M.gguf")
+        self.cfg.set_profile("balanced")
+        self.assertEqual(self.cfg.installed_chat_models()[0].name, "Qwen3-4B-Q4_K_M.gguf")
 
     def test_only_4b_installed_counts_as_ready(self):
         self._install("Qwen3-4B-Q4_K_M.gguf")

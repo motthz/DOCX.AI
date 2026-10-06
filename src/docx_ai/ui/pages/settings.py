@@ -125,8 +125,8 @@ class SettingsPage(ctk.CTkFrame):
         hw = hardware.detect()
         b = self._card(t("Intelligenza artificiale"), hw.summary())
         profiles = list(self.win.config.available_profiles())
-        self._option(b, t("Profilo"), t("compatibility = PC lenti (modello piccolo) · balanced = consigliato · "
-                                        "fastest = più thread CPU"), "llm.profile",
+        self._option(b, t("Profilo"), t("balanced = consigliato (il modello più preciso installato) · fastest = sempre il "
+                                        "modello veloce · compatibility = modello veloce e meno RAM"), "llm.profile",
                      [(p, p) for p in profiles], on_change=self._profile_changed)
         gpu_sub = (t("GPU compatibile rilevata: {g}.", g=", ".join(hw.gpus)) if hw.vulkan and hw.gpus
                    else t("Nessuna GPU Vulkan rilevata: si usa la CPU."))

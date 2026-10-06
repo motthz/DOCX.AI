@@ -26,14 +26,34 @@ class ModulePage(ctk.CTkFrame):
         self.win = win
         self.page = scrollable(self)
         self.page.pack(fill="both", expand=True)
+        self._shown_key: Any = None
         win.on("module_selected", lambda m: self.render())
         win.on("modules", self.render)
         self.render()
 
+    def _state_key(self) -> Any:
+        """Cio' che la pagina mostra: se non cambia non serve ridisegnarla (ricostruire
+        tutti i widget a ogni apertura costava ~1 s)."""
+        mod = self.win.selected
+        if mod is None:
+            return None
+        try:
+            counts = self.win.db.count_reports_by_module().get(mod.id or -1, {})
+        except Exception:  # noqa: BLE001
+            counts = {}
+        tpl = Path(mod.template_path) if mod.template_path else None
+        return (mod.slug, mod.version, mod.name, mod.description, mod.document_type, repr(mod.schema),
+                tuple(sorted(counts.items())), bool(tpl and tpl.exists()))
+
     def on_show(self) -> None:
-        self.render()
+        if self._state_key() != self._shown_key:
+            self.render()
 
     def render(self) -> None:
+        if not self.winfo_ismapped() and self._shown_key is not None:
+            self._shown_key = object()  # pagina nascosta: ridisegna alla prossima apertura
+            return
+        self._shown_key = self._state_key()
         for w in self.page.winfo_children():
             w.destroy()
         mod = self.win.selected

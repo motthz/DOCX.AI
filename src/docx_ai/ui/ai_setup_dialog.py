@@ -44,12 +44,14 @@ class AISetupDialog(Dialog):
         rec = auto_model if auto_model in MODELS else self.hw.recommended_model()
         self.model_var = ctk.StringVar(value=rec)
         for name, info in MODELS.items():
+            if info.get("hidden") and name != rec:
+                continue
             text = t(info["label"]) + ("  ·  " + t("consigliato per questo PC") if name == rec else "")
             ctk.CTkRadioButton(self.body, text=text, value=name, variable=self.model_var,
                                font=font("body")).pack(anchor="w", pady=2)
 
         label(self.body, t("Opzioni"), kind="h4").pack(anchor="w", pady=(12, 0))
-        self.gpu_var = ctk.BooleanVar(value=self.hw.vulkan and bool(self.hw.gpus))
+        self.gpu_var = ctk.BooleanVar(value=self.hw.gpu_accel)
         ctk.CTkCheckBox(self.body, text=t("Accelerazione GPU (Vulkan, ~30 MB in più)"), variable=self.gpu_var,
                         font=font("body")).pack(anchor="w", pady=2)
         if not self.hw.vulkan:

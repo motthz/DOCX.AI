@@ -63,6 +63,8 @@ class Hardware:
     cpu_cores: int = 1
     gpus: List[str] = field(default_factory=list)
     vulkan: bool = False
+    # memoria della scheda video piu' capiente (0 = sconosciuta o solo integrata)
+    vram: int = 0
 
     @property
     def ram_total_gb(self) -> float:
@@ -72,13 +74,26 @@ class Hardware:
     def ram_available_gb(self) -> float:
         return round(self.ram_available / GB, 1)
 
+    @property
+    def gpu_accel(self) -> bool:
+        """Scheda video dedicata (>= 4 GB) utilizzabile da llama.cpp via Vulkan."""
+        return self.vulkan and self.vram >= 4 * GB
+
     def recommended_model(self) -> str:
-        """Modello consigliato in base alla RAM disponibile."""
-        if self.ram_total and self.ram_total < 6 * GB:
+        """Modello consigliato per questo PC.
+
+        - 4B Instruct (il piu' preciso) con una scheda video dedicata, oppure con
+          almeno 8 GB di RAM e 8 thread CPU: su una CPU datata e' 2-3 volte piu'
+          lento dell'1.7B e una bozza richiederebbe diversi minuti;
+        - 1.7B a 4 bit (veloce) negli altri casi;
+        - 0.6B solo sotto i 4 GB di RAM: sbaglia troppo per i moduli reali."""
+        if self.gpu_accel:
+            return "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+        if self.ram_total and self.ram_total < 4 * GB:
             return "Qwen3-0.6B-Q8_0.gguf"
-        if self.ram_total and self.ram_total >= 10 * GB:
-            return "Qwen3-4B-Q4_K_M.gguf"
-        return "Qwen3-1.7B-Q8_0.gguf"
+        if self.ram_total >= 8 * GB and self.cpu_cores >= 8:
+            return "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+        return "Qwen3-1.7B-Q4_K_M.gguf"
 
     def summary(self) -> str:
         gpu = ", ".join(self.gpus) if self.gpus else "nessuna rilevata"
@@ -87,17 +102,63 @@ class Hardware:
                 + (" (Vulkan)" if self.vulkan else ""))
 
 
-def _gpu_names() -> List[str]:
+_GPU_SKIP = ("basic display", "remote", "virtual", "parsec", "dameware")
+_DISPLAY_CLASS = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+
+
+def _gpu_registry() -> List[tuple]:
+    """(nome, memoria video in byte) delle schede video dal registro: pochi ms,
+    contro ~2 s di PowerShell che bloccava l'apertura delle Impostazioni."""
+    import winreg
+    out: List[tuple] = []
+    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _DISPLAY_CLASS) as cls:
+        for i in range(winreg.QueryInfoKey(cls)[0]):
+            sub = winreg.EnumKey(cls, i)
+            if not sub.isdigit():
+                continue
+            try:
+                with winreg.OpenKey(cls, sub) as key:
+                    name = str(winreg.QueryValueEx(key, "DriverDesc")[0]).strip()
+                    mem = 0
+                    for value in ("HardwareInformation.qwMemorySize", "HardwareInformation.MemorySize"):
+                        try:
+                            raw = winreg.QueryValueEx(key, value)[0]
+                            mem = int.from_bytes(raw, "little") if isinstance(raw, bytes) else int(raw)
+                            break
+                        except (OSError, ValueError, TypeError):
+                            continue
+            except OSError:
+                continue
+            if name and not any(s in name.lower() for s in _GPU_SKIP):
+                out.append((name, mem))
+    return out
+
+
+def _gpus() -> List[tuple]:
+    """(nome, memoria video) delle schede video; memoria 0 se non nota."""
     if sys.platform != "win32":
         return []
+    try:
+        found = _gpu_registry()
+        if found:
+            return found
+    except OSError:
+        pass
+    return [(n, 0) for n in _gpu_names_powershell()]
+
+
+def _gpu_names() -> List[str]:
+    return [n for n, _m in _gpus()]
+
+
+def _gpu_names_powershell() -> List[str]:
     try:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
              "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
             capture_output=True, text=True, timeout=15, creationflags=0x08000000)
         names = [n.strip() for n in out.stdout.splitlines() if n.strip()]
-        skip = ("basic display", "remote", "virtual", "parsec", "dameware")
-        return [n for n in names if not any(s in n.lower() for s in skip)]
+        return [n for n in names if not any(s in n.lower() for s in _GPU_SKIP)]
     except (OSError, subprocess.SubprocessError):
         return []
 
@@ -112,8 +173,10 @@ def _has_vulkan() -> bool:
 @lru_cache(maxsize=1)
 def detect() -> Hardware:
     total, avail = memory()
+    gpus = _gpus()
     return Hardware(ram_total=total, ram_available=avail, cpu_cores=os.cpu_count() or 1,
-                    gpus=_gpu_names(), vulkan=_has_vulkan())
+                    gpus=[n for n, _m in gpus], vulkan=_has_vulkan(),
+                    vram=max((m for _n, m in gpus), default=0))
 
 
 def refresh_memory(hw: Optional[Hardware] = None) -> Hardware:

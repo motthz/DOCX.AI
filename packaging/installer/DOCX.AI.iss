@@ -64,12 +64,12 @@ it.AiPageSub=Il modello viene scaricato da Internet al primo avvio dell'app e po
 en.AiPageSub=The model is downloaded on the app's first launch and then works offline. You can change it later in Settings → AI components.
 it.AiOpt0=Automatico - il modello più preciso che il PC regge (consigliato)
 en.AiOpt0=Automatic - the most accurate model this PC can run (recommended)
-it.AiOpt1=Qwen3 4B - risposte più precise (circa 2,5 GB, servono almeno 10 GB di RAM)
-en.AiOpt1=Qwen3 4B - more accurate answers (about 2.5 GB, needs at least 10 GB RAM)
-it.AiOpt2=Qwen3 1.7B - equilibrato (circa 1,8 GB, servono almeno 6 GB di RAM)
-en.AiOpt2=Qwen3 1.7B - balanced (about 1.8 GB, needs at least 6 GB RAM)
-it.AiOpt3=Qwen3 0.6B - per PC lenti o con poca memoria (circa 640 MB)
-en.AiOpt3=Qwen3 0.6B - for slow PCs or little memory (about 640 MB)
+it.AiOpt1=Qwen3 4B Instruct - il più preciso, per PC recenti o con scheda video (circa 2,5 GB)
+en.AiOpt1=Qwen3 4B Instruct - the most accurate, for recent PCs or PCs with a graphics card (about 2.5 GB)
+it.AiOpt2=Qwen3 1.7B - veloce, per PC datati (circa 1,1 GB, servono almeno 4 GB di RAM)
+en.AiOpt2=Qwen3 1.7B - fast, for older PCs (about 1.1 GB, needs at least 4 GB RAM)
+it.AiOpt3=Qwen3 0.6B - solo per PC con meno di 4 GB di RAM, poco preciso (circa 640 MB)
+en.AiOpt3=Qwen3 0.6B - only for PCs with less than 4 GB RAM, less accurate (about 640 MB)
 it.AiOpt4=Non ora: deciderò in seguito
 en.AiOpt4=Not now: I will decide later
 
@@ -155,8 +155,8 @@ begin
   begin
     case AiPage.SelectedValueIndex of
       0: Model := 'auto';
-      1: Model := 'Qwen3-4B-Q4_K_M.gguf';
-      2: Model := 'Qwen3-1.7B-Q8_0.gguf';
+      1: Model := 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf';
+      2: Model := 'Qwen3-1.7B-Q4_K_M.gguf';
       3: Model := 'Qwen3-0.6B-Q8_0.gguf';
     else
       Model := '';

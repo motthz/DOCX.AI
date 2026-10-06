@@ -133,6 +133,16 @@ def _truncate(text: str, max_chars: int, label: str) -> str:
     )
 
 
+def _dates_line(text: str, today: Optional[date] = None) -> str:
+    """Date del testo gia' convertite in AAAA-MM-GG (calcolate dal programma, non dall'AI)."""
+    from .fact_guard import date_mentions
+    found = date_mentions(text, today)
+    if not found:
+        return ""
+    return ("DATE CITATE NEL TESTO (già convertite, usa queste nei campi data): "
+            + "; ".join(f"«{words}» = {d.isoformat()}" for words, d in found))
+
+
 def build_extraction_messages(
     schema: Dict[str, Any],
     operator_description: str,
@@ -146,6 +156,7 @@ def build_extraction_messages(
     document_context: str = "",
     max_prompt_chars: int = 14000,
     today: Optional[date] = None,
+    focus_fields: Optional[List[str]] = None,
 ) -> List[Dict[str, str]]:
     """Assemble the messages list.
 
@@ -158,6 +169,9 @@ def build_extraction_messages(
                       modello. Quando non basta si accorciano prima i documenti di
                       riferimento e lo storico, MAI le informazioni dell'utente
                       (prima venivano troncate proprio quelle, in fondo al prompt).
+    focus_fields:     compilazione a gruppi: in questa risposta solo questi campi.
+                      L'istruzione va in fondo, cosi' tutto il resto del prompt e'
+                      identico tra i gruppi e llama-server lo riusa dalla cache.
     """
     system_text = SYSTEM_POLICY + "\n" + today_line(today) + "\n\n" + _schema_semantics(schema)
     if document_context:
@@ -172,8 +186,10 @@ def build_extraction_messages(
         closing += "\n\n/no_think"
     user_header = "=== INFORMAZIONI FORNITE DALL'UTENTE (fonte ufficiale del documento corrente) ==="
 
-    budget = max(1500, int(max_prompt_chars)) - len(system_text) - len(closing) - len(user_header) - 200
     desc_raw = (operator_description or "").strip()
+    dates = _dates_line(desc_raw, today)
+    budget = (max(1500, int(max_prompt_chars)) - len(system_text) - len(closing) - len(user_header)
+              - len(dates) - 200)
     desc = _truncate(desc_raw, max(600, min(max_description_chars, budget)), "descrizione")
     budget -= len(desc)
 
@@ -221,7 +237,15 @@ def build_extraction_messages(
         if pieces:
             context_chunks += [header] + pieces
 
-    user_chunks = context_chunks + [user_header, desc or "(nessuna descrizione fornita)", closing]
+    user_chunks = context_chunks + [user_header, desc or "(nessuna descrizione fornita)"]
+    if dates:
+        user_chunks.append(dates)
+    if focus_fields:
+        user_chunks.append(
+            "=== CAMPI DA COMPILARE IN QUESTA RISPOSTA ===\n" + ", ".join(focus_fields)
+            + "\nCompila SOLO questi campi (gli altri sono gestiti a parte): rileggi tutto il testo "
+            "dell'utente e riporta ogni informazione che li riguarda.")
+    user_chunks.append(closing)
     return [
         {"role": "system", "content": system_text},
         {"role": "user", "content": "\n\n".join(user_chunks)},

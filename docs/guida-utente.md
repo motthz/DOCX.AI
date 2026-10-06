@@ -184,8 +184,8 @@ importi e numeri. In più, dopo ogni compilazione un **controllo automatico** (c
 l'AI) confronta date, numeri, codici e nomi con quanto hai scritto: una data o un numero
 che non compare nel tuo testo viene tolto (o corretto, se giorno e mese erano scambiati) e
 il campo resta da compilare in revisione. Il *controllo delle fonti* evidenzia in rosso
-gli altri valori che non compaiono nelle fonti. I modelli più piccoli sbagliano più spesso: con almeno 10 GB di RAM
-installa il **Qwen3 4B** (Impostazioni → Componenti AI), con almeno 6 GB l'1.7B. L'app usa
+gli altri valori che non compaiono nelle fonti. I modelli più piccoli sbagliano più spesso: con almeno 8 GB di RAM
+(o una scheda video dedicata) installa il **Qwen3 4B Instruct** (Impostazioni → Componenti AI), con almeno 6 GB l'1.7B. L'app usa
 automaticamente il modello più preciso installato che entra nella memoria libera.
 
 **Serve Internet?** Solo per scaricare una volta i componenti AI.

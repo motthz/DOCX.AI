@@ -26,6 +26,7 @@ from ..llm.llama_server import LlamaServer, LlamaServerOptions, MockLlamaServer
 from ..llm.ollama_backend import OllamaBackend, OllamaBackendOptions
 from ..llm.prompt_builder import (
     SYSTEM_POLICY as EXTRACTION_POLICY,
+    _dates_line,
     _schema_semantics,
     _truncate,
     today_line,
@@ -175,7 +176,14 @@ class AIService:
         cpu_dir = self.config.resolve_ai_path(eff["runtime_dir"])
         out: List[Tuple[Path, int]] = []
         gpu_pref = str(self._setting("ai.gpu", "auto")).lower()
-        if gpu_pref in ("auto", "on"):
+        if gpu_pref == "auto":
+            # solo con una scheda video dedicata: sulla grafica integrata il modello
+            # caricato in GPU puo' essere piu' lento che sulla CPU
+            from ..llm import hardware
+            use_gpu = hardware.detect().gpu_accel
+        else:
+            use_gpu = gpu_pref == "on"
+        if use_gpu:
             gpu_dir = self.config.resolve_ai_path("runtime/llama-vulkan")
             if (gpu_dir / eff.get("runtime_exe", "llama-server.exe")).is_file():
                 out.append((gpu_dir, 99))
@@ -488,6 +496,9 @@ class AIService:
                 user_parts.append(f"I: {inp}\nO: {_truncate(str(out), 1500, 'esempio')}")
         user_parts.append("=== RICHIESTA UTENTE ===")
         user_parts.append(user_request or "(nessuna)")
+        dates = _dates_line(user_request or "")
+        if dates:
+            user_parts.append(dates)
         user_parts.append(
             "\nRestituisci ESCLUSIVAMENTE un JSON valido conforme allo schema. "
             "Nessun testo fuori dall'oggetto JSON."
