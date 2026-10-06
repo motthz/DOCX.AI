@@ -89,6 +89,16 @@ class Dialog(ctk.CTkToplevel):
         except tk.TclError:
             pass
 
+    def _revert_withdraw_after_windows_set_titlebar_color(self) -> None:
+        # CustomTkinter su Windows mostra la finestra ~200 ms dopo la creazione: se nel
+        # frattempo e' stata chiusa (es. l'editor passa alla vista semplificata) la
+        # chiamata fallirebbe con "bad window path name".
+        try:
+            if self.winfo_exists():
+                super()._revert_withdraw_after_windows_set_titlebar_color()  # type: ignore[misc]
+        except tk.TclError:
+            pass
+
     def cancel(self) -> None:
         self.result = None
         self.close()
