@@ -93,7 +93,7 @@ jobs:
           .venv\Scripts\python.exe scripts\changelog_section.py $ver > release_notes.md
       - name: Pubblica release
         if: steps.check.outputs.skip != 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           target_commitish: ${{ github.sha }}
