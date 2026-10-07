@@ -50,7 +50,10 @@ class ModulePage(ctk.CTkFrame):
             self.render()
 
     def render(self) -> None:
-        if not self.winfo_ismapped() and self._shown_key is not None:
+        # pagina non visualizzata (winfo_manager vuoto dopo pack_forget). Non winfo_ismapped:
+        # appena impacchettata la pagina non e' ancora "mappata" e on_show lasciava a video
+        # il modulo selezionato in precedenza
+        if not self.winfo_manager() and self._shown_key is not None:
             self._shown_key = object()  # pagina nascosta: ridisegna alla prossima apertura
             return
         self._shown_key = self._state_key()

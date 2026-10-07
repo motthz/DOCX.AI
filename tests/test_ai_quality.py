@@ -86,7 +86,11 @@ class ModelSchemaTests(unittest.TestCase):
         self.assertTrue(res.success, res.error_message)
         self.assertEqual(res.attempts, 1)
         self.assertEqual(res.data["esito"], "NON_SPECIFICATO")
-        self.assertIn("NON_SPECIFICATO", seen["schema"]["properties"]["esito"]["enum"])
+        # risposta con prova: {"evidenza", "valore"} per ogni campo, tutti obbligatori
+        esito = seen["schema"]["properties"]["esito"]
+        self.assertEqual(esito["required"], ["evidenza", "valore"])
+        self.assertIn("NON_SPECIFICATO", esito["properties"]["valore"]["enum"])
+        self.assertEqual(seen["schema"]["required"], list(SCHEMA["properties"]))
 
     def test_prompt_budget_follows_context(self):
         from docx_ai.llm.json_pipeline import JsonPipeline, prompt_char_budget

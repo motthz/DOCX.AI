@@ -179,49 +179,156 @@ def _shift(today: date, n: int, unit: str) -> date:
     return date(y, m, d)
 
 
-def date_mentions(text: str, today: Optional[date] = None, limit: int = 12) -> List[Tuple[str, date]]:
+@dataclass
+class DateMention:
+    """Data scritta nel testo: parole usate, data calcolata e parole vicine (contesto)."""
+    words: str
+    date: date
+    start: int
+    context: str = ""
+
+
+# preposizioni che introducono un giorno: "il 15", "entro il 30", "dal 3"
+_DAY_INTRO = r"(?:\b(?:il|l'|del|dal|al|entro\s+il|fino\s+al|per\s+il|giorno|in\s+data|data)\s+)"
+_DAY_ONLY_RE = re.compile(_DAY_INTRO + r"(\d{1,2})(?:°|º)?(?=\s*(?:$|[,;:)\n]|\.(?!\d)|\s+(?:alle|ore|h\b|e\b|ed\b|o\b|"
+                          r"mattina|pomeriggio|sera|prossimo|p\.v\.|c\.m\.)))", re.I)
+_SHORT_EU_RE = re.compile(_DAY_INTRO + r"(\d{1,2})\s*[/.]\s*(\d{1,2})(?!\d|\s*[/.,]\s*\d|\s*%|\s+per\s?cento|\s+"
+                          r"(?:volte|mm|cm|m|km|kg|g|bar|v|a|w|kw|l|lt|h|min|pollic\w*)\b)", re.I)
+# "dal 3 al 5 ottobre", "3 e 4 ottobre", "3-5 ottobre": il primo giorno prende il mese del secondo
+_RANGE_RE = re.compile(r"\b(\d{1,2})(?:°|º)?\s*(?:-|e|ed|al|/|,)\s*(?:il\s+)?(\d{1,2})(?:°|º)?\s+("
+                       + "|".join(sorted(_ALL_MONTHS, key=len, reverse=True))
+                       + r")\.?(?:\s+(?:del\s+)?(\d{4}))?\b", re.I)
+_PRIMO_RE = re.compile(r"\bprimo\s+(" + "|".join(sorted(MONTHS, key=len, reverse=True))
+                       + r")(?:\s+(?:del\s+)?(\d{4}))?\b", re.I)
+_WEEKDAY_RE = re.compile(r"\b(luned[iì]|marted[iì]|mercoled[iì]|gioved[iì]|venerd[iì]|sabato|domenica|monday|"
+                         r"tuesday|wednesday|thursday|friday|saturday|sunday)\b(?:\s+(scors[oa]|passat[oa]|"
+                         r"prossim[oa]|venturo|next|last))?", re.I)
+_WEEKDAY_BEFORE_RE = re.compile(r"\b(scors[oa]|passat[oa]|prossim[oa]|next|last)\s+(luned[iì]|marted[iì]|"
+                                r"mercoled[iì]|gioved[iì]|venerd[iì]|sabato|domenica|monday|tuesday|"
+                                r"wednesday|thursday|friday|saturday|sunday)\b", re.I)
+_IN_RE = re.compile(r"\b(?:tra|fra|entro|in)\s+(\w+)\s+(giorn[oi]|settiman[ae]|mes[ei]|days?|weeks?|months?)\b",
+                    re.I)
+_AGO_RE = re.compile(r"\b(\w+)\s+(giorn[oi]|settiman[ae]|mes[ei]|days?|weeks?|months?)\s+(?:fa|ago)\b", re.I)
+
+
+def _weekday_date(name: str, qualifier: str, today: date) -> Optional[date]:
+    wd = WEEKDAYS.get(_norm(name).strip())
+    if wd is None:
+        return None
+    q = _norm(qualifier or "")
+    back = (today.weekday() - wd) % 7 or 7
+    fwd = (wd - today.weekday()) % 7 or 7
+    if q.startswith(("scors", "passat", "last")):
+        return today - timedelta(days=back)
+    if q.startswith(("prossim", "next", "ventur")):
+        return today + timedelta(days=fwd)
+    return None
+
+
+def _context(text: str, start: int, end: int) -> str:
+    """Parole vicine alla data nella stessa frase: "prossimo incontro il" / "riunione del"."""
+    left = text[max(0, start - 60): start]
+    left = re.split(r"[.;,:\n!?]\s", left + " ")[-1] if re.search(r"[.;,:\n!?]\s", left) else left
+    right = text[end: end + 30]
+    if len(text) > end + 30 and not text[end + 30].isspace() and " " in right:
+        right = right.rsplit(" ", 1)[0]  # parola intera
+    right = re.split(r"[.;,:\n!?]", right)[0]
+    return re.sub(r"\s+", " ", (left + " … " + right).strip())
+
+
+def date_mentions_ctx(text: str, today: Optional[date] = None, limit: int = 16) -> List[DateMention]:
+    """Date scritte nel testo, nell'ordine in cui compaiono, con il contesto.
+
+    Riconosce: 05/10/2026, 5.10.26, 2026-10-05, 5 ottobre (2026), 5 ott, 1° ottobre, primo
+    ottobre, October 5, dal 3 al 5 ottobre, il 5/10, "il 15" (mese della data precedente
+    o il mese corrente), oggi/ieri/domani, lunedì scorso, venerdì prossimo, tra 3 giorni,
+    2 settimane fa."""
+    today = today or date.today()
+    text = text or ""
+    found: List[Tuple[int, int, str, date]] = []
+    taken: List[Tuple[int, int]] = []
+
+    def add(start: int, end: int, words: str, dt: Optional[date]) -> None:
+        if dt is None:
+            return
+        if any(a <= start < b or a < end <= b for a, b in taken):
+            return
+        taken.append((start, end))
+        found.append((start, end, words.strip(), dt))
+
+    for m in _ISO_RE.finditer(text):
+        add(m.start(), m.end(), m.group(0), _mkdate(int(m.group(1)), int(m.group(2)), int(m.group(3))))
+    for m in _RANGE_RE.finditer(text):
+        mon = _ALL_MONTHS[m.group(3).lower()]
+        y = _year(m.group(4), today)
+        add(m.start(1), m.end(1), f"{m.group(1)} {m.group(3)}", _mkdate(y, mon, int(m.group(1))))
+    for m in _TEXT_RE.finditer(text):
+        add(m.start(), m.end(), m.group(0),
+            _mkdate(_year(m.group(3), today), _ALL_MONTHS[m.group(2).lower()], int(m.group(1))))
+    for m in _PRIMO_RE.finditer(text):
+        add(m.start(), m.end(), m.group(0), _mkdate(_year(m.group(2), today), MONTHS[m.group(1).lower()], 1))
+    for m in _TEXT_EN_RE.finditer(text):
+        if m.group(1).lower() in MONTHS:
+            add(m.start(), m.end(), m.group(0),
+                _mkdate(_year(m.group(3), today), MONTHS[m.group(1).lower()], int(m.group(2))))
+    for m in _EU_RE.finditer(text):
+        day_s, mon_s, year_s = m.group(1), m.group(2), m.group(3)
+        if not year_s:  # "3/4" senza anno: piu' spesso una frazione o una misura (vedi _SHORT_EU_RE)
+            continue
+        add(m.start(), m.end(), m.group(0), _mkdate(_year(year_s, today), int(mon_s), int(day_s)))
+    for m in _SHORT_EU_RE.finditer(text):  # "il 5/10", "entro il 30.11": con la preposizione e' una data
+        add(m.start(1), m.end(2), m.group(0), _mkdate(today.year, int(m.group(2)), int(m.group(1))))
+    for word, delta in sorted(_RELATIVE_DAYS.items(), key=lambda kv: -len(kv[0])):  # "l'altro ieri" prima di "ieri"
+        for m in re.finditer(r"(?<![^\W\d_])" + re.escape(word) + r"(?![^\W\d_])", text, re.I):
+            add(m.start(), m.end(), m.group(0), today + timedelta(days=delta))
+    for m in _WEEKDAY_BEFORE_RE.finditer(text):
+        add(m.start(), m.end(), m.group(0), _weekday_date(m.group(2), m.group(1), today))
+    for m in _WEEKDAY_RE.finditer(text):
+        add(m.start(), m.end(), m.group(0), _weekday_date(m.group(1), m.group(2) or "", today))
+    for m in _IN_RE.finditer(text):
+        c = _count(_norm(m.group(1)))
+        if c is not None:
+            add(m.start(), m.end(), m.group(0), _shift(today, c, _norm(m.group(2))))
+    for m in _AGO_RE.finditer(text):
+        c = _count(_norm(m.group(1)))
+        if c is not None:
+            add(m.start(), m.end(), m.group(0), _shift(today, -c, _norm(m.group(2))))
+    # "il 15": giorno del mese dell'ultima data scritta prima (o del mese corrente)
+    for m in _DAY_ONLY_RE.finditer(text):
+        day = int(m.group(1))
+        if not 1 <= day <= 31:
+            continue
+        before = [f for f in found if f[0] < m.start(1)]
+        ref = max(before, key=lambda f: f[0])[3] if before else today
+        dt = _mkdate(ref.year, ref.month, day)
+        if dt is not None and before and dt < ref and re.search(r"prossim|success|entro", text[m.start(): m.end() + 30],
+                                                                re.I):
+            nxt = ref.month % 12 + 1
+            dt = _mkdate(ref.year + (ref.month == 12), nxt, day)
+        add(m.start(1), m.end(1), m.group(0), dt)
+
+    out: List[DateMention] = []
+    seen: Set[Tuple[str, date]] = set()
+    for start, end, words, dt in sorted(found, key=lambda f: f[0]):
+        key = (words.lower(), dt)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(DateMention(words, dt, start, _context(text, start, end)))
+    return out[:limit]
+
+
+def date_mentions(text: str, today: Optional[date] = None, limit: int = 16) -> List[Tuple[str, date]]:
     """Date scritte nel testo con le parole usate, nell'ordine in cui compaiono:
     [("1 ottobre 2026", date(2026, 10, 1)), ("ieri", ...)]. Date al modello gia'
     convertite: un modello piccolo altrimenti scrive la data di oggi in ogni campo
     data (che il controllo dei fatti poi toglie: dato perso)."""
-    today = today or date.today()
-    text = text or ""
-    found: List[Tuple[int, str, date]] = []
-    for m in _ISO_RE.finditer(text):
-        dt = _mkdate(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        if dt:
-            found.append((m.start(), m.group(0), dt))
-    for m in _EU_RE.finditer(text):
-        d, mo, y = m.group(1), m.group(2), m.group(3)
-        if not y:  # "3/4" senza anno: piu' spesso una frazione o una misura che una data
-            continue
-        dt = _mkdate(_year(y, today), int(mo), int(d))
-        if dt:
-            found.append((m.start(), m.group(0).strip(), dt))
-    for m in _TEXT_RE.finditer(text):
-        dt = _mkdate(_year(m.group(3), today), _ALL_MONTHS[m.group(2).lower()], int(m.group(1)))
-        if dt:
-            found.append((m.start(), m.group(0).strip(), dt))
-    for m in _TEXT_EN_RE.finditer(text):
-        if m.group(1).lower() in MONTHS:
-            dt = _mkdate(_year(m.group(3), today), MONTHS[m.group(1).lower()], int(m.group(2)))
-            if dt:
-                found.append((m.start(), m.group(0).strip(), dt))
-    for word, delta in _RELATIVE_DAYS.items():
-        for m in re.finditer(r"(?<![^\W\d_])" + re.escape(word) + r"(?![^\W\d_])", text, re.I):
-            found.append((m.start(), m.group(0), today + timedelta(days=delta)))
-    out: List[Tuple[str, date]] = []
-    seen: Set[Tuple[str, date]] = set()
-    for _pos, words, dt in sorted(found, key=lambda f: f[0]):
-        key = (words.lower(), dt)
-        if key not in seen:
-            seen.add(key)
-            out.append((words, dt))
-    return out[:limit]
+    return [(m.words, m.date) for m in date_mentions_ctx(text, today, limit)]
 
 
 def source_dates(text: str, today: Optional[date] = None) -> Set[date]:
-    return explicit_dates(text, today) | relative_dates(text, today)
+    return (explicit_dates(text, today) | relative_dates(text, today)
+            | {m.date for m in date_mentions_ctx(text, today, limit=200)})
 
 
 def parse_date_value(value: Any) -> Optional[date]:
@@ -321,14 +428,73 @@ class Correction:
         return f"{self.field}: {self.old!r} → {new} ({self.reason})"
 
 
+# parole equivalenti tra il nome di un campo data e le parole vicine alla data nel testo
+_DATE_SYNONYMS = {
+    "scade": {"entro", "termi", "scade"}, "termi": {"entro", "termi", "scade"},
+    "inizi": {"dal", "inizi", "parti", "avvio"}, "fine": {"al", "fino", "termi", "concl"},
+    "conse": {"conse", "entro", "evasi"}, "nasci": {"nato", "nata", "nasci"},
+    "inter": {"inter", "esegu", "lavor", "sosti", "ripar", "contr", "manut"},
+    "riuni": {"riuni", "sedut", "assem"}, "pross": {"pross", "succe"}, "verif": {"verif", "contr", "colla"},
+    "colla": {"colla", "prova", "verif"}, "ordin": {"ordin"}, "fattu": {"fattu"},
+    "emiss": {"emess", "emiss", "data"}, "rilev": {"rilev", "guast", "anoma", "segna"},
+}
+_DATE_FIELD_STOP = {"data", "date", "del", "della", "dello", "di", "il", "la", "lo", "giorno", "the", "of"}
+
+
+def _stems(text: str) -> Set[str]:
+    return {w[:5] for w in re.findall(r"[a-z]+", _norm(text)) if len(w) >= 2}
+
+
+def date_field_score(key: str, spec: Any, mention: DateMention) -> int:
+    """Quanto le parole vicine a una data corrispondono al campo: "prossimo incontro il 15"
+    -> campo "data_prossimo_incontro" = 2, campo "data_riunione" = 0."""
+    from . import field_semantics as fs
+    spec = spec if isinstance(spec, dict) else {}
+    words = fs.words(key) + fs.words(str(spec.get("title") or "")) + fs.words(str(spec.get("description") or ""))
+    field = {w[:5] for w in words if w not in _DATE_FIELD_STOP and len(w) >= 3}
+    if not field:
+        return 0
+    ctx = _stems(mention.context.replace("…", " "))
+    score = 0
+    for f in field:
+        if f in ctx or ctx & _DATE_SYNONYMS.get(f, set()):
+            score += 1
+    return score
+
+
+def _generic_date_field(key: str, spec: Any) -> bool:
+    """Campo "Data"/"Date" senza altre parole: la data del documento."""
+    from . import field_semantics as fs
+    spec = spec if isinstance(spec, dict) else {}
+    words = fs.words(key) + fs.words(str(spec.get("title") or ""))
+    return bool(words) and all(w in _DATE_FIELD_STOP or w in ("documento", "rapporto", "verbale", "compilazione")
+                               for w in words)
+
+
+def best_date_for(key: str, spec: Any, mentions: List[DateMention]) -> Optional[DateMention]:
+    """Data del testo che si riferisce al campo, solo se la scelta e' univoca."""
+    scored = [(date_field_score(key, spec, m), m) for m in mentions]
+    scored = [x for x in scored if x[0] > 0]
+    if not scored:
+        return None
+    top = max(x[0] for x in scored)
+    best = {m.date for sc, m in scored if sc == top}
+    if len(best) != 1:
+        return None
+    return next(m for sc, m in scored if sc == top)
+
+
 class FactGuard:
     def __init__(self, sources: Iterable[str], today: Optional[date] = None):
         self.today = today or date.today()
-        self.raw = "\n".join(s for s in sources if s)
+        sources = [s for s in sources if s]
+        self.raw = "\n".join(sources)
         self.norm = _norm(self.raw)
         self.compact = re.sub(r"[\s\-/.:_]", "", self.norm)
         self.dates = source_dates(self.raw, self.today)
         self.numbers = source_numbers(self.raw)
+        # date scritte dall'utente (prima fonte) con il contesto: per assegnarle ai campi
+        self.mentions = date_mentions_ctx(sources[0] if sources else "", self.today, limit=40)
         self.corrections: List[Correction] = []
 
     # ---- primitive ----
@@ -361,19 +527,40 @@ class FactGuard:
         return not words or any(self._present(w) for w in words)
 
     # ---- valori ----
-    def _check_string(self, path: str, value: str, spec: Dict[str, Any], person: bool) -> Any:
+    def _check_date(self, path: str, key: str, value: str, spec: Dict[str, Any]) -> Any:
+        as_date = parse_date_value(value)
+        if as_date is None:
+            # data scritta a parole ("ieri", "5 ottobre"): convertita in AAAA-MM-GG
+            found = {m.date for m in date_mentions_ctx(value, self.today)}
+            if len(found) == 1 and len(value.split()) <= 5:
+                return next(iter(found)).isoformat()
+            return value  # es. "fine mese": la verifica la revisione
+        fixed, why = fix_date(as_date, self.dates)
+        # righe di un elenco (scadenze delle azioni...): il contesto del campo e' lo stesso
+        # per tutte le righe, non serve a scegliere la data di ciascuna
+        nested = "[" in path or "." in path
+        best = None if nested else self._date_for_field(key, spec)
+        if fixed == as_date:
+            # data presente nel testo ma riferita ad altro ("prossimo incontro il 15" nel
+            # campo della data della riunione): si usa quella vicina alle parole del campo
+            if best is not None and best.date != as_date and not any(
+                    m.date == as_date and date_field_score(key, spec, m) > 0 for m in self.mentions):
+                new = _format_like(value, best.date)
+                self.corrections.append(Correction(path, value, new, f"data riferita al campo: «{best.words}»"))
+                return new
+            return value
+        if fixed is None and best is not None:
+            fixed, why = best.date, f"data presa dal testo: «{best.words}»"
+        new = _format_like(value, fixed) if fixed else NON_SPEC
+        self.corrections.append(Correction(path, value, new, why))
+        return new
+
+    def _check_string(self, path: str, key: str, value: str, spec: Dict[str, Any], person: bool,
+                      is_date: bool) -> Any:
         if value.strip().upper() == NON_SPEC or not value.strip():
             return value
-        as_date = parse_date_value(value)
-        if as_date is not None or spec.get("format") in ("date", "date-time"):
-            if as_date is None:
-                return value  # data scritta a parole (es. "fine mese"): la verifica la revisione
-            fixed, why = fix_date(as_date, self.dates)
-            if fixed == as_date:
-                return value
-            new = _format_like(value, fixed) if fixed else NON_SPEC
-            self.corrections.append(Correction(path, value, new, why))
-            return new
+        if is_date or parse_date_value(value) is not None:
+            return self._check_date(path, key, value, spec)
         if spec.get("enum"):
             return value
         short = len(value.split()) <= 6
@@ -396,13 +583,14 @@ class FactGuard:
         self.corrections.append(Correction(path, value, None, "numero non presente nel testo"))
         return None
 
-    def _check(self, path: str, value: Any, spec: Dict[str, Any], person: bool) -> Any:
+    def _check(self, path: str, key: str, value: Any, spec: Dict[str, Any], person: bool) -> Any:
+        from . import field_semantics as fs
         spec = spec if isinstance(spec, dict) else {}
         t = spec.get("type")
         if isinstance(t, list):
             t = next((x for x in t if x != "null"), None)
         if isinstance(value, str):
-            return self._check_string(path, value, spec, person)
+            return self._check_string(path, key, value, spec, person, fs.kind(key, spec) == "date")
         if t in ("number", "integer"):
             return self._check_number(path, value)
         if isinstance(value, list):
@@ -410,7 +598,7 @@ class FactGuard:
             items: Dict[str, Any] = raw_items if isinstance(raw_items, dict) else {}
             out = []
             for i, item in enumerate(value):
-                checked = self._check(f"{path}[{i + 1}]", item, items, person)
+                checked = self._check(f"{path}[{i + 1}]", key, item, items, person)
                 if isinstance(item, str) and checked == NON_SPEC:
                     continue  # voce inventata: tolta dall'elenco
                 out.append(checked)
@@ -418,9 +606,37 @@ class FactGuard:
         if isinstance(value, dict):
             raw_props = spec.get("properties")
             props: Dict[str, Any] = raw_props if isinstance(raw_props, dict) else {}
-            return {k: self._check(f"{path}.{k}", v, props.get(k, {}), _is_person(k, props.get(k)))
+            return {k: self._check(f"{path}.{k}", k, v, props.get(k, {}), _is_person(k, props.get(k)))
                     for k, v in value.items()}
         return value
+
+    def _date_for_field(self, key: str, spec: Any, single_field: bool = False) -> Optional[DateMention]:
+        """Data del testo per il campo: quella vicina alle parole del campo; con un'unica
+        data nel testo, quella, se il campo e' l'unico campo data o quello generico ("Data")."""
+        best = best_date_for(key, spec, self.mentions)
+        if best is None and len({m.date for m in self.mentions}) == 1 \
+                and (single_field or _generic_date_field(key, spec)):
+            best = self.mentions[0]
+        return best
+
+    def _fill_dates(self, out: Dict[str, Any], props: Dict[str, Any]) -> None:
+        """Campi data rimasti vuoti: la data del testo che si riferisce al campo (parole
+        vicine), oppure l'unica data del testo se il modulo ha un solo campo data."""
+        from . import field_semantics as fs
+        date_keys = [k for k, sp in props.items() if fs.kind(k, sp) == "date"]
+        if not date_keys or not self.mentions:
+            return
+        for key in date_keys:
+            v = out.get(key)
+            if not (v is None or (isinstance(v, str) and v.strip().upper() in ("", NON_SPEC))):
+                continue
+            spec = props.get(key) or {}
+            best = self._date_for_field(key, spec, single_field=len(date_keys) == 1)
+            if best is None:
+                continue
+            label = (spec.get("title") if isinstance(spec, dict) else None) or key
+            out[key] = best.date.isoformat()
+            self.corrections.append(Correction(label, v, out[key], f"data trovata nel testo: «{best.words}»"))
 
     def apply(self, data: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         props = (schema or {}).get("properties", {}) or {}
@@ -428,13 +644,14 @@ class FactGuard:
         for key, value in data.items():
             spec = props.get(key, {})
             label = (spec.get("title") if isinstance(spec, dict) else None) or key
-            out[key] = self._check(label, value, spec, _is_person(key, spec))
+            out[key] = self._check(label, key, value, spec, _is_person(key, spec))
+        self._fill_dates(out, props)
         return out
 
 
 def _is_person(key: str, spec: Any) -> bool:
-    text = _norm(key + " " + (spec.get("title", "") if isinstance(spec, dict) else ""))
-    return any(h in text for h in _PERSON_HINTS)
+    from . import field_semantics as fs
+    return fs.is_person(key, spec)
 
 
 def verify(data: Dict[str, Any], schema: Dict[str, Any], sources: Iterable[str],

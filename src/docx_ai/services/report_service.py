@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,8 @@ class DraftOutcome:
     ai_failed: str = ""
     # valori dell'AI tolti o corretti perche' senza riscontro nel testo
     corrections: List[str] = field(default_factory=list)
+    # frase del testo da cui l'AI ha preso ogni valore (evidenziata in revisione)
+    evidence: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.source_doc_hashes is None:
@@ -69,6 +72,9 @@ def _export_pdf_isolated(pdf_path: Path, data: Dict[str, Any], schema: Dict[str,
     export_pdf(pdf_path, data, schema, **kw)
 
 
+_ISO_DAY = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+
 def _for_document(value: Any) -> Any:
     """Copia dei dati per i documenti esportati: "NON_SPECIFICATO" -> "" (e tolto dagli elenchi)."""
     if isinstance(value, dict):
@@ -77,6 +83,11 @@ def _for_document(value: Any) -> Any:
         return [_for_document(v) for v in value if not (isinstance(v, str) and v.strip() == "NON_SPECIFICATO")]
     if isinstance(value, str) and value.strip() == "NON_SPECIFICATO":
         return ""
+    if isinstance(value, str):
+        # date dell'AI (AAAA-MM-GG) scritte nel documento come nei moduli italiani: 05/10/2026
+        m = _ISO_DAY.fullmatch(value.strip())
+        if m:
+            return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
     return value
 
 
@@ -245,6 +256,7 @@ class ReportService:
         return DraftOutcome(
             ai_failed=ai_failed,
             corrections=list(extraction.corrections or []),
+            evidence=dict(extraction.evidence or {}),
             report_id=report_id,
             success=extraction.success,
             data=extraction.data,

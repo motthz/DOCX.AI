@@ -377,9 +377,8 @@ class ReportPage(ctk.CTkFrame):
         if fixes:
             LOG.info("Controllo dei fatti: %s", "; ".join(fixes))
             fields = sorted({f.split(":", 1)[0].split("[", 1)[0] for f in fixes})
-            self.win.toast(t("Controllo automatico: {n} valori dell'AI non trovati nel tuo testo sono stati "
-                             "tolti o corretti ({f}). Verificali nella revisione.",
-                             n=len(fixes), f=", ".join(fields[:4])), "warning")
+            self.win.toast(t("Controllo automatico: {n} valori corretti, tolti o completati dal programma ({f}). "
+                             "Verificali nella revisione.", n=len(fixes), f=", ".join(fields[:4])), "warning")
         if getattr(outcome, "ai_failed", ""):
             self.win.toast(t("L'AI non è riuscita a compilare il modulo: completa i campi nella revisione."),
                            "warning")
@@ -387,13 +386,14 @@ class ReportPage(ctk.CTkFrame):
             self.win.toast(t("AI non installata: compila i campi a mano nella revisione."), "warning",
                            action=(t("Installa AI"), self.win.open_ai_setup))
         self.win.emit("reports")
-        self.open_review(mod, outcome.report_id, outcome.data, desc, sources)
+        self.open_review(mod, outcome.report_id, outcome.data, desc, sources,
+                         evidence=getattr(outcome, "evidence", None) or {})
 
     def open_review(self, mod: LoadedModule, report_id: int, data: Dict[str, Any], desc: str,
-                    sources: List[str], *, notes: str = "") -> None:
+                    sources: List[str], *, notes: str = "", evidence: Optional[Dict[str, str]] = None) -> None:
         from ..dialogs.review import ReviewDialog
         dlg = ReviewDialog(self.win, mod, report_id, data, description=desc, sources=sources,
-                           grounding=bool(self.grounding.get()), notes=notes)
+                           grounding=bool(self.grounding.get()), notes=notes, evidence=evidence)
         approved = dlg.wait()
         if approved is None:
             self.stepper.set(3, "todo")

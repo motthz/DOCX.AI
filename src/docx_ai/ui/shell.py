@@ -36,6 +36,19 @@ PAGES = [
 ]
 
 
+SIDEBAR_MIN = 220
+SIDEBAR_MAX = 520
+
+
+def sidebar_width(value: Any) -> int:
+    """Larghezza della barra dei moduli (pixel logici) sempre leggibile."""
+    try:
+        w = int(float(value))
+    except (TypeError, ValueError):
+        return 300
+    return 300 if w < SIDEBAR_MIN else min(SIDEBAR_MAX, w)
+
+
 def open_path(path: Path) -> bool:
     try:
         p = Path(path)
@@ -195,8 +208,12 @@ class MainWindow:
         from .sidebar import Sidebar
         self.sidebar = Sidebar(self._paned, self)
         self.content = ctk.CTkFrame(self._paned, fg_color=C["bg"], corner_radius=0)
-        width = int(int(self.settings.get("ui.sidebar_width")) * design.user_scale())
-        self._paned.add(self.sidebar, minsize=64, width=width, stretch="never")
+        # larghezza salvata entro limiti sensati: chiudendo l'app ridotta a icona (o durante
+        # un aggiornamento automatico) veniva salvata una larghezza di 1 px e la barra dei
+        # moduli spariva per sempre (alla chiusura successiva si salvava di nuovo 1 px)
+        width = int(sidebar_width(self.settings.get("ui.sidebar_width")) * design.user_scale())
+        self._paned.add(self.sidebar, minsize=int(SIDEBAR_MIN * design.user_scale()), width=width,
+                        stretch="never")
         self._paned.add(self.content, minsize=560, stretch="always")
         if self.settings.get("ui.sidebar_collapsed"):
             self.root.after(20, lambda: self.sidebar.set_collapsed(True))
@@ -617,8 +634,9 @@ class MainWindow:
             self.db.set_setting("ui.zoomed", "1" if zoomed else "0")
             if not zoomed:
                 self.db.set_setting("ui.geometry", self.root.geometry())
-            if not self.sidebar.collapsed:
-                self.settings.set("ui.sidebar_width", int(self.sidebar.winfo_width() / design.user_scale()))
+            current = int(self.sidebar.winfo_width() / design.user_scale())
+            if not self.sidebar.collapsed and current >= SIDEBAR_MIN:  # finestra ridotta a icona: 1 px
+                self.settings.set("ui.sidebar_width", sidebar_width(current))
             self.settings.set("ui.sidebar_collapsed", self.sidebar.collapsed)
         except Exception:  # noqa: BLE001
             pass

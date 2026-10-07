@@ -102,6 +102,63 @@ def _params_b(model: str) -> float:
     return size if size <= 14 else 0.0
 
 
+def _key_tokens(text: str) -> List[str]:
+    """Codici, numeri e date di un testo (da non perdere riscrivendolo)."""
+    import re
+    return list(dict.fromkeys(re.findall(r"\b(?=[\w\-/.,]*\d)[\w][\w\-/.,]*\w|\b\d\b", text or "")))
+
+
+def _norm_tokens(text: str) -> str:
+    import re
+    return re.sub(r"[\s\-/.,]", "", (text or "").lower())
+
+
+def _lost_tokens(tokens: List[str], out: str) -> List[str]:
+    """Codici/numeri/date dell'originale assenti nel testo riscritto (una data o un numero
+    scritti in altra forma, "05/10/2026" -> "5 ottobre 2026", "2" -> "due", non sono persi)."""
+    from ..llm.fact_guard import parse_date_value, source_dates, source_numbers, _number_readings
+    norm_out = _norm_tokens(out)
+    dates = numbers = None
+    lost = []
+    for tok in tokens:
+        if _norm_tokens(tok) in norm_out:
+            continue
+        d = parse_date_value(tok)
+        if d is not None:
+            dates = source_dates(out) if dates is None else dates
+            if d in dates:
+                continue
+        elif any(ch.isdigit() for ch in tok) and not any(ch.isalpha() for ch in tok):
+            numbers = source_numbers(out) if numbers is None else numbers
+            if any(abs(r - n) < 1e-6 for r in _number_readings(tok) for n in numbers):
+                continue
+        lost.append(tok)
+    return lost
+
+
+def _improved_text(raw: str) -> str:
+    """Testo dalla risposta {"testo": ...}; tollera risposte non JSON (backend senza grammatica)."""
+    import re
+    raw = (raw or "").strip()
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            raw = str(obj.get("testo") or "")
+        elif isinstance(obj, str):
+            raw = obj
+    except ValueError:
+        if raw.startswith("{"):  # JSON troncato (limite di token): il testo fin dove arriva
+            m = re.search(r'"testo"\s*:\s*"(.*)', raw, re.S)
+            body = re.sub(r'"\s*}?\s*$', "", m.group(1)) if m else ""
+            try:
+                raw = json.loads('"' + body.rstrip("\\") + '"')
+            except ValueError:
+                raw = body.replace('\\n', "\n").replace('\\"', '"')
+    raw = re.sub(r"^(?:ecco (?:il )?testo[^:\n]*|testo (?:riscritto|migliorato)[^:\n]*):\s*", "", raw.strip(),
+                 flags=re.I)
+    return raw.strip().strip('"').strip()
+
+
 @dataclass
 class AIResult:
     """Wrapper unificato risultato generico AI."""
@@ -357,26 +414,97 @@ class AIService:
 
     # ---- migliora testo (revisione) ----
     def improve_text(self, text: str, field_label: str = "", *, on_delta=None, document: str = "") -> str:
-        """Riscrive un testo in forma tecnica e chiara SENZA aggiungere fatti."""
-        system = (
-            "Sei un redattore professionale di documenti aziendali. Riscrivi il testo dell'utente "
-            "in italiano chiaro, preciso e adatto al tipo di documento. REGOLE: non aggiungere fatti, numeri, date, "
-            "nomi, codici o cause che non sono nel testo; non togliere informazioni; correggi "
-            "grammatica e terminologia; usa frasi brevi. Rispondi SOLO con il testo riscritto."
-        )
-        user = ((f"Documento: {document}\n" if document else "") + (f"Campo: {field_label}\n" if field_label else "")
-                + f"Testo:\n{text}\n\n/no_think")
-        pipe = self.pipeline()
-        self.touch()
-        resp = pipe.chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                         temperature=0.2, max_tokens=800, on_delta=on_delta)
-        self.touch()
-        out = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+        """Riscrive un testo in forma chiara SENZA aggiungere fatti (solo il testo)."""
+        return self.improve_text_checked(text, field_label, document=document)[0]
+
+    def improve_text_checked(self, text: str, field_label: str = "", *, document: str = "",
+                             sources: Optional[List[str]] = None, field_description: str = "",
+                             ) -> Tuple[str, List[str]]:
+        """Riscrive il testo di un campo (o, se il campo e' vuoto, lo scrive dalle
+        informazioni fornite) e controlla il risultato: ritorna (testo, avvisi).
+
+        Prima il modello piccolo rispondeva con preamboli ("Ecco il testo:"), cambiava
+        lingua, perdeva numeri e codici o ne aggiungeva di nuovi. Ora la risposta e'
+        imposta come JSON {"testo": ...} (niente testo di contorno) e confrontata con
+        l'originale: codici, numeri, date e nomi aggiunti o persi vengono segnalati e
+        provocano un secondo tentativo."""
         import re as _re
-        out = _re.sub(r"<think>.*?</think>", "", out, flags=_re.S).strip()
-        if not self.is_real_ai or not out or out.startswith("{"):
-            raise RuntimeError("Motore AI non disponibile: installa i componenti AI.")
-        return out
+        from ..llm.grounding import GroundingChecker
+
+        text = (text or "").strip()
+        sources = [s for s in (sources or []) if s and s.strip()]
+        compose = len(text) < 5
+        if compose and not sources:
+            raise ValueError("Il campo è vuoto: scrivi prima qualcosa o fornisci le informazioni da cui partire.")
+        field = field_label or "campo"
+        if compose:
+            system = (
+                "Sei un redattore professionale di documenti. Scrivi il contenuto di UN campo di un modulo "
+                "usando SOLO le informazioni del testo dell'utente che riguardano quel campo.\n"
+                "REGOLE: non aggiungere fatti, numeri, date, nomi, codici o cause che non sono nel testo; "
+                "riporta codici, numeri e nomi esattamente come scritti; frasi chiare e complete, tono "
+                "professionale; stessa lingua del testo dell'utente. Se il testo non contiene nulla su "
+                "questo campo rispondi con testo vuoto.")
+            user = ((f"Documento: {document}\n" if document else "")
+                    + f"Campo da scrivere: {field}" + (f" ({field_description})" if field_description else "")
+                    + "\n\nTesto dell'utente:\n" + _truncate("\n\n".join(sources), 6000, "fonti")
+                    + "\n\n/no_think")
+            reference = "\n".join(sources)
+        else:
+            system = (
+                "Sei un redattore professionale di documenti aziendali. Migliora la forma del testo di un "
+                "campo di un modulo.\n"
+                "REGOLE: mantieni TUTTE le informazioni; non aggiungere fatti, numeri, date, nomi, codici, "
+                "cause o conclusioni che non sono nel testo; riporta codici, numeri, misure e nomi "
+                "ESATTAMENTE come scritti; correggi grammatica, punteggiatura e terminologia tecnica; frasi "
+                "brevi e chiare, tono professionale e impersonale; stessa lingua del testo originale; "
+                "lunghezza simile all'originale.")
+            user = ((f"Documento: {document}\n" if document else "")
+                    + f"Campo: {field}" + (f" ({field_description})" if field_description else "")
+                    + f"\n\nTesto originale:\n{text}\n\n/no_think")
+            reference = "\n".join([text] + sources)
+        schema = {"type": "object", "properties": {"testo": {"type": "string"}}, "required": ["testo"],
+                  "additionalProperties": False}
+        pipe = self.pipeline()
+        checker = GroundingChecker([reference])
+        must_keep = [] if compose else _key_tokens(text)
+        best: Tuple[str, List[str]] = ("", [])
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        max_tokens = min(1500, max(300, int(len(reference if compose else text) / 2.5) + 200))
+        for attempt in range(2):
+            self.touch()
+            resp = pipe.chat(messages, temperature=0.2 if attempt == 0 else 0.1, max_tokens=max_tokens,
+                             json_schema=schema)
+            self.touch()
+            raw = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+            if not self.is_real_ai:
+                raise RuntimeError("Motore AI non disponibile: installa i componenti AI.")
+            raw = _re.sub(r"<think>.*?</think>", "", raw or "", flags=_re.S).strip()
+            out = _improved_text(raw)
+            if not out:
+                if compose:
+                    raise ValueError("Le informazioni fornite non contengono dati per questo campo.")
+                continue
+            warnings: List[str] = []
+            check = checker.check_value(out)
+            if check.status == "missing":
+                warnings.append("Dati non presenti nel testo originale: " + ", ".join(check.missing[:5]))
+            lost = _lost_tokens(must_keep, out)
+            if lost:
+                warnings.append("Dati del testo originale che mancano: " + ", ".join(lost[:5]))
+            if not compose and len(out) < len(text) * 0.4:
+                warnings.append("Il testo riscritto è molto più corto dell'originale.")
+            if not best[0] or len(warnings) < len(best[1]):
+                best = (out, warnings)
+            if not warnings:
+                break
+            messages = messages + [
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": "Correggi: " + " ".join(warnings)
+                 + ". Riscrivi rispettando le REGOLE, senza aggiungere né togliere dati.\n/no_think"}]
+        if not best[0]:
+            raise RuntimeError("L'AI non ha restituito un testo valido. Riprova.")
+        return best
 
     @property
     def is_real_ai(self) -> bool:

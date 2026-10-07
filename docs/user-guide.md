@@ -59,7 +59,8 @@ The review shows **the sources on the left** and **the fields on the right**:
   sources — likely invented by the AI. Always check them.
 - **Inferred**: chosen from a list or yes/no. **Missing**: empty or `NON_SPECIFICATO`.
 
-**Improve text** rewrites long texts clearly without adding facts. Drafts are **saved
+**Improve text** rewrites long texts clearly without adding facts (and writes an empty
+field from the information provided); added or lost codes, numbers, dates or names are reported. Drafts are **saved
 automatically** every 20 seconds. **Approve and generate the document** produces a PDF
 (with images), your template filled in (DOCX/XLSX) and the approved data (JSON).
 

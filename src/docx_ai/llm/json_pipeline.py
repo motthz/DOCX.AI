@@ -26,6 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import jsonschema
 
 from .prompt_builder import build_extraction_messages
+from . import evidence as _ev
 from . import quality_scorer as _qs
 
 
@@ -41,6 +42,8 @@ class ExtractionResult:
     debug_dir: Optional[str] = None  # path to artifact dump (if debug)
     # valori dell'AI tolti/corretti dal controllo dei fatti (fact_guard), leggibili
     corrections: Optional[List[str]] = None
+    # frase del testo citata dall'AI per ogni campo (risposta con prova), per la revisione
+    evidence: Optional[Dict[str, str]] = None
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -183,6 +186,12 @@ def _fill_missing_defaults(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict
             except (TypeError, ValueError):
                 # "NON_SPECIFICATO", "n.d." ... -> numero non indicato
                 data[key] = None
+
+    # campi a valore fisso (const): sempre quel valore (con la risposta "con prova" il
+    # modello finto dei test non lo conosce; quello vero lo scrive gia' per grammatica)
+    for key, spec in props.items():
+        if isinstance(spec, dict) and "const" in spec:
+            data[key] = spec["const"]
 
     # ---- Second pass: fill missing required fields with schema-appropriate default ----
     for key in required:
@@ -367,6 +376,22 @@ def prompt_char_budget(server: Any, max_tokens: int) -> int:
 # 2 + le sue colonne). Un modello piccolo che deve scrivere 20-40 campi in una sola
 # risposta ne salta molti; a gruppi di ~8 li compila quasi tutti.
 GROUP_WEIGHT = 8
+# modelli piccoli (0.6B/1.7B): gruppi piu' piccoli, ogni campo riceve piu' "attenzione"
+SMALL_MODEL_GROUP_WEIGHT = 5
+
+
+def is_small_model(server: Any) -> bool:
+    """Modello da 2 miliardi di parametri o meno (Qwen3 0.6B / 1.7B)."""
+    import re as _re
+    name = ""
+    opts = getattr(server, "options", None)
+    for attr in ("model_path", "model"):
+        val = getattr(opts, attr, None) if opts is not None else None
+        if val:
+            name = os.path.basename(str(val)).lower()
+            break
+    m = _re.search(r"(\d+(?:\.\d+)?)\s*b\b", name.replace("-", " ").replace("_", " ").replace(":", " "))
+    return m is not None and float(m.group(1)) <= 2.0
 
 
 def _field_weight(spec: Any) -> int:
@@ -418,13 +443,16 @@ class JsonPipeline:
 
     def __init__(self, server: ServerLike, *, max_retries: int = 3,
                  debug_root: Optional[Path] = None,
-                 server_chain: Optional[List[ServerLike]] = None):
+                 server_chain: Optional[List[ServerLike]] = None,
+                 evidence: bool = True):
         # Legacy single-server argument converted to a chain of 1 element
         self.server_chain: List[ServerLike] = list(server_chain) if server_chain else [server]
         self.max_retries = max(0, int(max_retries))
         self.debug_root = debug_root
         self._do_debug = bool(debug_root)
-        self.group_weight = GROUP_WEIGHT
+        self.group_weight: Optional[int] = None  # None = in base al modello
+        # risposta con prova per ogni campo (llm/evidence.py)
+        self.evidence = bool(evidence)
 
     # ------------------------------------------------------------------
     def extract(
@@ -456,19 +484,23 @@ class JsonPipeline:
 
         last_error = ""
         total_attempts = 0
-        groups = split_schema(schema, self.group_weight)
-        chunked = len(groups) > 1
 
         # Iterate BACKEND failover chain (primary 1.7B → fallback 0.6B → mock)
         for server_index, server in enumerate(self.server_chain):
             server_name = self._backend_name(server)
+            weight = self.group_weight
+            if weight is None:
+                weight = SMALL_MODEL_GROUP_WEIGHT if is_small_model(server) else GROUP_WEIGHT
+            groups = split_schema(schema, weight)
+            chunked = len(groups) > 1
             if on_progress:
                 on_progress(0, len(groups), f"Backend {server_index+1}/{len(self.server_chain)}: {server_name}")
             # stesso budget per tutti i gruppi: prompt identico salvo l'elenco dei campi
             # finale, cosi' llama-server rielabora solo quello (cache del prompt)
-            max_tokens = max(self._estimate_max_tokens(g, server) for g in groups)
+            max_tokens = max(self._estimate_max_tokens(g, server, evidence=self.evidence) for g in groups)
             budget = prompt_char_budget(server, max_tokens)
             merged: Dict[str, Any] = {}
+            proofs: Dict[str, Optional[str]] = {}
             raws: List[str] = []
             failed: List[str] = []
             for gi, group in enumerate(groups):
@@ -476,7 +508,7 @@ class JsonPipeline:
                     on_progress(gi + 1, len(groups), f"{server_name}: gruppo di campi {gi+1}/{len(groups)}")
                 if on_token is not None and chunked and gi:
                     on_token("\n")
-                data, raw, err, attempts = self._extract_group(
+                data, raw, err, attempts, group_proofs = self._extract_group(
                     server, server_name, schema, group, operator_description,
                     reference_docs=reference_docs, history_snippets=history_snippets,
                     document_context=document_context, budget=budget, temperature=temperature,
@@ -488,6 +520,7 @@ class JsonPipeline:
                     failed += list(group["properties"])
                     continue
                 merged.update(data)
+                proofs.update(group_proofs)
                 raws.append(raw or "")
             if not raws:  # nessun gruppo riuscito
                 logger.warning(f"[{server_name}] Esauriti tutti i tentativi — passo al fallback successivo.")
@@ -504,13 +537,19 @@ class JsonPipeline:
                 logger.warning(f"[{server_name}] campi non compilati: {failed} ({last_error})")
             repaired = _fill_missing_defaults(merged, schema)
             raw = "\n".join(raws)
+            sources = [operator_description] + [t for _n, t in reference_docs]
 
+            # Prove citate dall'AI: Sì/No e scelte senza una frase che le confermi, testi
+            # senza riscontro e caselle Sì/No incoerenti vengono tolti (llm/evidence.py)
+            repaired, ev_fixes = _ev.apply(repaired, proofs, schema, sources)
             # Controllo deterministico: date, numeri, codici e nomi devono avere
-            # riscontro nel testo dell'utente o nei documenti (non nello storico).
+            # riscontro nel testo dell'utente o nei documenti (non nello storico);
+            # i campi data vuoti ricevono la data del testo che si riferisce a loro.
             from .fact_guard import verify as _verify_facts
-            repaired, fixes = _verify_facts(
-                repaired, schema, [operator_description] + [t for _n, t in reference_docs])
-            _write_debug(dump_dir, "98_fact_guard.json", [c.describe() for c in fixes])
+            repaired, fixes = _verify_facts(repaired, schema, sources)
+            all_fixes: List[Any] = list(ev_fixes) + list(fixes)
+            _write_debug(dump_dir, "97_evidence.json", proofs)
+            _write_debug(dump_dir, "98_fact_guard.json", [c.describe() for c in all_fixes])
             quality = _qs.score(repaired, schema)
             _write_debug(dump_dir, "99_final_validated.json", repaired)
             _write_debug(dump_dir, "99_meta.json", {
@@ -530,7 +569,8 @@ class JsonPipeline:
                 failover_used=server_name,
                 quality_score=quality,
                 debug_dir=str(dump_dir) if dump_dir else None,
-                corrections=notes + [c.describe() for c in fixes],
+                corrections=notes + [c.describe() for c in all_fixes],
+                evidence={k: v for k, v in proofs.items() if v},
             )
 
         # End of chain: all backends failed
@@ -563,14 +603,14 @@ class JsonPipeline:
         dump_dir: Optional[Path],
         tag: str,
         chunked: bool,
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], str, int]:
-        """Un gruppo di campi con i suoi tentativi: (dati, testo grezzo, errore, tentativi).
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], str, int, Dict[str, Optional[str]]]:
+        """Un gruppo di campi con i suoi tentativi: (dati, testo grezzo, errore, tentativi, prove).
 
         Il prompt descrive sempre lo schema completo (il modello sa dove va ogni
         informazione); la grammatica JSON impone solo i campi del gruppo."""
         logger = _logmod.getLogger(__name__)
         focus = list(group.get("properties") or {}) if chunked else None
-        max_tokens = self._estimate_max_tokens(group, server)
+        max_tokens = self._estimate_max_tokens(group, server, evidence=self.evidence)
         messages = build_extraction_messages(
             schema,
             operator_description,
@@ -579,8 +619,11 @@ class JsonPipeline:
             document_context=document_context,
             max_prompt_chars=budget,
             focus_fields=focus,
+            evidence=self.evidence,
         )
-        model_schema = llm_schema(group)
+        value_schema = llm_schema(group)
+        model_schema = _ev.wrap_schema(value_schema) if self.evidence else value_schema
+        group_props = group.get("properties") or {}
         last_error = ""
 
         # Retry escalation WITHIN this backend (attempts 0..max_retries)
@@ -597,6 +640,7 @@ class JsonPipeline:
                     document_context=document_context,
                     max_prompt_chars=budget,
                     focus_fields=focus,
+                    evidence=self.evidence,
                 )
                 if last_error:
                     use_messages = self._append_repair_messages(use_messages, "", last_error)
@@ -639,10 +683,13 @@ class JsonPipeline:
                 continue
             if not isinstance(parsed, dict):
                 parsed = {"value": parsed}
+            proofs: Dict[str, Optional[str]] = {}
+            if self.evidence:
+                parsed, proofs = _ev.unwrap(parsed, group_props)
             repaired = _fill_missing_defaults(parsed, group)
             _write_debug(dump_dir, f"{tag}_{attempt}_3_parsed.json", repaired)
             try:
-                jsonschema.validate(repaired, model_schema)
+                jsonschema.validate(repaired, value_schema)
             except jsonschema.ValidationError as exc:
                 last_error = (
                     f"[{server_name}] Schema validation fallito: {exc.message} "
@@ -651,8 +698,8 @@ class JsonPipeline:
                 messages = self._append_repair_messages(messages, raw, last_error)
                 _write_debug(dump_dir, f"{tag}_{attempt}_4_validation_error.txt", str(exc))
                 continue
-            return repaired, raw, "", attempt + 1
-        return None, None, last_error, self.max_retries + 1
+            return repaired, raw, "", attempt + 1, proofs
+        return None, None, last_error, self.max_retries + 1, {}
 
     # ------------------------------------------------------------------
     @property
@@ -691,7 +738,7 @@ class JsonPipeline:
         return cls
 
     @staticmethod
-    def _estimate_max_tokens(schema: Dict[str, Any], server: Any = None) -> int:
+    def _estimate_max_tokens(schema: Dict[str, Any], server: Any = None, *, evidence: bool = False) -> int:
         """Very rough estimate of required tokens based on field count, capped to
         half of the model context (the rest is for the prompt)."""
         props = schema.get("properties", {}) or {}
@@ -701,7 +748,8 @@ class JsonPipeline:
                 items = spec.get("items") or {}
                 if isinstance(items, dict) and items.get("type") == "object":
                     field_count += len(items.get("properties", {}) or {}) * 3
-        estimate = max(500, min(3200, 400 + field_count * 100))
+        # la frase citata come prova: ~50 token per campo
+        estimate = max(500, min(3600, 400 + field_count * 100 + (len(props) * 55 if evidence else 0)))
         ctx = int(getattr(getattr(server, "options", None), "context_size", 0) or 0)
         if ctx:
             estimate = min(estimate, max(400, ctx // 2))

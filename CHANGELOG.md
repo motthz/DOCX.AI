@@ -6,6 +6,39 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.9.0] - 2026-10-07
+
+### Migliorato
+- **Compilazione molto più precisa con il modello intermedio (Qwen3 1.7B).**
+  - Per ogni campo l'AI deve citare la frase del testo da cui prende il valore, poi scrivere il valore:
+    cerca l'informazione nel testo prima di rispondere (meno campi saltati) e il programma verifica che la
+    frase esista davvero. Sì/No e scelte da elenco senza una frase che li confermi vengono tolti (erano
+    deduzioni inventate), così come un Sì quando la frase lo esclude ("nessun fermo macchina" per il campo
+    "fermo impianto") e le caselle Sì e No spuntate insieme.
+  - Il significato dei campi viene ricavato dal nome anche senza descrizione: `data` e `data_intervento`
+    sono date, `firma_operatore` è un nome, `numero_rapporto` un codice. Prima i campi data senza formato
+    non venivano riconosciuti né verificati.
+  - Con i modelli piccoli i campi vengono compilati a gruppi di 5 (prima 8) e l'elenco dei campi, con il
+    loro significato, è ripetuto subito prima della risposta. Il prompt contiene un esempio di compilazione.
+  - Tutti i campi sono obbligatori nella risposta: prima il modello poteva chiudere il JSON saltando i
+    campi facoltativi.
+- **Date riconosciute in molte più forme** e calcolate dal programma: "lunedì scorso", "venerdì
+  prossimo", "il 15" (mese della data citata prima), "dal 3 al 5 ottobre", "primo ottobre", "entro il
+  30/11", "tra due settimane", "3 giorni fa". Ogni data viene assegnata al campo giusto guardando le
+  parole vicine ("riunione del 2 ottobre", "prossimo incontro il 15"): i campi data rimasti vuoti vengono
+  completati, una data messa nel campo sbagliato viene spostata, una data scritta a parole viene
+  convertita. Nei documenti esportati le date sono scritte come 05/10/2026.
+- **Migliora testo**: la risposta è solo il testo (niente "Ecco il testo riscritto:"), viene controllata
+  (codici, numeri, date o nomi aggiunti o persi vengono segnalati e provocano un secondo tentativo), il
+  pulsante mostra l'avanzamento e, se il campo è vuoto, l'AI lo scrive dalle informazioni fornite.
+- **Revisione**: cliccando un campo viene evidenziata nelle fonti la frase da cui l'AI ha preso il valore.
+
+### Corretto
+- La barra dei moduli a sinistra spariva: chiudendo l'app ridotta a icona (o durante un aggiornamento
+  automatico) veniva salvata una larghezza di 1 pixel, ripresa a ogni avvio. Ora la larghezza è sempre
+  tra 220 e 520 pixel.
+- La scheda *Modulo* poteva mostrare il modulo selezionato in precedenza.
+
 ## [0.8.0] - 2026-10-06
 
 ### Migliorato

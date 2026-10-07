@@ -72,7 +72,9 @@ class Sidebar(ctk.CTkFrame):
         else:
             self.rail.pack_forget()
             self.full.pack(fill="both", expand=True)
-            paned.paneconfigure(self, width=max(240, getattr(self, "_expanded_width", 300)), minsize=220)
+            scale = design.user_scale()
+            width = max(int(240 * scale), min(int(520 * scale), getattr(self, "_expanded_width", 0) or 0))
+            paned.paneconfigure(self, width=width, minsize=int(220 * scale))
         self.collapsed = value
 
     def apply_scale(self, old: float, new: float) -> None:
@@ -80,8 +82,8 @@ class Sidebar(ctk.CTkFrame):
         if self.collapsed:
             self.win._paned.paneconfigure(self, width=int(64 * new), minsize=int(64 * new))
             return
-        logical = self.winfo_width() / (old or 1.0)
-        self.win._paned.paneconfigure(self, width=int(logical * new))
+        logical = max(240, min(520, self.winfo_width() / (old or 1.0)))
+        self.win._paned.paneconfigure(self, width=int(logical * new), minsize=int(220 * new))
 
     def _schedule_filter(self) -> None:
         if self._search_after:

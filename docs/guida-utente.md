@@ -78,7 +78,8 @@ Esempi già pronti nella cartella `examples/modules`: *Verbale di riunione* (DOC
 ![Revisione affiancata](img/revisione.png)
 
 La revisione mostra **a sinistra le fonti** (il tuo testo e i documenti) e **a destra
-i campi**. Cliccando un campo, il suo valore viene evidenziato nelle fonti.
+i campi**. Cliccando un campo, viene evidenziata nelle fonti la frase da cui l'AI ha preso
+il valore (passando il mouse sull'etichetta del campo la vedi scritta).
 
 - **Trovato nelle fonti**: il valore compare nel testo o nei documenti.
 - **Da verificare** (rosso): numeri, codici, date, importi o nomi che **non** compaiono
@@ -87,7 +88,9 @@ i campi**. Cliccando un campo, il suo valore viene evidenziato nelle fonti.
 - **Mancante**: campo vuoto o `NON_SPECIFICATO`.
 
 Sui testi lunghi **Migliora testo** riscrive la frase in forma chiara e professionale
-senza aggiungere fatti (puoi annullare). La bozza viene **salvata automaticamente** ogni
+senza aggiungere fatti (puoi annullare); se il campo è vuoto lo scrive partendo dalle
+informazioni fornite. Il risultato viene confrontato con l'originale: se l'AI ha aggiunto o
+perso codici, numeri, date o nomi te lo segnala. La bozza viene **salvata automaticamente** ogni
 20 secondi: se chiudi, la ritrovi in *Home → Bozze da completare*.
 
 **Approva e genera il documento** produce nella cartella di esportazione:
@@ -183,7 +186,12 @@ tipo di documento l'AI è più precisa.
 importi e numeri. In più, dopo ogni compilazione un **controllo automatico** (che non usa
 l'AI) confronta date, numeri, codici e nomi con quanto hai scritto: una data o un numero
 che non compare nel tuo testo viene tolto (o corretto, se giorno e mese erano scambiati) e
-il campo resta da compilare in revisione. Il *controllo delle fonti* evidenzia in rosso
+il campo resta da compilare in revisione. Per ogni campo l'AI deve anche citare la frase del
+tuo testo da cui ha preso il valore: Sì/No e scelte da elenco senza una frase che li confermi
+vengono tolti, così come le caselle Sì e No spuntate insieme. Le date scritte in qualsiasi
+forma ("lunedì scorso", "il 15", "dal 3 al 5 ottobre", "entro il 30/11") sono calcolate dal
+programma e assegnate al campo giusto guardando le parole vicine ("prossimo incontro il 15").
+Il *controllo delle fonti* evidenzia in rosso
 gli altri valori che non compaiono nelle fonti. I modelli più piccoli sbagliano più spesso: con almeno 8 GB di RAM
 (o una scheda video dedicata) installa il **Qwen3 4B Instruct** (Impostazioni → Componenti AI), con almeno 6 GB l'1.7B. L'app usa
 automaticamente il modello più preciso installato che entra nella memoria libera.

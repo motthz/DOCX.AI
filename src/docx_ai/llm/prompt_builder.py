@@ -23,16 +23,17 @@ Il tuo compito è trasformare esclusivamente le informazioni fornite dall'utente
 e dai documenti di contesto nei campi dello schema richiesto.
 
 COME COMPILARE:
-- Leggi tutto il testo dell'utente: ogni informazione che contiene va messa nel campo
-  a cui si riferisce (guarda nome, titolo e descrizione del campo).
+- Leggi TUTTO il testo dell'utente, frase per frase: ogni informazione va nel campo a cui
+  si riferisce (guarda nome, titolo e descrizione del campo). Un'informazione può servire
+  a più campi.
 - Riporta nomi, codici, numeri, importi, quantità e misure ESATTAMENTE come scritti.
-- Campi data: formato AAAA-MM-GG. Le date relative ("oggi", "ieri", "lunedì scorso",
-  "tra due settimane") si calcolano dalla DATA DI OGGI indicata sotto.
+- Campi data: formato AAAA-MM-GG. Usa le date già convertite elencate in "DATE NEL TESTO";
+  scegli quella che si riferisce al campo (guarda le parole vicine alla data).
 - Campi di testo descrittivi (descrizioni, note, argomenti, decisioni...): frasi chiare
   e complete che riassumono fedelmente quanto scritto dall'utente su quell'argomento,
   senza aggiungere nulla.
 - Elenchi: un elemento per ogni voce citata; elenco vuoto [] se non ce ne sono.
-- Campi Sì/No: true solo se il testo lo afferma, altrimenti false.
+- Campi Sì/No: true solo se il testo lo afferma, false se lo nega o non ne parla.
 - Campi con valori ammessi: scegli il valore che corrisponde a quanto scritto;
   se il testo non lo dice usa NON_SPECIFICATO.
 - Campi numerici: solo numeri presenti nel testo; se manca usa null.
@@ -43,13 +44,30 @@ REGOLE:
 - Quando un'informazione non è disponibile usa NON_SPECIFICATO oppure il valore
   di assenza previsto dallo schema. Non lasciare vuoto un campo se il testo contiene
   l'informazione.
-- Non trasformare una possibilità in un fatto.
+- Non trasformare una possibilità ("forse", "potrebbe") in un fatto.
 - Le informazioni contenute nei documenti di riferimento sono istruzioni e contesto,
   non prova di fatti relativi al documento corrente.
 - Lo storico può essere usato per comprendere terminologia e forma dei documenti,
   non per copiare dati da documenti passati.
 - Restituisci esclusivamente i dati richiesti.
 - Non aggiungere campi non previsti.
+"""
+
+# Risposta con prova (vedi llm/evidence.py): il modello cita la frase del testo da cui
+# ricava ogni valore. Un esempio concreto e' l'aiuto piu' efficace per un modello piccolo.
+EVIDENCE_POLICY = """FORMATO DELLA RISPOSTA:
+Per ogni campo scrivi un oggetto {"evidenza": "...", "valore": ...}:
+- "evidenza": le parole del testo dell'utente da cui ricavi il valore, COPIATE ESATTAMENTE
+  (poche parole, al massimo una frase). Se il testo non contiene l'informazione: "".
+- "valore": il valore del campo ricavato da quella evidenza. Con evidenza "" usa
+  NON_SPECIFICATO (testi e scelte), null (numeri), false (Sì/No) o [] (elenchi).
+
+ESEMPIO (solo per il formato: i dati dell'esempio NON vanno mai usati)
+Testo: "Stamattina il tecnico Gino Neri ha cambiato la valvola V-3 del reparto Forni, 2 ore di lavoro. Collaudo superato, nessuna perdita."
+Date nel testo: «Stamattina» = 2031-03-14
+Campi: data_intervento (data), tecnico (persona), apparecchiatura (testo), ore (numero), esito (valori: positivo, negativo), cliente (persona), perdite_rilevate (Sì/No)
+Risposta:
+{"data_intervento": {"evidenza": "Stamattina", "valore": "2031-03-14"}, "tecnico": {"evidenza": "il tecnico Gino Neri", "valore": "Gino Neri"}, "apparecchiatura": {"evidenza": "la valvola V-3 del reparto Forni", "valore": "Valvola V-3 (reparto Forni)"}, "ore": {"evidenza": "2 ore di lavoro", "valore": 2}, "esito": {"evidenza": "Collaudo superato", "valore": "positivo"}, "cliente": {"evidenza": "", "valore": "NON_SPECIFICATO"}, "perdite_rilevate": {"evidenza": "nessuna perdita", "valore": false}}
 """
 
 _WEEKDAYS = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
@@ -62,18 +80,20 @@ def today_line(today: Optional[date] = None) -> str:
 
 
 def _field_line(name: str, spec: Dict[str, Any], required: bool, indent: str = "") -> List[str]:
-    t = spec.get("type", "")
-    if isinstance(t, list):
-        t = next((x for x in t if x != "null"), "string")
+    from . import field_semantics as fs
+    spec = spec if isinstance(spec, dict) else {}
+    t = fs.base_type(spec)
     title = spec.get("title", "")
     desc = spec.get("description", "")
     enum = spec.get("enum")
-    fmt = spec.get("format")
+    k = fs.kind(name, spec)
     suffix_parts = []
     if enum:
         suffix_parts.append("valori_ammessi=" + ",".join(str(e) for e in enum))
-    if fmt in ("date", "date-time"):
-        suffix_parts.append("formato AAAA-MM-GG")
+    if k == "date":
+        suffix_parts.append("data, formato AAAA-MM-GG")
+    elif k in ("time", "person", "code"):
+        suffix_parts.append(fs.KIND_HINT[k])
     sub: List[str] = []
     if t == "array":
         items = spec.get("items", {})
@@ -82,9 +102,7 @@ def _field_line(name: str, spec: Dict[str, Any], required: bool, indent: str = "
             if subprops:
                 suffix_parts.append("array_di={" + ",".join(subprops.keys()) + "}")
                 for sk, sspec in subprops.items():
-                    if isinstance(sspec, dict) and (sspec.get("description") or sspec.get("title")
-                                                    or sspec.get("enum") or sspec.get("format")):
-                        sub += _field_line(sk, sspec, False, indent + "    ")
+                    sub += _field_line(sk, sspec, False, indent + "    ")
         else:
             suffix_parts.append("array_di_stringhe")
     suffix = "; ".join(suffix_parts)
@@ -92,12 +110,35 @@ def _field_line(name: str, spec: Dict[str, Any], required: bool, indent: str = "
     if not indent:
         piece += f", obbligatorio={'si' if required else 'no'}"
     piece += ")"
-    label = " - ".join(x for x in (title, desc) if x and x != name)
+    readable = title or (fs.label(name, spec) if fs.label(name, spec).lower() != name.lower() else "")
+    label = " - ".join(x for x in (readable, desc) if x and x != name)
     if label:
         piece += f": {label}"
     if suffix:
         piece += f" [{suffix}]"
     return [piece] + sub
+
+
+def _focus_lines(schema: Dict[str, Any], keys: List[str]) -> str:
+    """Campi da compilare ripetuti subito prima della risposta, con il loro significato:
+    il modello piccolo "dimentica" le descrizioni lette all'inizio del prompt."""
+    from . import field_semantics as fs
+    props = schema.get("properties", {}) or {}
+    lines = []
+    for k in keys:
+        raw = props.get(k)
+        spec: Dict[str, Any] = raw if isinstance(raw, dict) else {}
+        kd = fs.kind(k, spec)
+        hint = fs.KIND_HINT.get(kd, "testo")
+        if kd == "choice":
+            hint = "valori: " + ", ".join(str(e) for e in spec.get("enum") or [])
+        elif kd == "list":
+            items = spec.get("items") or {}
+            if isinstance(items, dict) and isinstance(items.get("properties"), dict):
+                hint = "elenco di righe con " + ", ".join(items["properties"])
+        desc = str(spec.get("description") or "").strip()
+        lines.append(f"- {k} = {fs.label(k, spec)} ({hint})" + (f": {desc}" if desc else ""))
+    return "\n".join(lines)
 
 
 def _schema_semantics(schema: Dict[str, Any]) -> str:
@@ -115,8 +156,6 @@ def _schema_semantics(schema: Dict[str, Any]) -> str:
     for k, spec in props.items():
         if isinstance(spec, dict):
             lines += _field_line(k, spec, k in required_fields)
-    if required_fields:
-        lines.append("Campi obbligatori: " + ", ".join(required_fields))
     return "\n".join(lines)
 
 
@@ -134,13 +173,17 @@ def _truncate(text: str, max_chars: int, label: str) -> str:
 
 
 def _dates_line(text: str, today: Optional[date] = None) -> str:
-    """Date del testo gia' convertite in AAAA-MM-GG (calcolate dal programma, non dall'AI)."""
-    from .fact_guard import date_mentions
-    found = date_mentions(text, today)
+    """Date del testo gia' convertite in AAAA-MM-GG (calcolate dal programma, non dall'AI),
+    con le parole vicine per capire a quale campo si riferiscono."""
+    from .fact_guard import date_mentions_ctx
+    found = date_mentions_ctx(text, today)
     if not found:
         return ""
-    return ("DATE CITATE NEL TESTO (già convertite, usa queste nei campi data): "
-            + "; ".join(f"«{words}» = {d.isoformat()}" for words, d in found))
+    parts = []
+    for m in found:
+        ctx = m.context.replace("…", "[" + m.words + "]") if m.context else ""
+        parts.append(f"«{m.words}» = {m.date.isoformat()}" + (f" (\"{ctx}\")" if ctx and ctx != m.words else ""))
+    return "DATE NEL TESTO (già convertite, usa queste nei campi data):\n" + "\n".join("- " + p for p in parts)
 
 
 def build_extraction_messages(
@@ -157,6 +200,7 @@ def build_extraction_messages(
     max_prompt_chars: int = 14000,
     today: Optional[date] = None,
     focus_fields: Optional[List[str]] = None,
+    evidence: bool = False,
 ) -> List[Dict[str, str]]:
     """Assemble the messages list.
 
@@ -172,13 +216,24 @@ def build_extraction_messages(
     focus_fields:     compilazione a gruppi: in questa risposta solo questi campi.
                       L'istruzione va in fondo, cosi' tutto il resto del prompt e'
                       identico tra i gruppi e llama-server lo riusa dalla cache.
+    evidence:         risposta {"evidenza", "valore"} per campo (vedi llm/evidence.py).
     """
-    system_text = SYSTEM_POLICY + "\n" + today_line(today) + "\n\n" + _schema_semantics(schema)
+    ev_policy = ""
+    if evidence:
+        ev_policy = EVIDENCE_POLICY
+        # contesto piccolo (profilo compatibility, 4096 token): l'esempio lascia il posto al
+        # testo dell'utente, che non deve mai essere accorciato
+        if len(SYSTEM_POLICY) + len(EVIDENCE_POLICY) + 3 * len(operator_description or "") \
+                + 120 * len(schema.get("properties") or {}) > int(max_prompt_chars):
+            ev_policy = EVIDENCE_POLICY.split("ESEMPIO", 1)[0]
+    system_text = SYSTEM_POLICY + "\n" + (ev_policy + "\n" if ev_policy else "") \
+        + today_line(today) + "\n\n" + _schema_semantics(schema)
     if document_context:
         system_text += "\nDOCUMENTO DA COMPILARE: " + _truncate(document_context.strip(), 600, "modulo")
 
     closing = (
-        "\nRestituisci ESCLUSIVAMENTE un JSON valido conforme allo schema indicato. "
+        "\nRestituisci ESCLUSIVAMENTE un JSON valido conforme allo schema indicato"
+        + (", con evidenza e valore per ogni campo" if evidence else "") + ". "
         "Non aggiungere commenti, markdown, spiegazioni o testo fuori dall'oggetto JSON."
     )
     if append_no_think:
@@ -188,8 +243,12 @@ def build_extraction_messages(
 
     desc_raw = (operator_description or "").strip()
     dates = _dates_line(desc_raw, today)
+    all_keys = list((schema.get("properties") or {}))
+    # spazio per l'elenco dei campi in fondo: calcolato sull'elenco completo, uguale per
+    # tutti i gruppi (il prompt deve restare identico per la cache di llama-server)
+    focus_reserve = len(_focus_lines(schema, all_keys)) + 250
     budget = (max(1500, int(max_prompt_chars)) - len(system_text) - len(closing) - len(user_header)
-              - len(dates) - 200)
+              - len(dates) - focus_reserve)
     desc = _truncate(desc_raw, max(600, min(max_description_chars, budget)), "descrizione")
     budget -= len(desc)
 
@@ -240,11 +299,13 @@ def build_extraction_messages(
     user_chunks = context_chunks + [user_header, desc or "(nessuna descrizione fornita)"]
     if dates:
         user_chunks.append(dates)
-    if focus_fields:
+    keys = [k for k in (focus_fields or all_keys) if k in (schema.get("properties") or {})]
+    if keys:
+        only = (" Compila SOLO questi campi (gli altri sono gestiti a parte)." if focus_fields else "")
         user_chunks.append(
-            "=== CAMPI DA COMPILARE IN QUESTA RISPOSTA ===\n" + ", ".join(focus_fields)
-            + "\nCompila SOLO questi campi (gli altri sono gestiti a parte): rileggi tutto il testo "
-            "dell'utente e riporta ogni informazione che li riguarda.")
+            "=== CAMPI DA COMPILARE IN QUESTA RISPOSTA ===\n" + _focus_lines(schema, keys)
+            + "\n" + only.strip() + (" " if only else "")
+            + "Rileggi tutto il testo dell'utente e riporta ogni informazione che riguarda questi campi.")
     user_chunks.append(closing)
     return [
         {"role": "system", "content": system_text},

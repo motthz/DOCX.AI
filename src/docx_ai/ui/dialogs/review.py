@@ -26,7 +26,9 @@ from ..i18n import t
 from ..widgets import Chip, button, label
 from .base import Dialog
 
-LONG_KEYS = ("note", "descrizione", "diagnosi", "causa", "attivita", "intervento", "osservazioni", "anomalia")
+LONG_KEYS = ("note", "descrizione", "diagnosi", "causa", "attivita", "intervento", "osservazioni", "anomalia",
+             "argoment", "decision", "motivazion", "sintesi", "riassunto", "commento", "dettagli", "lavori",
+             "relazione", "esito_descr", "conclusion", "ordine_del_giorno", "discussion")
 STATUS_CHIP = {"ok": ("Trovato nelle fonti", "success"), "missing": ("Da verificare", "danger"),
                "inferred": ("Dedotto", "neutral"), "empty": ("Mancante", "warning")}
 AUTOSAVE_S = 20
@@ -44,7 +46,8 @@ def _missing(v: Any) -> bool:
 class ReviewDialog(Dialog):
     def __init__(self, win: Any, mod: LoadedModule, report_id: int, data: Dict[str, Any], *,
                  description: str = "", sources: Optional[List[str]] = None, grounding: bool = True,
-                 notes: str = "", title: Optional[str] = None, approve_text: Optional[str] = None):
+                 notes: str = "", title: Optional[str] = None, approve_text: Optional[str] = None,
+                 evidence: Optional[Dict[str, str]] = None):
         super().__init__(win.root, title or t("Revisione · {name}", name=mod.name), width=1240, height=840,
                          icon_name="list-checks",
                          subtitle=t("Controlla e correggi i campi: niente viene esportato senza la tua approvazione."))
@@ -59,6 +62,8 @@ class ReviewDialog(Dialog):
         self.rows: Dict[str, ctk.CTkFrame] = {}
         self._dirty = False
         self._saved_at: Optional[str] = None
+        self.sources = list(sources or [description])
+        self.evidence = {k: v for k, v in (evidence or {}).items() if isinstance(v, str) and v.strip()}
         self.checker = GroundingChecker(sources or [description]) if grounding else None
         self.checks: Dict[str, FieldCheck] = {}
 
@@ -186,13 +191,19 @@ class ReviewDialog(Dialog):
             self.widgets[key] = (typ, box)
         else:
             text = "" if value is None else str(value)
-            if len(text) > 80 or any(k in key.lower() for k in LONG_KEYS):
+            if len(text) > 80 or any(k in key.lower() for k in LONG_KEYS) \
+                    or "descri" in str(spec.get("description") or "").lower():
                 box = ctk.CTkTextbox(holder, height=80, wrap="word", border_width=1, border_color=C["border"])
                 box.pack(fill="x")
                 box.insert("1.0", text)
                 box.bind("<KeyRelease>", lambda e: self._changed(), add="+")
-                button(holder, t("Migliora testo"), lambda k=key, b=box: self._improve(k, b), kind="ghost",
-                       icon_name="wand-sparkles", height=28).pack(anchor="e", pady=(4, 0))
+                imp = button(holder, t("Migliora testo"), lambda: None, kind="ghost",
+                             icon_name="wand-sparkles", height=28)
+                imp.configure(command=lambda k=key, b=box, btn=imp: self._improve(k, b, btn))
+                imp.pack(anchor="e", pady=(4, 0))
+                from ..tooltip import bind as tip
+                tip(imp, t("Corregge forma e grammatica senza aggiungere dati. Se il campo è vuoto, "
+                           "l'AI lo scrive dalle informazioni fornite."))
                 self.widgets[key] = ("text", box)
             else:
                 var = ctk.StringVar(value=text)
@@ -298,8 +309,8 @@ class ReviewDialog(Dialog):
             chip = self.chips[key]
             chip.set(t(text), tone)
             from ..tooltip import bind as tip
-            if check is not None and status == "missing" and not getattr(chip, "_tip", False):
-                tip(chip, lambda k=key: self.checks[k].message if k in self.checks else "")
+            if not getattr(chip, "_tip", False) and (status == "missing" or self.evidence.get(key)):
+                tip(chip, lambda k=key: self._chip_tip(k))
                 chip._tip = True  # type: ignore[attr-defined]
             self.rows[key].configure(border_color=C["danger"] if status == "missing"
                                      else C["warning"] if status == "empty" else C["border"])
@@ -316,12 +327,23 @@ class ReviewDialog(Dialog):
         else:
             self.ground_chip.pack_forget()
 
+    def _chip_tip(self, key: str) -> str:
+        parts = []
+        check = self.checks.get(key)
+        if check is not None and check.status == "missing":
+            parts.append(check.message)
+        if self.evidence.get(key):
+            parts.append(t("Preso dal testo: «{q}»", q=self.evidence[key]))
+        return "\n".join(parts)
+
     def _highlight_source(self, key: str) -> None:
         v = self.collect().get(key)
         self.src.tag_remove("hit", "1.0", "end")
         terms = []
+        if self.evidence.get(key) and not _missing(v):
+            terms.append(self.evidence[key])  # frase da cui l'AI ha preso il valore
         if isinstance(v, str) and not _missing(v):
-            terms = [v] + re.findall(r"[\w\-/.]*\d[\w\-/.]*|[A-ZÀ-Ý][a-zà-ÿ]{2,}", v)
+            terms += [v] + re.findall(r"[\w\-/.]*\d[\w\-/.]*|[A-ZÀ-Ý][a-zà-ÿ]{2,}", v)
         first = None
         for term in terms:
             if len(term) < 2:
@@ -339,31 +361,54 @@ class ReviewDialog(Dialog):
             self.src.see(first)
 
     # ------------------------------------------------------------------ AI
-    def _improve(self, key: str, box: ctk.CTkTextbox) -> None:
-        text = box.get("1.0", "end").strip()
-        if len(text) < 5:
+    def _improve(self, key: str, box: ctk.CTkTextbox, btn: Any = None) -> None:
+        if getattr(self, "_improving", False):
             return
+        text = box.get("1.0", "end").strip()
+        spec = self.props.get(key) or {}
+        title = spec.get("title") or _labelize(key)
+        sources = [s for s in (self.sources or []) if s and s.strip()]
+        if len(text) < 5 and not sources:
+            self.win.toast(t("Il campo è vuoto: scrivi prima il testo da migliorare."), "info")
+            return
+        self._improving = True
         box.configure(state="disabled")
-        title = (self.props.get(key) or {}).get("title") or _labelize(key)
+        if btn is not None:
+            btn.configure(state="disabled", text=t("Riscrittura in corso…"))
+
+        def restore():
+            self._improving = False
+            try:
+                box.configure(state="normal")
+                if btn is not None:
+                    btn.configure(state="normal", text=t("Migliora testo"))
+            except tk.TclError:
+                pass  # finestra chiusa nel frattempo
 
         def work():
             try:
-                out = self.win.ai.improve_text(text, title, document=self.mod.ai_context())
-                self.after(0, lambda: self._improved(box, text, out))
+                out, warnings = self.win.ai.improve_text_checked(
+                    text, title, document=self.mod.ai_context(), sources=sources,
+                    field_description=str(spec.get("description") or ""))
+                self.after(0, lambda: (restore(), self._improved(box, text, out, warnings)))
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda e=exc: (box.configure(state="normal"),
-                                             self.win.toast(t("Migliora testo: {e}", e=e), "warning")))
-        self.win.toast(t("L'AI sta riscrivendo il testo…"), "info")
-        threading.Thread(target=work, daemon=True).start()
+                self.after(0, lambda e=exc: (restore(), self.win.toast(t("Migliora testo: {e}", e=e), "warning")))
+        self.win.toast(t("L'AI sta scrivendo il testo…") if len(text) < 5 else t("L'AI sta riscrivendo il testo…"),
+                       "info")
+        threading.Thread(target=work, daemon=True, name="improve").start()
 
-    def _improved(self, box, before: str, after: str) -> None:
-        box.configure(state="normal")
-        box.delete("1.0", "end")
-        box.insert("1.0", after)
+    def _improved(self, box, before: str, after: str, warnings: Optional[List[str]] = None) -> None:
+        try:
+            box.delete("1.0", "end")
+            box.insert("1.0", after)
+        except tk.TclError:
+            return
         self._changed()
-        self.win.toast(t("Testo riscritto. Controlla che non manchi nulla."), "success",
-                       action=(t("Annulla"), lambda: (box.delete("1.0", "end"), box.insert("1.0", before),
-                                                     self._changed())))
+        undo = (t("Annulla"), lambda: (box.delete("1.0", "end"), box.insert("1.0", before), self._changed()))
+        if warnings:
+            self.win.toast(t("Testo riscritto, ma controllalo: {w}", w="; ".join(warnings)), "warning", action=undo)
+        else:
+            self.win.toast(t("Testo riscritto. Controlla che non manchi nulla."), "success", action=undo)
 
     # ------------------------------------------------------------------ salvataggio
     def _autosave(self, force: bool = False) -> None:
