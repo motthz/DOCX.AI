@@ -40,7 +40,7 @@ jobs:
           $n = gh release view "${{ steps.ver.outputs.tag }}" --repo "${{ github.repository }}" --json assets -q ".assets | length" 2>$null
           if ($n -and [int]$n -gt 0) { "skip=true" >> $env:GITHUB_OUTPUT } else { "skip=false" >> $env:GITHUB_OUTPUT }
           $global:LASTEXITCODE = 0  # release inesistente: gh esce con 1, non e' un errore
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         if: steps.check.outputs.skip != 'true'
         with:
           python-version: "3.12"
