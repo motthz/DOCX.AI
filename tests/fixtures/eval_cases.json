@@ -1,0 +1,872 @@
+[
+  {
+    "id": "manut_completo",
+    "schema": "examples/modules/Rapporto_Manutenzione_Citterio/schema.json",
+    "text": "Rapporto n. 245/26. Lunedì scorso nel reparto Affettati, linea 2, l'affettatrice AF-300 faceva un rumore metallico e la lama vibrava. Sostituiti 2 cuscinetti 6205-2RS e 1 cinghia dentata HTD 8M-1200. Intervento di manutenzione straordinaria eseguito da Marco Galli. Al termine è stata fatta la pulizia e sanificazione delle superfici a contatto con alimenti, eseguita da Sara Conti. La macchina può essere usata dopo la pulizia serale. Verifica finale conforme, firmata da Paolo Riva.",
+    "expected": {
+      "numero_rapporto": {
+        "contains": [
+          "245"
+        ]
+      },
+      "tipologia_intervento": "manutenzione_straordinaria",
+      "reparto": {
+        "contains": [
+          "affettati"
+        ]
+      },
+      "linea": {
+        "contains": [
+          "2"
+        ]
+      },
+      "data": {
+        "date": "today-2"
+      },
+      "apparecchiatura": {
+        "contains": [
+          "AF-300"
+        ]
+      },
+      "descrizione_anomalia": {
+        "contains": [
+          "rumore"
+        ]
+      },
+      "pezzi_sostituiti": {
+        "items": [
+          {
+            "contains": [
+              "6205"
+            ]
+          },
+          {
+            "contains": [
+              "HTD"
+            ]
+          }
+        ]
+      },
+      "data_intervento": {
+        "date": "today-2"
+      },
+      "firma_operatore_manutenzione": {
+        "contains": [
+          "Galli"
+        ]
+      },
+      "pulizia_sanificazione_si": true,
+      "pulizia_sanificazione_no": false,
+      "superfici_contatto_alimenti": true,
+      "superfici_non_contatto_alimenti": false,
+      "uso_macchina_dopo_pulizia_serale": true,
+      "firma_esecutore_pulizia": {
+        "contains": [
+          "Conti"
+        ]
+      },
+      "esito_verifica": "conforme",
+      "firma_verifica": {
+        "contains": [
+          "Riva"
+        ]
+      }
+    }
+  },
+  {
+    "id": "manut_negativo",
+    "schema": "examples/modules/Rapporto_Manutenzione_Citterio/schema.json",
+    "text": "Oggi controllo programmato sulla confezionatrice CF-12 della linea 5 (reparto Packaging). Ho solo regolato il sensore di prossimità, nessun pezzo sostituito. Non è stata necessaria pulizia né sanificazione. Esito della verifica non conforme: il sensore va ricontrollato domani. Tecnico: Luca Ferri.",
+    "expected": {
+      "numero_rapporto": {
+        "empty": true
+      },
+      "tipologia_intervento": "manutenzione_ordinaria_programmata",
+      "reparto": {
+        "contains": [
+          "packaging"
+        ]
+      },
+      "linea": {
+        "contains": [
+          "5"
+        ]
+      },
+      "data": {
+        "date": "today"
+      },
+      "apparecchiatura": {
+        "contains": [
+          "CF-12"
+        ]
+      },
+      "pezzi_sostituiti": {
+        "empty": true
+      },
+      "data_intervento": {
+        "date": "today"
+      },
+      "firma_operatore_manutenzione": {
+        "contains": [
+          "Ferri"
+        ]
+      },
+      "pulizia_sanificazione_si": false,
+      "pulizia_sanificazione_no": true,
+      "superfici_contatto_alimenti": false,
+      "firma_esecutore_pulizia": {
+        "empty": true
+      },
+      "esito_verifica": "non_conforme",
+      "firma_verifica": {
+        "empty": true
+      }
+    }
+  },
+  {
+    "id": "manut_minimo",
+    "schema": "examples/modules/Rapporto_Manutenzione_Citterio/schema.json",
+    "text": "pompa P12 rumorosa, cambiato cuscinetto 6204, prova ok",
+    "expected": {
+      "numero_rapporto": {
+        "empty": true
+      },
+      "reparto": {
+        "empty": true
+      },
+      "linea": {
+        "empty": true
+      },
+      "data": {
+        "empty": true
+      },
+      "apparecchiatura": {
+        "contains": [
+          "P12"
+        ]
+      },
+      "descrizione_anomalia": {
+        "contains": [
+          "rumoros"
+        ]
+      },
+      "pezzi_sostituiti": {
+        "items": [
+          {
+            "contains": [
+              "6204"
+            ]
+          }
+        ]
+      },
+      "data_intervento": {
+        "empty": true
+      },
+      "firma_operatore_manutenzione": {
+        "empty": true
+      },
+      "pulizia_sanificazione_si": false,
+      "superfici_contatto_alimenti": false,
+      "uso_macchina_dopo_pulizia_serale": false,
+      "firma_esecutore_pulizia": {
+        "empty": true
+      },
+      "firma_verifica": {
+        "empty": true
+      }
+    }
+  },
+  {
+    "id": "verbale",
+    "schema": "examples/modules/Verbale_di_riunione/schema.json",
+    "text": "Verbale della riunione di progetto \"Nuovo magazzino\" tenuta il 2 ottobre in sala B. Presenti: Giulia Neri, Andrea Costa, Fabio Greco. Redige il verbale Giulia Neri. Si è discusso del layout delle scaffalature e del budget. Decisione: approvato il budget di 45.000 euro e scelto il fornitore Rossi Scaffali. Azioni: Andrea Costa chiede tre preventivi per i carrelli entro il 16 ottobre; Fabio Greco aggiorna la planimetria entro il 23 ottobre. Prossimo incontro il 30 ottobre.",
+    "expected": {
+      "oggetto": {
+        "contains": [
+          "magazzino"
+        ]
+      },
+      "data_riunione": {
+        "date": "2026-10-02"
+      },
+      "luogo": {
+        "contains": [
+          "sala b"
+        ]
+      },
+      "partecipanti": {
+        "items": [
+          {
+            "contains": [
+              "Neri"
+            ]
+          },
+          {
+            "contains": [
+              "Costa"
+            ]
+          },
+          {
+            "contains": [
+              "Greco"
+            ]
+          }
+        ]
+      },
+      "redattore": {
+        "contains": [
+          "Neri"
+        ]
+      },
+      "argomenti": {
+        "contains": [
+          "scaffal",
+          "budget"
+        ]
+      },
+      "decisioni": {
+        "contains": [
+          "45.000",
+          "Rossi"
+        ]
+      },
+      "azioni": {
+        "items": [
+          {
+            "fields": {
+              "responsabile": {
+                "contains": [
+                  "Costa"
+                ]
+              },
+              "scadenza": {
+                "date": "2026-10-16"
+              }
+            }
+          },
+          {
+            "fields": {
+              "responsabile": {
+                "contains": [
+                  "Greco"
+                ]
+              },
+              "scadenza": {
+                "date": "2026-10-23"
+              }
+            }
+          }
+        ]
+      },
+      "prossimo_incontro": {
+        "date": "2026-10-30"
+      }
+    }
+  },
+  {
+    "id": "acquisto",
+    "schema": "examples/modules/Richiesta_acquisto/schema.json",
+    "text": "Sono Elena Bassi dell'ufficio Qualità, oggi chiedo l'acquisto di 2 calibri digitali Mitutoyo e 1 micrometro 0-25 mm, fornitore consigliato Tecnoutensili srl, spesa prevista circa 680 euro. Serve con urgenza perché i calibri attuali sono fuori taratura e abbiamo bloccato i controlli in accettazione.",
+    "expected": {
+      "richiedente": {
+        "contains": [
+          "Elena Bassi"
+        ]
+      },
+      "reparto": {
+        "contains": [
+          "qualita"
+        ]
+      },
+      "data_richiesta": {
+        "date": "today"
+      },
+      "fornitore": {
+        "contains": [
+          "Tecnoutensili"
+        ]
+      },
+      "articoli": {
+        "contains": [
+          "calibri",
+          "micrometro"
+        ]
+      },
+      "importo_stimato": {
+        "contains": [
+          "680"
+        ]
+      },
+      "urgenza": "alta",
+      "motivazione": {
+        "contains": [
+          "taratura"
+        ]
+      }
+    }
+  },
+  {
+    "id": "sopralluogo_chiavi",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cliente": {
+          "type": "string"
+        },
+        "indirizzo": {
+          "type": "string"
+        },
+        "data_sopralluogo": {
+          "type": "string"
+        },
+        "tecnico": {
+          "type": "string"
+        },
+        "n_ordine": {
+          "type": "string"
+        },
+        "ore_lavoro": {
+          "type": "number"
+        },
+        "materiale_usato": {
+          "type": "string"
+        },
+        "intervento_completato": {
+          "type": "boolean"
+        },
+        "nuovo_intervento_necessario": {
+          "type": "boolean"
+        },
+        "importo": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cliente",
+        "indirizzo",
+        "data_sopralluogo",
+        "tecnico",
+        "n_ordine",
+        "ore_lavoro",
+        "materiale_usato",
+        "intervento_completato",
+        "nuovo_intervento_necessario",
+        "importo"
+      ]
+    },
+    "text": "Sopralluogo ieri presso la ditta Fratelli Bertoni, via Roma 12 a Lodi. Tecnico Simone Villa, ordine n. ORD-2231. Lavorate 3,5 ore, usati 4 metri di cavo FG16 e 2 interruttori. L'intervento non è stato completato perché manca un pezzo: bisogna tornare la settimana prossima.",
+    "expected": {
+      "cliente": {
+        "contains": [
+          "Bertoni"
+        ]
+      },
+      "indirizzo": {
+        "contains": [
+          "via Roma 12"
+        ]
+      },
+      "data_sopralluogo": {
+        "date": "today-1"
+      },
+      "tecnico": {
+        "contains": [
+          "Simone Villa"
+        ]
+      },
+      "n_ordine": {
+        "contains": [
+          "ORD-2231"
+        ]
+      },
+      "ore_lavoro": 3.5,
+      "materiale_usato": {
+        "contains": [
+          "cavo",
+          "interruttori"
+        ]
+      },
+      "intervento_completato": false,
+      "nuovo_intervento_necessario": true,
+      "importo": {
+        "empty": true
+      }
+    }
+  },
+  {
+    "id": "verbale_parlato",
+    "schema": "examples/modules/Verbale_di_riunione/schema.json",
+    "text": "ieri pomeriggio su Teams ci siamo visti io (Marta Fumagalli), Davide e la dott.ssa Colombo per parlare dei ritardi nelle consegne del cliente Alfa. abbiamo deciso di spostare la consegna del lotto 3 e di avvisare il cliente. Davide deve mandare la mail al cliente entro domani. Il verbale lo scrivo io.",
+    "expected": {
+      "oggetto": {
+        "contains": [
+          "ritard"
+        ]
+      },
+      "data_riunione": {
+        "date": "today-1"
+      },
+      "luogo": {
+        "contains": [
+          "teams"
+        ]
+      },
+      "partecipanti": {
+        "items": [
+          {
+            "contains": [
+              "Fumagalli"
+            ]
+          },
+          {
+            "contains": [
+              "Davide"
+            ]
+          },
+          {
+            "contains": [
+              "Colombo"
+            ]
+          }
+        ]
+      },
+      "redattore": {
+        "contains": [
+          "Fumagalli"
+        ]
+      },
+      "decisioni": {
+        "contains": [
+          "lotto 3"
+        ]
+      },
+      "azioni": {
+        "items": [
+          {
+            "fields": {
+              "responsabile": {
+                "contains": [
+                  "Davide"
+                ]
+              },
+              "scadenza": {
+                "date": "today+1"
+              }
+            }
+          }
+        ]
+      },
+      "prossimo_incontro": {
+        "empty": true
+      }
+    }
+  },
+  {
+    "id": "manut_elenco",
+    "schema": "examples/modules/Rapporto_Manutenzione_Citterio/schema.json",
+    "text": "RAPPORTO 77. Data 01/10/2026. Reparto: Cottura - Linea 1. Forno a tunnel FT-2: bruciatore che non si accendeva. Tipo: straordinaria. Pezzi cambiati: elettrodo di accensione cod. EA-55 (1 pz), termocoppia K 300mm (2 pz). Pulizia non necessaria. Esito conforme. Operatore: Giorgio Mauri; verifica: Ing. Laura Sala.",
+    "expected": {
+      "numero_rapporto": {
+        "contains": [
+          "77"
+        ]
+      },
+      "tipologia_intervento": "manutenzione_straordinaria",
+      "reparto": {
+        "contains": [
+          "cottura"
+        ]
+      },
+      "linea": {
+        "contains": [
+          "1"
+        ]
+      },
+      "data": {
+        "date": "2026-10-01"
+      },
+      "apparecchiatura": {
+        "contains": [
+          "FT-2"
+        ]
+      },
+      "descrizione_anomalia": {
+        "contains": [
+          "bruciatore"
+        ]
+      },
+      "pezzi_sostituiti": {
+        "items": [
+          {
+            "contains": [
+              "EA-55"
+            ]
+          },
+          {
+            "contains": [
+              "termocoppia"
+            ]
+          }
+        ]
+      },
+      "firma_operatore_manutenzione": {
+        "contains": [
+          "Mauri"
+        ]
+      },
+      "pulizia_sanificazione_si": false,
+      "pulizia_sanificazione_no": true,
+      "firma_esecutore_pulizia": {
+        "empty": true
+      },
+      "esito_verifica": "conforme",
+      "firma_verifica": {
+        "contains": [
+          "Sala"
+        ]
+      }
+    }
+  },
+  {
+    "id": "acquisto_minimo",
+    "schema": "examples/modules/Richiesta_acquisto/schema.json",
+    "text": "Servono 10 risme di carta A4 per l'amministrazione, non è urgente. Lo chiede Paolo Gatti.",
+    "expected": {
+      "richiedente": {
+        "contains": [
+          "Paolo Gatti"
+        ]
+      },
+      "reparto": {
+        "contains": [
+          "amministrazione"
+        ]
+      },
+      "data_richiesta": {
+        "empty": true
+      },
+      "fornitore": {
+        "empty": true
+      },
+      "articoli": {
+        "contains": [
+          "10",
+          "carta"
+        ]
+      },
+      "importo_stimato": {
+        "empty": true
+      },
+      "urgenza": {
+        "any": [
+          "bassa",
+          {
+            "empty": true
+          }
+        ]
+      },
+      "motivazione": {
+        "any": [
+          {
+            "empty": true
+          },
+          {
+            "contains": [
+              "carta"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "consegna_chiavi",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "destinatario": {
+          "type": "string"
+        },
+        "data_consegna": {
+          "type": "string"
+        },
+        "data_restituzione": {
+          "type": "string"
+        },
+        "chiavi": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "badge_consegnato": {
+          "type": "boolean"
+        },
+        "cauzione_euro": {
+          "type": "number"
+        },
+        "consegnato_da": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "destinatario",
+        "data_consegna",
+        "data_restituzione",
+        "chiavi",
+        "badge_consegnato",
+        "cauzione_euro",
+        "consegnato_da"
+      ]
+    },
+    "text": "Stamattina ho consegnato a Roberto Leoni le chiavi del magazzino 2 e dell'ufficio tecnico. Niente badge. Le deve restituire entro il 31 ottobre. Cauzione 20 euro. Consegna fatta da Anna Riva.",
+    "expected": {
+      "destinatario": {
+        "contains": [
+          "Leoni"
+        ]
+      },
+      "data_consegna": {
+        "date": "today"
+      },
+      "data_restituzione": {
+        "date": "2026-10-31"
+      },
+      "chiavi": {
+        "items": [
+          {
+            "contains": [
+              "magazzino"
+            ]
+          },
+          {
+            "contains": [
+              "ufficio"
+            ]
+          }
+        ]
+      },
+      "badge_consegnato": false,
+      "cauzione_euro": 20,
+      "consegnato_da": {
+        "contains": [
+          "Anna Riva"
+        ]
+      }
+    }
+  },
+  {
+    "id": "ferie",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dipendente": {
+          "type": "string"
+        },
+        "matricola": {
+          "type": "string"
+        },
+        "reparto": {
+          "type": "string"
+        },
+        "dal": {
+          "type": "string",
+          "format": "date"
+        },
+        "al": {
+          "type": "string",
+          "format": "date"
+        },
+        "giorni": {
+          "type": "integer"
+        },
+        "tipo_assenza": {
+          "type": "string",
+          "enum": [
+            "ferie",
+            "permesso",
+            "malattia"
+          ]
+        },
+        "sostituto": {
+          "type": "string"
+        },
+        "approvato_responsabile": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dipendente",
+        "matricola",
+        "reparto",
+        "dal",
+        "al",
+        "giorni",
+        "tipo_assenza",
+        "sostituto",
+        "approvato_responsabile"
+      ]
+    },
+    "text": "Chiara Moretti (matr. 10457) del magazzino chiede ferie dal 9 al 13 novembre, 5 giorni. In sua assenza la sostituisce Ivan Rota. Il responsabile non ha ancora approvato.",
+    "expected": {
+      "dipendente": {
+        "contains": [
+          "Moretti"
+        ]
+      },
+      "matricola": {
+        "contains": [
+          "10457"
+        ]
+      },
+      "reparto": {
+        "contains": [
+          "magazzino"
+        ]
+      },
+      "dal": {
+        "date": "2026-11-09"
+      },
+      "al": {
+        "date": "2026-11-13"
+      },
+      "giorni": 5,
+      "tipo_assenza": "ferie",
+      "sostituto": {
+        "contains": [
+          "Rota"
+        ]
+      },
+      "approvato_responsabile": false
+    }
+  },
+  {
+    "id": "non_conformita",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "numero_nc": {
+          "type": "string"
+        },
+        "data_rilevazione": {
+          "type": "string"
+        },
+        "fornitore": {
+          "type": "string"
+        },
+        "lotto": {
+          "type": "string"
+        },
+        "quantita_non_conforme": {
+          "type": "number"
+        },
+        "descrizione_difetto": {
+          "type": "string"
+        },
+        "gravita": {
+          "type": "string",
+          "enum": [
+            "lieve",
+            "maggiore",
+            "critica"
+          ]
+        },
+        "azione_correttiva": {
+          "type": "string"
+        },
+        "rilevata_da": {
+          "type": "string"
+        },
+        "reso_al_fornitore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "numero_nc",
+        "data_rilevazione",
+        "fornitore",
+        "lotto",
+        "quantita_non_conforme",
+        "descrizione_difetto",
+        "gravita",
+        "azione_correttiva",
+        "rilevata_da",
+        "reso_al_fornitore"
+      ]
+    },
+    "text": "NC 2026/031 aperta ieri da Marco Pini al controllo in accettazione: nel lotto L-8842 di Plastiform spa 120 vaschette hanno il bordo deformato. Difetto maggiore. Abbiamo rimandato indietro tutto il lotto e chiesto al fornitore un'analisi delle cause.",
+    "expected": {
+      "numero_nc": {
+        "contains": [
+          "2026/031"
+        ]
+      },
+      "data_rilevazione": {
+        "date": "today-1"
+      },
+      "fornitore": {
+        "contains": [
+          "Plastiform"
+        ]
+      },
+      "lotto": {
+        "contains": [
+          "L-8842"
+        ]
+      },
+      "quantita_non_conforme": 120,
+      "descrizione_difetto": {
+        "contains": [
+          "bordo"
+        ]
+      },
+      "gravita": "maggiore",
+      "azione_correttiva": {
+        "contains": [
+          "caus"
+        ]
+      },
+      "rilevata_da": {
+        "contains": [
+          "Pini"
+        ]
+      },
+      "reso_al_fornitore": true
+    }
+  },
+  {
+    "id": "verbale_breve",
+    "schema": "examples/modules/Verbale_di_riunione/schema.json",
+    "text": "Riunione sicurezza del 28/09 in mensa con RSPP Bruno Sala e i capireparto. Deciso di rifare la segnaletica delle uscite di emergenza.",
+    "expected": {
+      "oggetto": {
+        "contains": [
+          "sicurezza"
+        ]
+      },
+      "data_riunione": {
+        "date": "2026-09-28"
+      },
+      "luogo": {
+        "contains": [
+          "mensa"
+        ]
+      },
+      "redattore": {
+        "empty": true
+      },
+      "decisioni": {
+        "contains": [
+          "segnaletica"
+        ]
+      },
+      "prossimo_incontro": {
+        "empty": true
+      }
+    }
+  }
+]

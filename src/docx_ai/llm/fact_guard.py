@@ -646,7 +646,25 @@ class FactGuard:
             label = (spec.get("title") if isinstance(spec, dict) else None) or key
             out[key] = self._check(label, key, value, spec, _is_person(key, spec))
         self._fill_dates(out, props)
+        self._future_dates(out, props)
         return out
+
+    def _future_dates(self, out: Dict[str, Any], props: Dict[str, Any]) -> None:
+        """"Prossimo incontro"/"data successiva" non puo' essere uguale o precedente alle
+        altre date del documento (il modello piccolo ci copia la data della riunione)."""
+        from . import field_semantics as fs
+        dates = {k: parse_date_value(v) for k, v in out.items()
+                 if fs.kind(k, props.get(k)) == "date" and isinstance(v, str)}
+        for key, d in dates.items():
+            words = set(fs.words(key) + fs.words(str((props.get(key) or {}).get("title") or "")))
+            if d is None or not words & {"prossimo", "prossima", "successivo", "successiva", "next"}:
+                continue
+            others = [o for k, o in dates.items() if k != key and o is not None]
+            if others and d <= max(others):
+                label = (props.get(key) or {}).get("title") or key
+                self.corrections.append(Correction(label, out[key], NON_SPEC,
+                                                   "non può precedere le altre date del documento"))
+                out[key] = NON_SPEC
 
 
 def _is_person(key: str, spec: Any) -> bool:

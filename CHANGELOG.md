@@ -32,6 +32,23 @@ fonte: `src/docx_ai/__init__.py`.
   (codici, numeri, date o nomi aggiunti o persi vengono segnalati e provocano un secondo tentativo), il
   pulsante mostra l'avanzamento e, se il campo è vuoto, l'AI lo scrive dalle informazioni fornite.
 - **Revisione**: cliccando un campo viene evidenziata nelle fonti la frase da cui l'AI ha preso il valore.
+- **Controlli di coerenza** dopo la compilazione: lo stesso codice o nome copiato in più campi resta solo
+  nel campo a cui il testo lo collega ("P12" della pompa non è anche reparto e linea; il tecnico non diventa
+  anche firma della verifica); un numero di rapporto/ordine deve comparire vicino alle parole del campo; il
+  nome del campo scritto come valore ("Oggetto della riunione") viene tolto; "prossimo incontro" non può
+  precedere le altre date; righe di elenco vuote tolte; "Non è stata necessaria la pulizia" spunta il No.
+- **Banco di prova con il modello vero** (`scripts/eval_ai.py`, casi in `tests/fixtures/eval_cases.json`):
+  con Qwen3 1.7B i campi compilati correttamente passano dal 79% al 93% su 13 moduli di prova (la
+  compilazione richiede circa il doppio del tempo: per ogni campo l'AI scrive anche la frase citata).
+
+### Sicurezza e antivirus
+- **Meno blocchi dagli antivirus.** PowerShell (impaginazione con Word, OCR di Windows) viene avviato dal
+  percorso di sistema con lo script in chiaro: niente `-EncodedCommand` né `-ExecutionPolicy Bypass`, i
+  segnali più usati dagli antivirus per riconoscere i malware. Il bootloader di PyInstaller viene compilato
+  da sorgente in ogni release (quello precompilato è spesso segnalato), l'installer ha informazioni di
+  versione complete e la release firma exe e installer se è configurato un certificato di firma del codice.
+  Il runtime llama.cpp scaricato viene verificato con SHA-256. Istruzioni per aziende e falsi positivi in
+  *docs/distribuzione-aziendale.md*.
 
 ### Corretto
 - La barra dei moduli a sinistra spariva: chiudendo l'app ridotta a icona (o durante un aggiornamento

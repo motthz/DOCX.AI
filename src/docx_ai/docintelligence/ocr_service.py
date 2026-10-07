@@ -270,8 +270,6 @@ class OCRService:
     # Best-effort: PowerShell with WinRT. Slow but guaranteed available on Win10+.
     # --------------------------------------------------------------
     def _ocr_image_windows(self, path: Path, idx: int) -> OCRPage:
-        import subprocess
-        import sys
         page = OCRPage(page_index=idx, ocr_engine="windows_ocr", used=True)
         ps_code = r"""
 $ErrorActionPreference = 'Stop'
@@ -305,16 +303,10 @@ foreach ($line in $result.Lines) { Write-Output $line.Text }
         try:
             safe_path = str(Path(path).resolve()).replace("'", "''")
             code = ps_code.replace("__IMG_PATH__", safe_path)
-            proc = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                 "-Command", code],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=120,
-                creationflags=0x08000000 if hasattr(sys, "frozen") or os.name == "nt" else 0,
-            )
+            # niente "-ExecutionPolicy Bypass" (segnale tipico dei malware per gli antivirus):
+            # con -Command i criteri di esecuzione degli script non si applicano
+            from .. import winshell
+            proc = winshell.run(code, timeout=120)
             text = (proc.stdout or "").strip()
             if not text and proc.stderr:
                 raise RuntimeError((proc.stderr or "").strip()[:500])

@@ -26,6 +26,7 @@ dall'utente prima dell'esportazione.
 
 > Windows SmartScreen può mostrare "PC protetto da Windows" perché l'installer non è
 > firmato digitalmente: *Ulteriori informazioni → Esegui comunque*.
+> Se un antivirus blocca l'app vedi [Antivirus e SmartScreen](docs/distribuzione-aziendale.md#antivirus-e-smartscreen).
 
 Disponibile anche lo ZIP **portable**. Per la distribuzione in azienda (Intune, GPO,
 installazione silenziosa) vedi [docs/distribuzione-aziendale.md](docs/distribuzione-aziendale.md).

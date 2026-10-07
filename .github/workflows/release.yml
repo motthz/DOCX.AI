@@ -13,10 +13,11 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       PYTHONUTF8: "1"
       SKIP_COVERAGE_GATE: "1"
+      SIGN_PFX: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
     steps:
       - uses: actions/checkout@v5
       - name: Versione da rilasciare
@@ -54,9 +55,35 @@ jobs:
           .venv\Scripts\python.exe -m pip install --require-hashes -r requirements.txt
           .venv\Scripts\python.exe -m pip install --require-hashes -r requirements-dev.txt
           choco install innosetup -y --no-progress
+      - name: Bootloader PyInstaller compilato da sorgente (meno falsi positivi antivirus)
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        # Il bootloader precompilato di PyInstaller e' identico in migliaia di programmi,
+        # anche malware: molti antivirus lo segnalano per "firma". Compilato qui con MSVC
+        # e' un eseguibile unico. Stessa versione e hash verificato del sorgente.
+        run: |
+          $env:PYINSTALLER_COMPILE_BOOTLOADER = "1"
+          $ver = (Select-String -Path requirements-dev.txt -Pattern '^pyinstaller==(\S+)').Matches[0].Groups[1].Value
+          "pyinstaller==$ver --hash=sha256:89b65a3ad07d9dd5832253e37bc45f31872d10d7f9d5c9fd0fdd6088a83829dd" | Out-File -Encoding ascii build-pyinstaller.txt
+          .venv\Scripts\python.exe -m pip install --force-reinstall --no-deps --no-binary pyinstaller --require-hashes -r build-pyinstaller.txt
+          .venv\Scripts\python.exe -c "import PyInstaller, pathlib; b = pathlib.Path(PyInstaller.__file__).parent / 'bootloader' / 'Windows-64bit-intel' / 'runw.exe'; print(b, b.stat().st_size)"
+      - name: Certificato di firma (facoltativo)
+        if: steps.check.outputs.skip != 'true' && env.SIGN_PFX != ''
+        shell: pwsh
+        env:
+          SIGN_PFX: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
+        # Con un certificato di firma del codice (secret WINDOWS_SIGN_PFX_BASE64 = file .pfx in
+        # base64, WINDOWS_SIGN_PFX_PASSWORD = password) exe e installer vengono firmati:
+        # SmartScreen e antivirus si fidano dei programmi firmati.
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "sign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX))
+          "SIGN_PFX_PATH=$pfx" >> $env:GITHUB_ENV
       - name: Build, ZIP portable e installer
         if: steps.check.outputs.skip != 'true'
         shell: pwsh
+        env:
+          SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
         run: powershell -ExecutionPolicy Bypass -File scripts\release.ps1
       - name: Note di rilascio dal CHANGELOG
         if: steps.check.outputs.skip != 'true'

@@ -177,6 +177,13 @@ class AIInstaller:
         asset = self._find_llama_asset(variant)
         zpath = self._download(asset["browser_download_url"], self.cache_dir / asset["name"],
                                progress, "Runtime llama.cpp", asset.get("size"))
+        # integrita' dell'archivio: GitHub pubblica lo SHA-256 di ogni file della release
+        digest = str(asset.get("digest") or "")
+        if digest.lower().startswith("sha256:"):
+            actual = self._sha256(zpath, progress, "runtime")
+            if actual.lower() != digest[7:].lower():
+                zpath.unlink(missing_ok=True)
+                raise RuntimeError("Runtime llama.cpp scaricato corrotto (SHA-256 diverso): riprova.")
         progress(None, "Estrazione runtime…")
         with tempfile.TemporaryDirectory(dir=self.cache_dir) as tmp:
             root = Path(tmp).resolve()

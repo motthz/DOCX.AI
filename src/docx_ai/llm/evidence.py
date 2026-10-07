@@ -104,10 +104,21 @@ def _stems(text: str) -> List[str]:
     return [w[:5] for w in re.findall(r"[a-z0-9]+", fs.norm(text)) if len(w) >= 4 and w not in _STOP]
 
 
+def _match(context: set, stems: set) -> bool:
+    """Parole vicine e parole del campo in comune, anche abbreviate ("matr." ~ matricola)."""
+    for w in context:
+        for st in stems:
+            if w == st or (len(w) >= 4 and len(st) >= 4 and (st.startswith(w) or w.startswith(st))):
+                return True
+    return False
+
+
 class EvidenceChecker:
     def __init__(self, sources: Iterable[str]):
         raw = "\n".join(s for s in sources if s)
         self.norm = fs.norm(raw)
+        # testo dell'utente (prima fonte): dove cercare le parole vicine a un valore
+        self.user = fs.norm(next((s for s in sources if s), ""))
         self.flat = re.sub(r"[^a-z0-9]+", " ", self.norm).strip()
         self.stems = set(_stems(raw))
         self.fixes: List[Fix] = []
@@ -157,8 +168,10 @@ class EvidenceChecker:
                 elif value is True and self._negated(ev, key, spec):
                     self._fix(out, key, name, value, False, f"il testo lo esclude: «{ev}»")
             elif k == "choice":
+                # la scelta e' confermata dalla frase citata o dalle sue parole nel testo
+                # ("controllo programmato" -> manutenzione_ordinaria_programmata)
                 if isinstance(value, str) and value != NON_SPEC and "specificato" not in value.lower() \
-                        and not found:
+                        and not found and not self._option_in_text(value):
                     self._fix(out, key, name, value, NON_SPEC, "scelta non ricavabile dal testo")
             elif k in ("text", "person", "code", "time") and isinstance(value, str):
                 v = value.strip()
@@ -168,8 +181,159 @@ class EvidenceChecker:
                 kept = [item for item in value if self._item_grounded(item)]
                 if len(kept) != len(value):
                     self._fix(out, key, name, value, kept, "voci non presenti nel testo")
-        self._pairs(out, props)
+        self._label_echo(out, props)
+        self._codes_in_place(out, props)
+        self._duplicates(out, props)
+        self._persons_in_place(out, props)
+        self._numbers_in_place(out, props)
+        self._pairs(out, props, evidence)
         return out
+
+    # ------------------------------------------------------------------
+    def _option_in_text(self, option: str) -> bool:
+        stems = [w[:5] for w in re.findall(r"[a-z0-9]+", fs.norm(option)) if len(w) >= 4 and w not in _STOP]
+        # parole distintive dell'opzione (non "manutenzione", comune a tutte le opzioni)
+        return bool(stems) and any(st in self.stems for st in stems[-1:])
+
+    def _contexts(self, value: str) -> List[set]:
+        """Radici delle parole vicine a ogni occorrenza del valore nel testo dell'utente,
+        nella stessa frase ("Rapporto n. 245/26" -> {rappo})."""
+        v = fs.norm(value).strip()
+        out: List[set] = []
+        if not v:
+            return out
+        for m in re.finditer(r"(?<![a-z0-9])" + re.escape(v) + r"(?![a-z0-9])", self.user):
+            left = self.user[max(0, m.start() - 50): m.start()]
+            parts = re.split(r"(?<=[a-z0-9]{3})\.\s|[;!?\n]", left)
+            right = re.split(r"(?<=[a-z0-9]{3})\.\s|[;!?\n,]", self.user[m.end(): m.end() + 25])[0]
+            out.append({w[:5] for w in re.findall(r"[a-z0-9]+", parts[-1] + " " + right) if len(w) >= 2})
+        return out
+
+    def _near(self, value: str, key: str, spec: Any) -> Optional[bool]:
+        """True se il valore compare nel testo vicino a parole del campo, False se compare
+        solo altrove, None se non si puo' dire (campo generico o valore non nel testo)."""
+        stems = fs.field_stems(key, spec)
+        ctxs = self._contexts(value)
+        if not stems or not ctxs:
+            return None
+        return any(_match(c, stems) for c in ctxs)
+
+    def _claimed_elsewhere(self, value: str, key: str, props: Dict[str, Any]) -> Optional[str]:
+        """Altro campo a cui il testo collega il valore con le parole vicine (o None)."""
+        ctxs = self._contexts(value)
+        for other, spec in props.items():
+            st = fs.field_stems(other, spec)
+            if other != key and st and any(_match(c, st) for c in ctxs):
+                return other
+        return None
+
+    def _label_echo(self, out: Dict[str, Any], props: Dict[str, Any]) -> None:
+        """Il modello scrive il nome del campo come valore ("Oggetto della riunione")."""
+        for key, value in list(out.items()):
+            spec = props.get(key) or {}
+            if not isinstance(value, str) or fs.kind(key, spec) not in ("text", "person", "code", "time"):
+                continue
+            v = fs.norm(value).strip(" .")
+            if not v or v.upper() == NON_SPEC or v in self.norm:
+                continue
+            ref = fs.norm(" ".join([fs.label(key, spec), key.replace("_", " "), str(spec.get("description") or "")]))
+            ref_words = set(re.findall(r"[a-z0-9]+", ref)) | {"del", "della", "dello", "dei", "di", "il", "la", "lo"}
+            if v in ref or set(re.findall(r"[a-z0-9]+", v)) <= ref_words:
+                self._fix(out, key, fs.label(key, spec), value, NON_SPEC, "è il nome del campo, non un dato")
+
+    def _codes_in_place(self, out: Dict[str, Any], props: Dict[str, Any]) -> None:
+        """Campi codice (numero rapporto, n. ordine, matricola): il codice deve comparire
+        vicino alle parole del campo. "CF-12" della macchina non e' il numero del rapporto."""
+        for key, value in list(out.items()):
+            spec = props.get(key) or {}
+            if not isinstance(value, str) or not re.search(r"\d", value):
+                continue
+            k = fs.kind(key, spec)
+            # anche un codice "nudo" in un campo di testo ("P12" come reparto)
+            if k != "code" and not (k == "text" and re.fullmatch(r"[A-Za-z]{1,4}[-/.]?\d[\w\-/.]*", value.strip())):
+                continue
+            if k == "code":
+                # "RAPPORTO 77" / "n. 245/26": il codice senza le parole del campo
+                stems = fs.field_stems(key, spec) | {"n", "nr", "num", "numer", "cod", "codic"}
+                parts = value.strip().split()
+                while len(parts) > 1 and fs.norm(parts[0]).strip(".:°#")[:5] in stems:
+                    parts.pop(0)
+                if len(parts) != len(value.strip().split()):
+                    out[key] = value = " ".join(parts)
+            # tolto solo se il testo lo collega a un altro campo ("confezionatrice CF-12" ->
+            # apparecchiatura): un'abbreviazione non prevista ("matr. 10457") non basta
+            other = self._claimed_elsewhere(value, key, props) if self._near(value, key, spec) is False else None
+            if other:
+                self._fix(out, key, fs.label(key, spec), value, NON_SPEC,
+                          "il testo lo indica come " + fs.label(other, props.get(other)).lower())
+
+
+    def _persons_in_place(self, out: Dict[str, Any], props: Dict[str, Any]) -> None:
+        """Un nome che il testo collega a un altro campo ("verifica: Ing. Laura Sala")
+        non va nella firma di chi ha fatto la pulizia."""
+        person_keys = [k for k in props if fs.kind(k, props.get(k)) == "person"]
+        if len(person_keys) < 2:
+            return
+        for key in person_keys:
+            value = out.get(key)
+            if not isinstance(value, str) or not value.strip() or value.strip().upper() == NON_SPEC:
+                continue
+            name = re.sub(r"^(?:ing|dott(?:ssa)?|sig(?:ra)?|geom|arch|avv|prof)\.?\s+", "", value.strip(), flags=re.I)
+            if self._near(name, key, props.get(key)) is not False:
+                continue
+            ctxs = self._contexts(name)
+            others = [k for k in person_keys if k != key and fs.field_stems(k, props.get(k))
+                      and any(_match(c, fs.field_stems(k, props.get(k))) for c in ctxs)]
+            if others:
+                self._fix(out, key, fs.label(key, props.get(key)), value, NON_SPEC,
+                          "il testo lo indica come " + fs.label(others[0], props.get(others[0])).lower())
+
+    def _numbers_in_place(self, out: Dict[str, Any], props: Dict[str, Any]) -> None:
+        """Importi e quantita': il numero deve stare vicino alle parole del campo
+        ("10 risme" non e' l'importo stimato)."""
+        for key, value in list(out.items()):
+            spec = props.get(key) or {}
+            k = fs.kind(key, spec)
+            if isinstance(value, bool) or value is None:
+                continue
+            if k == "number" and isinstance(value, (int, float)):
+                text = f"{value:g}"
+            elif k == "text" and isinstance(value, str) and re.fullmatch(r"[€$]?\s*\d[\d.,]*\s*(?:€|euro|eur)?",
+                                                                       value.strip(), re.I):
+                text = re.sub(r"[^\d.,]", "", value)
+            else:
+                continue
+            if fs.field_stems(key, spec) & {"impor", "costo", "prezz", "spesa", "total", "cauzi", "valor"} \
+                    and self._near(text, key, spec) is False:
+                self._fix(out, key, fs.label(key, spec), value, None if k == "number" else NON_SPEC,
+                          "il numero nel testo si riferisce ad altro")
+
+    def _duplicates(self, out: Dict[str, Any], props: Dict[str, Any]) -> None:
+        """Lo stesso codice o nome in piu' campi (P12 come reparto, linea e apparecchiatura;
+        il tecnico anche come firma della verifica): resta solo nei campi a cui il testo lo
+        collega con le parole vicine."""
+        groups: Dict[str, List[str]] = {}
+        for key, value in out.items():
+            spec = props.get(key) or {}
+            if fs.kind(key, spec) not in ("text", "person", "code") or not isinstance(value, str):
+                continue
+            v = fs.norm(value).strip(" .")
+            if not v or v.upper() == NON_SPEC or len(v.split()) > 4:
+                continue
+            groups.setdefault(v, []).append(key)
+        for v, keys in groups.items():
+            if len(keys) < 2:
+                continue
+            near = {k: self._near(out[k], k, props.get(k)) for k in keys}
+            if any(near[k] is None for k in keys):
+                continue  # campo generico o valore non trovato: non si puo' decidere
+            keep = [k for k in keys if near[k]]
+            if not keep:  # nessun campo collegato: resta nel primo campo non-codice
+                keep = [next((k for k in keys if fs.kind(k, props.get(k)) != "code"), keys[0])]
+            for k in keys:
+                if k not in keep:
+                    self._fix(out, k, fs.label(k, props.get(k)), out[k], NON_SPEC,
+                              "valore di un altro campo")
 
     def _item_grounded(self, item: Any) -> bool:
         if isinstance(item, dict):
@@ -193,10 +357,16 @@ class EvidenceChecker:
                 window = words[i + 1: i + 6]
                 if any(x[:5] in targets for x in window if len(x) >= 4):
                     return True
+            # "pulizia non necessaria", "pulizia: no", "badge assente"
+            if len(w) >= 4 and w[:5] in targets and any(x in _NEGATIONS for x in words[i + 1: i + 3]) \
+                    and "solo" not in words[i + 1: i + 3]:
+                return True
         return False
 
-    def _pairs(self, out: Dict[str, Any], props: Dict[str, Any]) -> None:
+    def _pairs(self, out: Dict[str, Any], props: Dict[str, Any],
+               evidence: Optional[Dict[str, Optional[str]]] = None) -> None:
         done = set()
+        evidence = evidence or {}
         for key in props:
             other = fs.pair_partner(key, props)
             if not other or key in done:
@@ -206,6 +376,24 @@ class EvidenceChecker:
                 for k in (key, other):
                     self._fix(out, k, fs.label(k, props.get(k)), True, False,
                               "Sì e No spuntati insieme: scegli in revisione")
+                continue
+            yes, no = (key, other) if re.search(r"(si|sì|yes)$", key, re.I) else (other, key)
+            # "Non è stata necessaria pulizia": Sì escluso dal testo -> No
+            if out.get(yes) is True or out.get(no) is True:
+                continue
+            stem_key = re.sub(r"[_\s-]?(si|sì|yes)$", "", yes, flags=re.I)
+            ev = evidence.get(yes) or ""
+            if not (ev and self.quote_found(ev) and self._negated(ev, stem_key, {})):
+                # frase non citata: le frasi del testo che parlano dell'argomento lo negano tutte
+                targets = {w[:5] for w in fs.words(stem_key) if len(w) >= 4 and w not in _STOP}
+                sentences = [x for x in re.split(r"(?<=[a-z0-9]{3})\.\s|[;!?\n]", self.user)
+                             if targets & {w[:5] for w in re.findall(r"[a-z]+", x)}]
+                if not sentences or not all(self._negated(x, stem_key, {}) for x in sentences):
+                    continue
+                ev = sentences[0].strip()
+            # il No tolto sopra perche' la frase citata non c'era: il testo lo conferma
+            self.fixes = [f for f in self.fixes if not (f.field == fs.label(no, props.get(no)) and f.old is True)]
+            self._fix(out, no, fs.label(no, props.get(no)), out.get(no), True, f"il testo lo esclude: «{ev}»")
 
     def _fix(self, out: Dict[str, Any], key: str, name: str, old: Any, new: Any, reason: str) -> None:
         out[key] = new

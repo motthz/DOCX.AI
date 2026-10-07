@@ -72,7 +72,8 @@ def kind(key: str, spec: Any) -> str:
     if fmt == "time":
         return "time"
     key_words = words(key)
-    title_words = words(str(spec.get("title") or ""))
+    # senza titolo conta l'inizio della descrizione ("Data del prossimo incontro")
+    title_words = words(str(spec.get("title") or "")) or words(str(spec.get("description") or ""))[:2]
     w = set(key_words) | set(title_words)
     # "data" deve essere una parola intera: "dati_tecnici" non e' una data
     if w & _DATE_WORDS and not w & {"settimana", "luogo"}:
@@ -103,7 +104,7 @@ KIND_HINT = {
     "number": "numero",
     "bool": "Sì/No: true solo se il testo lo afferma",
     "choice": "scegli tra i valori ammessi",
-    "list": "elenco",
+    "list": "elenco: TUTTE le voci citate nel testo, una per elemento",
     "object": "oggetto",
     "text": "testo",
 }
@@ -122,3 +123,37 @@ def pair_partner(key: str, props: Dict[str, Any]) -> Optional[str]:
                 if cand != key and cand in props and base_type(props[cand]) == "boolean":
                     return cand
     return None
+
+
+# parole troppo generiche per capire a quale campo si riferisce un valore
+_GENERIC = {"numero", "n", "nr", "num", "codice", "cod", "id", "firma", "nome", "cognome", "dati", "dato",
+            "valore", "campo", "si", "no", "del", "della", "dello", "di", "il", "la", "lo", "le", "per",
+            "data", "date", "the", "of", "number", "code", "name"}
+# parole del testo equivalenti alle parole dei campi (radici di 5 lettere)
+SYNONYMS = {
+    "opera": {"tecni", "opera", "manut", "esegu", "inter"}, "manut": {"manut", "tecni", "inter"},
+    "tecni": {"tecni", "opera", "manut"}, "esecu": {"esegu", "effet", "fatta", "fatto", "fatte"},
+    "verif": {"verif", "contr", "colla", "appro", "esito"}, "redat": {"redig", "redat", "scriv", "verba"},
+    "richi": {"richi", "chied"}, "clien": {"clien", "ditta", "azien", "press"},
+    "forni": {"forni", "ditta", "azien"}, "respo": {"respo", "incar", "deve"},
+    "rappo": {"rappo", "rapp", "repor"}, "impor": {"impor", "euro", "eur", "costo", "prezz", "spesa", "total"},
+    "stima": {"stima", "previ", "circa"}, "cauzi": {"cauzi", "depos"}, "ordin": {"ordin", "ord"}, "matri": {"matri", "seria", "s"},
+    "commi": {"commi", "clien"}, "parte": {"parte", "prese"}, "prese": {"prese", "parte"},
+    # apparecchiature/impianti: il testo nomina la macchina, non la parola "apparecchiatura"
+    "appar": {"appar", "macch", "impia", "pompa", "motor", "compr", "nastr", "valvo", "forno", "quadr",
+              "press", "robot", "affet", "confe", "mulin", "impas", "riemp", "etich", "frigo", "cella",
+              "carre", "mulet", "gener", "caldai", "ventil", "trasp", "tappa", "dosat", "insac", "pesat"},
+}
+SYNONYMS["impia"] = SYNONYMS["macch"] = SYNONYMS["attre"] = SYNONYMS["dispo"] = SYNONYMS["appar"]
+
+
+def field_stems(key: str, spec: Any) -> set:
+    """Radici (5 lettere) delle parole significative del campo, con i sinonimi:
+    "firma_operatore_manutenzione" -> {opera, manut, tecni, esegu, inter}."""
+    spec = spec if isinstance(spec, dict) else {}
+    ws = words(key) + words(str(spec.get("title") or ""))
+    stems = {w[:5] for w in ws if w not in _GENERIC and len(w) >= 3}
+    out = set(stems)
+    for s in stems:
+        out |= SYNONYMS.get(s, set())
+    return out

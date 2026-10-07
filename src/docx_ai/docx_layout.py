@@ -258,14 +258,13 @@ class Converter:
 
     def _convert_word(self, src: Path, dst: Path, timeout: float) -> None:
         if self._word is None or self._word.poll() is not None:
-            # -EncodedCommand: non e' un file di script, quindi i criteri aziendali sugli
-            # script (es. AllSigned) non lo bloccano
-            encoded = base64.b64encode(_WORD_SCRIPT.encode("utf-16-le")).decode("ascii")
-            self._word = subprocess.Popen(
-                ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-                encoding="utf-8", errors="replace",
-                creationflags=_CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            # script in chiaro con -Command (non e' un file di script: i criteri aziendali
+            # sugli script, es. AllSigned, non lo bloccano). Niente -EncodedCommand: gli
+            # antivirus lo trattano come codice nascosto e bloccavano l'app
+            from . import winshell
+            self._word = winshell.popen(
+                _WORD_SCRIPT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, encoding="utf-8", errors="replace")
             if self._readline(timeout) != "READY":
                 raise RuntimeError("Word non si avvia")
 

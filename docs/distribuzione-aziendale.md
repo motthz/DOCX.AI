@@ -74,3 +74,35 @@ obbligatorio, l'installer può essere incapsulato con strumenti come
 `scripts\winget_manifest.py` genera i manifest per il catalogo winget a partire
 dall'installer della release; la pubblicazione richiede l'invio di una pull
 request a `microsoft/winget-pkgs` dall'account del titolare.
+
+## Antivirus e SmartScreen
+
+DOCX.AI è un'applicazione Python impacchettata con PyInstaller ed esegue un motore AI
+locale (`llama-server.exe`): alcuni antivirus possono segnalarla per errore. Cosa fa l'app
+per evitarlo:
+
+- il *bootloader* di PyInstaller viene compilato da sorgente a ogni release (quello
+  precompilato è condiviso da migliaia di programmi, anche malevoli, ed è spesso segnalato);
+- niente UPX né file compressi/offuscati; l'eseguibile ha icona, manifest (`asInvoker`, nessun
+  diritto di amministratore) e informazioni di versione complete;
+- PowerShell (usato solo per impaginare con Word e per l'OCR di Windows) viene avviato dal
+  percorso di sistema con lo script in chiaro: niente `-EncodedCommand` né
+  `-ExecutionPolicy Bypass`, i due segnali più usati dagli antivirus per riconoscere i malware;
+- il runtime llama.cpp e i modelli scaricati vengono verificati con SHA-256.
+
+**Firma digitale.** Il rimedio definitivo è firmare exe e installer con un certificato di
+firma del codice (OV/EV, oppure Azure Trusted Signing). La release lo fa da sola se nel
+repository sono presenti i secret `WINDOWS_SIGN_PFX_BASE64` (file `.pfx` in base64) e
+`WINDOWS_SIGN_PFX_PASSWORD`; in locale basta impostare `SIGN_PFX_PATH` e
+`SIGN_PFX_PASSWORD` prima di `scripts\release.ps1`.
+
+**Se l'antivirus blocca comunque l'app:**
+
+1. invia l'installer come *falso positivo* al produttore (Microsoft Defender:
+   <https://www.microsoft.com/wdsi/filesubmission>, scegli "Software developer" o
+   "Home customer"); di solito la segnalazione viene rimossa in 1-3 giorni per tutti;
+2. in azienda aggiungi un'esclusione per la cartella di installazione
+   (`%LOCALAPPDATA%\Programs\DOCX.AI`) e per la cartella dati (`%LOCALAPPDATA%\DOCX.AI`,
+   che contiene `runtime\llama\llama-server.exe`), oppure consenti l'hash dei file;
+3. SmartScreen ("PC protetto da Windows") sparisce con la firma digitale o dopo che
+   l'installer è stato scaricato da abbastanza utenti: *Ulteriori informazioni → Esegui comunque*.

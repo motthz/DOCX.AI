@@ -294,3 +294,151 @@ class DocumentDateFormatTests(unittest.TestCase):
         from docx_ai.services.report_service import _for_document
         out = _for_document({"data": "2026-10-05", "note": "rif. 2026-10-05 ok", "x": "NON_SPECIFICATO"})
         self.assertEqual(out, {"data": "05/10/2026", "note": "rif. 2026-10-05 ok", "x": ""})
+
+
+class ConsistencyRuleTests(unittest.TestCase):
+    """Errori tipici del modello 1.7B visti sul banco di prova (scripts/eval_ai.py)."""
+
+    def apply(self, data, proofs, schema, text):
+        from docx_ai.llm.evidence import apply
+        return apply(data, proofs, schema, [text])
+
+    def test_machine_code_is_not_report_number_department_or_line(self):
+        schema = {"type": "object", "properties": {k: {"type": "string"} for k in
+                                                   ("numero_rapporto", "reparto", "linea", "apparecchiatura")}}
+        data = {"numero_rapporto": "P12", "reparto": "P12", "linea": "P12", "apparecchiatura": "P12"}
+        out, _ = self.apply(data, dict.fromkeys(data, "pompa P12"), schema,
+                            "pompa P12 rumorosa, cambiato cuscinetto 6204, prova ok")
+        self.assertEqual(out, {"numero_rapporto": "NON_SPECIFICATO", "reparto": "NON_SPECIFICATO",
+                               "linea": "NON_SPECIFICATO", "apparecchiatura": "P12"})
+
+    def test_report_number_kept_when_introduced(self):
+        schema = {"type": "object", "properties": {"numero_rapporto": {"type": "string"}}}
+        out, fixes = self.apply({"numero_rapporto": "245/26"}, {"numero_rapporto": "Rapporto n. 245/26"},
+                                schema, "Rapporto n. 245/26. Sostituita la cinghia.")
+        self.assertEqual(out["numero_rapporto"], "245/26")
+        self.assertEqual(fixes, [])
+
+    def test_technician_not_copied_into_other_signatures(self):
+        schema = {"type": "object", "properties": {k: {"type": "string"} for k in
+                                                   ("firma_operatore_manutenzione", "firma_esecutore_pulizia",
+                                                    "firma_verifica")}}
+        text = "Esito della verifica non conforme: il sensore va ricontrollato domani. Tecnico: Luca Ferri."
+        out, _ = self.apply(dict.fromkeys(schema["properties"], "Luca Ferri"),
+                            dict.fromkeys(schema["properties"], "Tecnico: Luca Ferri"), schema, text)
+        self.assertEqual(out["firma_operatore_manutenzione"], "Luca Ferri")
+        self.assertEqual(out["firma_esecutore_pulizia"], "NON_SPECIFICATO")
+        self.assertEqual(out["firma_verifica"], "NON_SPECIFICATO")
+
+    def test_field_name_is_not_a_value(self):
+        schema = {"type": "object", "properties": {"oggetto": {"type": "string",
+                                                               "description": "Titolo o oggetto della riunione"}}}
+        out, _ = self.apply({"oggetto": "Oggetto della riunione"}, {"oggetto": ""}, schema,
+                            "ieri ci siamo visti per parlare dei ritardi nelle consegne")
+        self.assertEqual(out["oggetto"], "NON_SPECIFICATO")
+
+    def test_choice_confirmed_by_words(self):
+        schema = {"type": "object", "properties": {"tipologia": {"type": "string", "enum": [
+            "manutenzione_ordinaria_programmata", "manutenzione_straordinaria"]}}}
+        out, _ = self.apply({"tipologia": "manutenzione_ordinaria_programmata"},
+                            {"tipologia": "manutenzione ordinaria programmata"}, schema,
+                            "Oggi controllo programmato sulla confezionatrice CF-12")
+        self.assertEqual(out["tipologia"], "manutenzione_ordinaria_programmata")
+
+    def test_negated_yes_sets_no(self):
+        schema = {"type": "object", "properties": {"pulizia_sanificazione_si": {"type": "boolean"},
+                                                   "pulizia_sanificazione_no": {"type": "boolean"}}}
+        out, _ = self.apply({"pulizia_sanificazione_si": False, "pulizia_sanificazione_no": False},
+                            {"pulizia_sanificazione_si": "Non è stata necessaria pulizia né sanificazione",
+                             "pulizia_sanificazione_no": ""}, schema,
+                            "Non è stata necessaria pulizia né sanificazione.")
+        self.assertTrue(out["pulizia_sanificazione_no"])
+        self.assertFalse(out["pulizia_sanificazione_si"])
+
+    def test_next_meeting_after_meeting(self):
+        from docx_ai.llm.fact_guard import verify
+        schema = {"type": "object", "properties": {"data_riunione": {"type": "string"},
+                                                   "prossimo_incontro": {"type": "string", "format": "date"}}}
+        out, _ = verify({"data_riunione": "2026-10-05", "prossimo_incontro": "2026-10-05"}, schema,
+                        ["ieri pomeriggio riunione su Teams"], today=TODAY)
+        self.assertEqual(out["prossimo_incontro"], "NON_SPECIFICATO")
+
+
+class AntivirusFriendlyTests(unittest.TestCase):
+    def test_powershell_without_suspicious_flags(self):
+        from docx_ai import winshell
+        args = winshell.powershell_args("Get-Date")
+        joined = " ".join(args).lower()
+        self.assertNotIn("-encodedcommand", joined)
+        self.assertNotIn("bypass", joined)
+        self.assertEqual(args[-2:], ["-Command", "Get-Date"])
+
+    def test_no_suspicious_powershell_in_sources(self):
+        src = REPO / "src" / "docx_ai"
+        for path in src.rglob("*.py"):
+            text = path.read_text(encoding="utf-8").lower()
+            self.assertNotIn('"-encodedcommand"', text, path)
+            self.assertNotIn('"bypass"', text, path)
+            if path.name != "winshell.py":
+                self.assertNotIn('["powershell"', text, path)
+
+
+class HeldOutRuleTests(unittest.TestCase):
+    """Casi del banco di prova non usati per scrivere le prime regole."""
+
+    def apply(self, data, proofs, schema, text):
+        from docx_ai.llm.evidence import apply
+        return apply(data, proofs, schema, [text])
+
+    TEXT = ("RAPPORTO 77. Data 01/10/2026. Reparto: Cottura - Linea 1. Pulizia non necessaria. Esito conforme. "
+            "Operatore: Giorgio Mauri; verifica: Ing. Laura Sala.")
+    SCHEMA = {"type": "object", "properties": {
+        "numero_rapporto": {"type": "string"}, "pulizia_sanificazione_si": {"type": "boolean"},
+        "pulizia_sanificazione_no": {"type": "boolean"}, "firma_operatore_manutenzione": {"type": "string"},
+        "firma_esecutore_pulizia": {"type": "string"}, "firma_verifica": {"type": "string"}}}
+
+    def test_report_number_with_label_word(self):
+        out, _ = self.apply({"numero_rapporto": "RAPPORTO 77"}, {"numero_rapporto": "RAPPORTO 77"},
+                            self.SCHEMA, self.TEXT)
+        self.assertEqual(out["numero_rapporto"], "77")
+
+    def test_negation_after_subject(self):
+        out, fixes = self.apply({"pulizia_sanificazione_si": False, "pulizia_sanificazione_no": True},
+                                {"pulizia_sanificazione_si": "", "pulizia_sanificazione_no": ""},
+                                self.SCHEMA, self.TEXT)
+        self.assertTrue(out["pulizia_sanificazione_no"])
+        self.assertFalse(any(f.old is True for f in fixes))
+
+    def test_name_of_another_role(self):
+        out, _ = self.apply({"firma_operatore_manutenzione": "Giorgio Mauri",
+                             "firma_esecutore_pulizia": "Ing. Laura Sala", "firma_verifica": "Ing. Laura Sala"},
+                            {"firma_operatore_manutenzione": "Operatore: Giorgio Mauri",
+                             "firma_esecutore_pulizia": "verifica: Ing. Laura Sala",
+                             "firma_verifica": "verifica: Ing. Laura Sala"}, self.SCHEMA, self.TEXT)
+        self.assertEqual(out["firma_operatore_manutenzione"], "Giorgio Mauri")
+        self.assertEqual(out["firma_esecutore_pulizia"], "NON_SPECIFICATO")
+        self.assertEqual(out["firma_verifica"], "Ing. Laura Sala")
+
+    def test_quantity_is_not_amount(self):
+        schema = {"type": "object", "properties": {"importo_stimato": {"type": "string"},
+                                                   "cauzione_euro": {"type": "number"}}}
+        out, _ = self.apply({"importo_stimato": "10", "cauzione_euro": 20}, {"importo_stimato": "10 risme"}, schema,
+                            "Servono 10 risme di carta A4. Cauzione 20 euro.")
+        self.assertEqual(out["importo_stimato"], "NON_SPECIFICATO")
+        self.assertEqual(out["cauzione_euro"], 20)
+
+    def test_label_words_reordered(self):
+        schema = {"type": "object", "properties": {"oggetto": {"type": "string",
+                                                               "description": "Titolo o oggetto della riunione"}}}
+        out, _ = self.apply({"oggetto": "Oggetto riunione"}, {"oggetto": ""}, schema, "riunione sui ritardi")
+        self.assertEqual(out["oggetto"], "NON_SPECIFICATO")
+
+
+class AbbreviationTests(unittest.TestCase):
+    def test_abbreviated_label_keeps_code(self):
+        from docx_ai.llm.evidence import apply
+        schema = {"type": "object", "properties": {"matricola": {"type": "string"}, "reparto": {"type": "string"}}}
+        out, fixes = apply({"matricola": "10457", "reparto": "magazzino"}, {"matricola": "matr. 10457"}, schema,
+                           ["Chiara Moretti (matr. 10457) del magazzino chiede ferie"])
+        self.assertEqual(out["matricola"], "10457")
+        self.assertEqual(fixes, [])

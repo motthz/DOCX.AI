@@ -153,10 +153,9 @@ def _gpu_names() -> List[str]:
 
 def _gpu_names_powershell() -> List[str]:
     try:
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
-            capture_output=True, text=True, timeout=15, creationflags=0x08000000)
+        from .. import winshell
+        out = winshell.run("Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
+                           timeout=15)
         names = [n.strip() for n in out.stdout.splitlines() if n.strip()]
         return [n for n in names if not any(s in n.lower() for s in _GPU_SKIP)]
     except (OSError, subprocess.SubprocessError):

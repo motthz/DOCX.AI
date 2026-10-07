@@ -248,6 +248,22 @@ def _fill_missing_defaults(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict
     return data
 
 
+def _blank(v: Any) -> bool:
+    return v is None or v is False or v == [] or v == {} or (
+        isinstance(v, str) and (not v.strip() or v.strip().upper() == _NON_SPEC))
+
+
+def _drop_empty_items(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Righe di elenco tutte "non specificato" (il modello piccolo scrive una riga vuota
+    invece di un elenco vuoto): tolte, l'elenco resta vuoto."""
+    out = dict(data)
+    for key, value in data.items():
+        if isinstance(value, list):
+            out[key] = [it for it in value if not (
+                _blank(it) or (isinstance(it, dict) and all(_blank(x) for x in it.values())))]
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Artifact dump & disk-cap helpers
 # ---------------------------------------------------------------------------
@@ -535,7 +551,7 @@ class JsonPipeline:
                 notes.append("L'AI non ha compilato questi campi (da completare in revisione): "
                              + ", ".join(names))
                 logger.warning(f"[{server_name}] campi non compilati: {failed} ({last_error})")
-            repaired = _fill_missing_defaults(merged, schema)
+            repaired = _drop_empty_items(_fill_missing_defaults(merged, schema))
             raw = "\n".join(raws)
             sources = [operator_description] + [t for _n, t in reference_docs]
 

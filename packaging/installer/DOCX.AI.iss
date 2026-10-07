@@ -48,6 +48,9 @@ RestartApplications=no
 VersionInfoVersion={#AppVersion}
 VersionInfoProductName={#AppName}
 VersionInfoDescription={#AppName} Setup
+VersionInfoCompany=DOCX.AI
+VersionInfoCopyright=Copyright (c) DOCX.AI
+VersionInfoProductVersion={#AppVersion}
 
 [Languages]
 Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
