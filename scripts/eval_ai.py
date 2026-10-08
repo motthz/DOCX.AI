@@ -34,7 +34,10 @@ def _is_empty(v) -> bool:
 
 
 def _resolve_date(expr: str, today: date) -> str:
-    """"today", "today-1", "2026-10-02" -> AAAA-MM-GG."""
+    """"today", "today-1", "lastwd0" (lunedi' scorso), "2026-10-02" -> AAAA-MM-GG."""
+    m = re.fullmatch(r"lastwd(\d)", expr)
+    if m:
+        return (today - timedelta(days=(today.weekday() - int(m.group(1))) % 7 or 7)).isoformat()
     m = re.fullmatch(r"today([+-]\d+)?", expr)
     if m:
         return (today + timedelta(days=int(m.group(1) or 0))).isoformat()

@@ -21,7 +21,7 @@
         ]
       },
       "data": {
-        "date": "today-2"
+        "date": "lastwd0"
       },
       "apparecchiatura": {
         "contains": [
@@ -48,7 +48,7 @@
         ]
       },
       "data_intervento": {
-        "date": "today-2"
+        "date": "lastwd0"
       },
       "firma_operatore_manutenzione": {
         "contains": [
@@ -863,6 +863,145 @@
         "contains": [
           "segnaletica"
         ]
+      },
+      "prossimo_incontro": {
+        "empty": true
+      }
+    }
+  },
+  {
+    "id": "trappola_intervento",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cliente": {
+          "type": "string"
+        },
+        "referente_cliente": {
+          "type": "string"
+        },
+        "tecnico": {
+          "type": "string"
+        },
+        "matricola_macchina": {
+          "type": "string"
+        },
+        "numero_ordine": {
+          "type": "string"
+        },
+        "luogo_intervento": {
+          "type": "string"
+        },
+        "causa_guasto": {
+          "type": "string"
+        },
+        "ricambi_ordinati": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cliente",
+        "referente_cliente",
+        "tecnico",
+        "matricola_macchina",
+        "numero_ordine",
+        "luogo_intervento",
+        "causa_guasto",
+        "ricambi_ordinati"
+      ]
+    },
+    "text": "Presso la Lattesano di Crema (referente sig.ra Galli) il tecnico Dario Pozzi ha riparato l'omogeneizzatore matricola HM-7712. La causa del guasto non è stata individuata.",
+    "expected": {
+      "cliente": {
+        "contains": [
+          "Lattesano"
+        ]
+      },
+      "referente_cliente": {
+        "contains": [
+          "Galli"
+        ]
+      },
+      "tecnico": {
+        "contains": [
+          "Pozzi"
+        ]
+      },
+      "matricola_macchina": {
+        "contains": [
+          "HM-7712"
+        ]
+      },
+      "numero_ordine": {
+        "empty": true
+      },
+      "luogo_intervento": {
+        "contains": [
+          "Crema"
+        ]
+      },
+      "causa_guasto": {
+        "any": [
+          {
+            "empty": true
+          },
+          {
+            "contains": [
+              "non"
+            ]
+          }
+        ]
+      },
+      "ricambi_ordinati": false
+    }
+  },
+  {
+    "id": "trappola_verbale",
+    "schema": "examples/modules/Verbale_di_riunione/schema.json",
+    "text": "Ci siamo trovati in videochiamata con Luca e Sara del fornitore Beta per parlare del nuovo imballo. Nessuna decisione presa, ci aggiorniamo.",
+    "expected": {
+      "oggetto": {
+        "contains": [
+          "imballo"
+        ]
+      },
+      "luogo": {
+        "contains": [
+          "video"
+        ]
+      },
+      "partecipanti": {
+        "items": [
+          {
+            "contains": [
+              "Luca"
+            ]
+          },
+          {
+            "contains": [
+              "Sara"
+            ]
+          }
+        ]
+      },
+      "redattore": {
+        "empty": true
+      },
+      "decisioni": {
+        "any": [
+          {
+            "empty": true
+          },
+          {
+            "contains": [
+              "nessuna"
+            ]
+          }
+        ]
+      },
+      "azioni": {
+        "empty": true
       },
       "prossimo_incontro": {
         "empty": true

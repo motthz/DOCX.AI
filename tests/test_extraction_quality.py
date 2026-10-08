@@ -273,7 +273,7 @@ class ImproveTextTests(unittest.TestCase):
     def test_added_or_lost_data_retried_and_reported(self):
         svc = self.service(["Sostituito il cuscinetto 6205 della pompa.", "Sostituito il cuscinetto della pompa."])
         out, warnings = svc.improve_text_checked("sostituito cuscinetto 6204 pompa P-12", "Note")
-        self.assertEqual(len(svc.pipe.calls), 2)  # secondo tentativo con la correzione
+        self.assertGreaterEqual(len(svc.pipe.calls), 2)  # nuovo tentativo con la correzione
         self.assertTrue(any("6204" in w for w in warnings))
 
     def test_empty_field_written_from_sources(self):
@@ -281,12 +281,51 @@ class ImproveTextTests(unittest.TestCase):
         out, warnings = svc.improve_text_checked("", "Descrizione anomalia",
                                                  sources=["Pompa P-12 rumorosa, sostituito cuscinetto"])
         self.assertEqual(out, "Rumore anomalo dalla pompa P-12.")
-        self.assertIn("Testo dell'utente", svc.pipe.calls[0][0][1]["content"])
+        self.assertIn("Informazioni:", svc.pipe.calls[0][0][1]["content"])
 
     def test_empty_field_without_sources(self):
         svc = self.service(["x"])
         with self.assertRaises(ValueError):
             svc.improve_text_checked("", "Note")
+
+
+class ImproveTextCopyTests(unittest.TestCase):
+    def test_copied_text_is_retried(self):
+        svc = ImproveTextTests.service(None, ["sostituito cuscinetto 6204 pompa P-12, prova ok",
+                                              "È stato sostituito il cuscinetto 6204 della pompa P-12; prova con "
+                                              "esito positivo."])
+        out, warnings = svc.improve_text_checked("sostituito cuscinetto 6204 pompa P-12 , prova ok", "Note")
+        self.assertTrue(out.startswith("È stato sostituito"))
+        self.assertEqual(warnings, [])
+
+    def test_lost_content_reported(self):
+        from docx_ai.docintelligence.ai_service import _lost_words
+        orig = "la macchina perdeva olio dal raccordo, cambiato guarnizione e serrato i bulloni del carter"
+        self.assertIn("perdeva", _lost_words(orig, "È stato sostituito il raccordo di olio del carter, con la "
+                                                   "guarnizione e serrati i bulloni del carter."))
+        self.assertEqual(_lost_words("sostituito cuscinetto 6204 pompa P-12 era rumorosa, prova ok",
+                                     "È stato sostituito il cuscinetto 6204 della pompa P-12, che era rumorosa. "
+                                     "La prova ha dato esito positivo."), [])
+
+
+class InventedCauseTests(unittest.TestCase):
+    def test_invented_cause_retried(self):
+        svc = ImproveTextTests.service(None, ["La pompa P12 era rumorosa a causa della rottura del cuscinetto.",
+                                              "La pompa P12 era rumorosa."])
+        out, warnings = svc.improve_text_checked("", "Descrizione anomalia",
+                                                 sources=["pompa P12 rumorosa, cambiato cuscinetto 6204"])
+        self.assertEqual(out, "La pompa P12 era rumorosa.")
+        self.assertEqual(warnings, [])
+
+
+class StripCauseTests(unittest.TestCase):
+    def test_persistent_cause_removed(self):
+        svc = ImproveTextTests.service(None, ["La pompa P12 era rumorosa a causa della rottura del cuscinetto 6204. "
+                                              "Il cuscinetto 6204 è stato sostituito."])
+        out, warnings = svc.improve_text_checked("", "Descrizione anomalia",
+                                                 sources=["pompa P12 rumorosa, cambiato cuscinetto 6204"])
+        self.assertEqual(out, "La pompa P12 era rumorosa. Il cuscinetto 6204 è stato sostituito.")
+        self.assertTrue(any("Tolta una causa" in w for w in warnings))
 
 
 class DocumentDateFormatTests(unittest.TestCase):
@@ -441,4 +480,43 @@ class AbbreviationTests(unittest.TestCase):
         out, fixes = apply({"matricola": "10457", "reparto": "magazzino"}, {"matricola": "matr. 10457"}, schema,
                            ["Chiara Moretti (matr. 10457) del magazzino chiede ferie"])
         self.assertEqual(out["matricola"], "10457")
+        self.assertEqual(fixes, [])
+
+
+class PlacementVerificationTests(unittest.TestCase):
+    """Informazione vera ma nel campo sbagliato: tolta solo se il valore e' lontano dalle
+    parole del campo E il modello, interrogato solo su quel campo, dice che non c'e'."""
+
+    SCHEMA = {"type": "object", "properties": {
+        "redattore": {"type": "string", "description": "Chi redige il verbale"},
+        "luogo": {"type": "string"}, "oggetto": {"type": "string"}}}
+    TEXT = "Riunione sicurezza del 28/09 in mensa con RSPP Bruno Sala e i capireparto."
+
+    def run_with(self, answer):
+        import json as _json
+        from docx_ai.llm.json_pipeline import JsonPipeline
+        asked = []
+
+        class Fake:
+            def chat_completions(self, messages, **kw):
+                q = messages[-1]["content"]
+                asked.append(q)
+                reply = answer if "redige" in q else "mensa"
+                return {"choices": [{"message": {"content": _json.dumps({"risposta": reply})}}]}
+        pipe = JsonPipeline(Fake(), max_retries=0)
+        data = {"redattore": "Bruno Sala", "luogo": "mensa", "oggetto": "sicurezza"}
+        return pipe._verify_placement(Fake(), self.SCHEMA, data, self.TEXT, [self.TEXT]), asked
+
+    def test_misplaced_value_removed(self):
+        (out, fixes), asked = self.run_with("NON INDICATO")
+        self.assertEqual(out["redattore"], "NON_SPECIFICATO")
+        self.assertEqual(out["luogo"], "mensa")  # confermato dalla domanda separata
+        self.assertEqual(out["oggetto"], "sicurezza")  # vicino alle parole del campo: non verificato
+        self.assertTrue(any("Chi redige il verbale" in q for q in asked))
+        self.assertFalse(any("Oggetto" in q for q in asked))
+        self.assertEqual(len(fixes), 1)
+
+    def test_confirmed_value_kept(self):
+        (out, fixes), _ = self.run_with("Bruno Sala")
+        self.assertEqual(out["redattore"], "Bruno Sala")
         self.assertEqual(fixes, [])

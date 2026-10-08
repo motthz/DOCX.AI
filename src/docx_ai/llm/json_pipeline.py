@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import jsonschema
 
+from .llama_server import MockLlamaServer
 from .prompt_builder import build_extraction_messages
 from . import evidence as _ev
 from . import quality_scorer as _qs
@@ -61,6 +62,7 @@ ServerLike = Any  # protocol: chat_completions(...) compatible
 
 
 _NON_SPEC = "NON_SPECIFICATO"
+NON_SPEC_VALUE = _NON_SPEC
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +471,8 @@ class JsonPipeline:
         self.group_weight: Optional[int] = None  # None = in base al modello
         # risposta con prova per ogni campo (llm/evidence.py)
         self.evidence = bool(evidence)
+        # verifica dei valori sospetti di stare nel campo sbagliato (una domanda per campo)
+        self.verify_placement = True
 
     # ------------------------------------------------------------------
     def extract(
@@ -564,6 +568,12 @@ class JsonPipeline:
             from .fact_guard import verify as _verify_facts
             repaired, fixes = _verify_facts(repaired, schema, sources)
             all_fixes: List[Any] = list(ev_fixes) + list(fixes)
+            # Informazione vera ma nel campo sbagliato: domanda separata al modello per i
+            # campi sospetti (valore lontano dalle parole del campo); tolto se anche il
+            # modello, interrogato solo su quel campo, risponde che il testo non lo indica
+            if self.verify_placement and not isinstance(server, MockLlamaServer):
+                repaired, moved = self._verify_placement(server, schema, repaired, operator_description, sources)
+                all_fixes += moved
             _write_debug(dump_dir, "97_evidence.json", proofs)
             _write_debug(dump_dir, "98_fact_guard.json", [c.describe() for c in all_fixes])
             quality = _qs.score(repaired, schema)
@@ -600,6 +610,28 @@ class JsonPipeline:
             quality_score=0,
             debug_dir=str(dump_dir) if dump_dir else None,
         )
+
+    def _verify_placement(self, server: ServerLike, schema: Dict[str, Any], data: Dict[str, Any],
+                          text: str, sources: List[str]) -> Tuple[Dict[str, Any], List[Any]]:
+        props = schema.get("properties") or {}
+        out = dict(data)
+        fixes: List[Any] = []
+        for key in _ev.placement_suspects(out, schema, sources)[:8]:
+            try:
+                resp = server.chat_completions(
+                    messages=_ev.placement_question(text, key, props.get(key)), temperature=0.0, max_tokens=60,
+                    json_schema=_ev.PLACEMENT_SCHEMA)
+                raw = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                parsed, _err = _lenient_json_parse(raw)
+                answer = str((parsed or {}).get("risposta", "")) if isinstance(parsed, dict) else ""
+            except Exception as exc:  # noqa: BLE001 - verifica facoltativa
+                _logmod.getLogger(__name__).info("verifica del campo %s non riuscita: %s", key, exc)
+                continue
+            if _ev.not_indicated(answer):
+                label = str((props.get(key) or {}).get("title") or key)
+                fixes.append(_ev.Fix(label, out[key], NON_SPEC_VALUE, "informazione di un altro campo"))
+                out[key] = NON_SPEC_VALUE
+        return out, fixes
 
     def _extract_group(
         self,

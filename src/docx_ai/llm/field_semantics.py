@@ -137,7 +137,11 @@ SYNONYMS = {
     "richi": {"richi", "chied"}, "clien": {"clien", "ditta", "azien", "press"},
     "forni": {"forni", "ditta", "azien"}, "respo": {"respo", "incar", "deve"},
     "rappo": {"rappo", "rapp", "repor"}, "impor": {"impor", "euro", "eur", "costo", "prezz", "spesa", "total"},
-    "stima": {"stima", "previ", "circa"}, "cauzi": {"cauzi", "depos"}, "ordin": {"ordin", "ord"}, "matri": {"matri", "seria", "s"},
+    "stima": {"stima", "previ", "circa"}, "cauzi": {"cauzi", "depos"},
+    "luogo": {"luogo", "press", "sala", "sede", "via"}, "sede": {"sede", "press"},
+    "ogget": {"ogget", "riuni", "argom", "tema", "verba", "per"}, "titol": {"titol", "ogget"},
+    "repar": {"repar", "uffic", "setto", "area"}, "uffic": {"uffic", "repar"},
+    "linea": {"linea", "line"}, "indir": {"indir", "via", "piazz", "viale", "corso"}, "ordin": {"ordin", "ord"}, "matri": {"matri", "seria", "s"},
     "commi": {"commi", "clien"}, "parte": {"parte", "prese"}, "prese": {"prese", "parte"},
     # apparecchiature/impianti: il testo nomina la macchina, non la parola "apparecchiatura"
     "appar": {"appar", "macch", "impia", "pompa", "motor", "compr", "nastr", "valvo", "forno", "quadr",

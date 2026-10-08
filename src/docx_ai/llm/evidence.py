@@ -104,6 +104,28 @@ def _stems(text: str) -> List[str]:
     return [w[:5] for w in re.findall(r"[a-z0-9]+", fs.norm(text)) if len(w) >= 4 and w not in _STOP]
 
 
+# abbreviazioni seguite dal punto che non chiudono la frase ("verifica: Ing. Laura Sala")
+_ABBR = {"ing", "dott", "dottssa", "sig", "sigra", "geom", "arch", "avv", "prof", "matr", "cod", "rif", "art",
+         "pag", "tel", "ecc", "nr", "num", "n", "es", "spett", "egr", "gent", "mr", "dr", "rev", "sez", "pos"}
+_BOUNDARY = re.compile(r"([a-z0-9]+)\.\s|[;!?\n]")
+
+
+def _sentence_tail(text: str) -> str:
+    """Ultima frase del testo (il punto delle abbreviazioni non chiude la frase)."""
+    cut = 0
+    for m in _BOUNDARY.finditer(text):
+        if m.group(1) is None or m.group(1) not in _ABBR:
+            cut = m.end()
+    return text[cut:]
+
+
+def _sentence_head(text: str) -> str:
+    for m in _BOUNDARY.finditer(text):
+        if m.group(1) is None or m.group(1) not in _ABBR:
+            return text[:m.start() + (len(m.group(1)) if m.group(1) else 0)]
+    return text
+
+
 def _match(context: set, stems: set) -> bool:
     """Parole vicine e parole del campo in comune, anche abbreviate ("matr." ~ matricola)."""
     for w in context:
@@ -203,10 +225,10 @@ class EvidenceChecker:
         if not v:
             return out
         for m in re.finditer(r"(?<![a-z0-9])" + re.escape(v) + r"(?![a-z0-9])", self.user):
-            left = self.user[max(0, m.start() - 50): m.start()]
-            parts = re.split(r"(?<=[a-z0-9]{3})\.\s|[;!?\n]", left)
-            right = re.split(r"(?<=[a-z0-9]{3})\.\s|[;!?\n,]", self.user[m.end(): m.end() + 25])[0]
-            out.append({w[:5] for w in re.findall(r"[a-z0-9]+", parts[-1] + " " + right) if len(w) >= 2})
+            left = _sentence_tail(self.user[max(0, m.start() - 50): m.start()])
+            right = re.split(r"[;!?\n,]", _sentence_head(self.user[m.end(): m.end() + 25]))[0]
+            # anche le parole del valore stesso: "Pompa P12" dice gia' che e' una macchina
+            out.append({w[:5] for w in re.findall(r"[a-z0-9]+", left + " " + v + " " + right) if len(w) >= 2})
         return out
 
     def _near(self, value: str, key: str, spec: Any) -> Optional[bool]:
@@ -246,6 +268,10 @@ class EvidenceChecker:
         vicino alle parole del campo. "CF-12" della macchina non e' il numero del rapporto."""
         for key, value in list(out.items()):
             spec = props.get(key) or {}
+            if fs.kind(key, spec) == "code" and isinstance(value, str) and len(value.split()) > 5:
+                # una frase intera non e' un codice ("Oggi controllo programmato sulla...")
+                self._fix(out, key, fs.label(key, spec), value, NON_SPEC, "non è un codice")
+                continue
             if not isinstance(value, str) or not re.search(r"\d", value):
                 continue
             k = fs.kind(key, spec)
@@ -404,3 +430,48 @@ def apply(data: Dict[str, Any], evidence: Dict[str, Optional[str]], schema: Dict
           sources: Iterable[str]) -> Tuple[Dict[str, Any], List[Fix]]:
     checker = EvidenceChecker(sources)
     return checker.apply(data, evidence, schema), checker.fixes
+
+
+def placement_suspects(data: Dict[str, Any], schema: Dict[str, Any], sources: Iterable[str]) -> List[str]:
+    """Campi brevi (nomi, codici, testi di poche parole) il cui valore compare nel testo
+    solo lontano dalle parole del campo: candidati a "informazione vera, campo sbagliato".
+    Da soli non bastano per togliere il valore (la conferma la da' verify_placement)."""
+    checker = EvidenceChecker(sources)
+    props = (schema or {}).get("properties") or {}
+    out = []
+    for key, value in (data or {}).items():
+        spec = props.get(key) or {}
+        # solo nomi e codici: per reparti, luoghi e testi brevi il modello interrogato da solo
+        # rispondeva spesso "non indicato" anche quando il dato c'era ("del magazzino")
+        if fs.kind(key, spec) not in ("person", "code") or not isinstance(value, str):
+            continue
+        v = re.sub(r"^(?:ing|dott(?:ssa)?|sig(?:ra)?|geom|arch|avv|prof)\.?\s+", "", value.strip(), flags=re.I)
+        if not v or v.upper() == NON_SPEC or len(v.split()) > 4:
+            continue
+        if checker._near(v, key, spec) is False:
+            out.append(key)
+    return out
+
+
+PLACEMENT_SYSTEM = (
+    "Rispondi a UNA domanda su un testo. Se il testo contiene la risposta, copiala con le parole del "
+    "testo (poche parole). Se il testo non dice esplicitamente la risposta, rispondi esattamente "
+    "NON INDICATO. Non dedurre e non usare informazioni che rispondono ad altre domande.")
+
+
+def placement_question(text: str, key: str, spec: Any) -> List[Dict[str, str]]:
+    spec = spec if isinstance(spec, dict) else {}
+    desc = str(spec.get("description") or "").strip()
+    what = fs.label(key, spec) + (f" ({desc})" if desc else "")
+    return [{"role": "system", "content": PLACEMENT_SYSTEM},
+            {"role": "user", "content": f"Testo:\n{text}\n\nDomanda: nel testo, qual è «{what}»?\n/no_think"}]
+
+
+PLACEMENT_SCHEMA = {"type": "object", "properties": {"risposta": {"type": "string", "maxLength": 120}},
+                    "required": ["risposta"], "additionalProperties": False}
+
+
+def not_indicated(answer: str) -> bool:
+    a = fs.norm(answer or "").strip(" .\"'«»")
+    return not a or a in ("non indicato", "non indicata", "non specificato", "nessuno", "non presente") \
+        or a.startswith("non indicat")

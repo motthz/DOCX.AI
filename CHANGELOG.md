@@ -6,6 +6,26 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.9.1] - 2026-10-08
+
+### Corretto
+- **Migliora testo non cambiava niente.** Il modello piccolo ricopiava il testo quasi identico (provato
+  con Qwen3 1.7B): ora la richiesta contiene un esempio concreto di riscrittura, una copia quasi identica
+  viene rifatta e il risultato viene controllato anche sulle parti di contenuto perse ("perdeva olio"),
+  non solo su codici e numeri. Il campo vuoto viene scritto solo con le informazioni che lo riguardano.
+  Cause o conclusioni aggiunte dall'AI ("a causa della rottura...") che il testo non dice vengono
+  segnalate, fatte riscrivere e, se il modello insiste, tolte.
+
+### Migliorato
+- **Informazioni vere nel campo sbagliato.** Dopo la compilazione i valori brevi (nomi, codici, testi di
+  poche parole) che nel testo compaiono lontano dalle parole del campo vengono riverificati con una
+  domanda separata all'AI su quel solo campo ("nel testo, chi redige il verbale?"); se la risposta è che il
+  testo non lo indica il valore viene tolto e segnalato in revisione. Il valore viene tolto solo se i due
+  controlli concordano, così i valori giusti restano. Una frase intera nel campo di un codice viene tolta.
+- Banco di prova con il modello vero (Qwen3 1.7B): 94% dei campi corretti su 15 moduli, compresi due
+  testi "trappola" pensati per far mettere informazioni vere nel campo sbagliato (con la 0.9.0: 11/15
+  campi corretti, ora 13/15).
+
 ## [0.9.0] - 2026-10-07
 
 ### Migliorato

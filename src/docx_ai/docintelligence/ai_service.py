@@ -102,6 +102,86 @@ def _params_b(model: str) -> float:
     return size if size <= 14 else 0.0
 
 
+# "Migliora testo": provato con Qwen3 1.7B. Senza un esempio concreto il modello
+# ricopiava il testo quasi identico (sembrava che la funzione non facesse nulla).
+IMPROVE_POLICY = """Sei un redattore tecnico. Trasformi appunti scritti di fretta in testo professionale per un documento aziendale.
+Come scrivere:
+- frasi complete con soggetto e verbo, forma impersonale (es. "È stato sostituito...", "Si è verificato...");
+- maiuscola iniziale, punteggiatura corretta, niente abbreviazioni ("x" -> "per", "ok" -> "esito positivo");
+- termini tecnici corretti;
+- mantieni TUTTI i fatti e TUTTI i dati: codici, numeri, nomi, date, misure, scritti esattamente come nell'originale;
+- non aggiungere informazioni che non ci sono (niente cause, conclusioni o giudizi nuovi);
+- scrivi nella stessa lingua degli appunti."""
+
+IMPROVE_EXAMPLE = """Esempio
+Appunti: cambiato filtro aria compressore C7, perdeva olio dal tappo, pressione 7,8 bar ok
+Testo: È stato sostituito il filtro dell'aria del compressore C7, che perdeva olio dal tappo. La pressione di esercizio è risultata regolare (7,8 bar)."""
+
+COMPOSE_EXAMPLE = """Ora scrivi il testo di UN campo usando SOLO le informazioni che riguardano quel campo:
+ignora tutto il resto (chi ha lavorato, date, esiti, materiali... se il campo non li chiede).
+Esempio
+Campo: Descrizione anomalia
+Informazioni: Ieri il tecnico Gino Neri ha trovato il nastro N2 fermo per la cinghia rotta, l'ha sostituita, prova ok.
+Testo del campo: Il nastro N2 era fermo a causa della rottura della cinghia."""
+
+
+def _content_stems(text: str) -> List[str]:
+    import re
+    import unicodedata
+    t = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii").lower()
+    stop = {"della", "delle", "dello", "degli", "nella", "nelle", "sono", "stato", "stata", "stati", "state",
+            "fatto", "fatta", "fatti", "tutto", "tutti", "anche", "come", "dopo", "prima", "quindi", "questo",
+            "questa", "sulla", "sulle", "dalla", "dalle", "alla", "alle", "essere", "viene", "posto", "ancora"}
+    return [w[:5] for w in re.findall(r"[a-z]+", t) if len(w) >= 4 and w not in stop]
+
+
+def _lost_words(original: str, out: str) -> List[str]:
+    """Parole importanti dell'originale assenti nel testo riscritto ("perdeva olio")."""
+    import re
+    import unicodedata
+    out_stems = set(_content_stems(out))
+    words = re.findall(r"[^\W\d_]+", original or "")
+    lost = []
+    for w in words:
+        st = _content_stems(w)
+        if st and st[0] not in out_stems and not any(o.startswith(st[0][:4]) for o in out_stems):
+            lost.append(unicodedata.normalize("NFC", w))
+    total = len(_content_stems(original))
+    # qualche sinonimo e' normale ("cambiato" -> "sostituito"); oltre un quarto manca un pezzo
+    return list(dict.fromkeys(lost)) if total and len(lost) / total > 0.25 else []
+
+
+_CAUSES = ("a causa", "causa d", "causato", "causata", "dovut", "perché", "poiché", "in quanto", "a seguito",
+           "per via", "quindi", "pertanto", "di conseguenza", "risolto", "garantit", "conforme alle norm")
+
+
+def _invented_causes(reference: str, out: str) -> List[str]:
+    """Spiegazioni aggiunte dall'AI ("a causa della rottura del cuscinetto") che il testo non dice."""
+    ref, o = (reference or "").lower(), (out or "").lower()
+    return [c.strip() for c in _CAUSES if c in o and c not in ref]
+
+
+def _strip_causes(reference: str, out: str) -> str:
+    import re
+    ref = (reference or "").lower()
+    pattern = (r"\s*,?\s*\b(a causa d\w*|causat[oaie] da|dovut[oaie] a\w*|a seguito d\w*|per via d\w*|perché|"
+               r"poiché|in quanto)\b[^.;]*")
+
+    def repl(m: "re.Match[str]") -> str:
+        # il connettivo ("a causa", "perché") c'era gia' nel testo: la spiegazione e' dell'utente
+        return m.group(0) if " ".join(m.group(1).lower().split()[:2])[:7] in ref else ""
+    return re.sub(r"\s+([.;])", r"\1", re.sub(pattern, repl, out, flags=re.I)).strip()
+
+
+def _same_text(a: str, b: str) -> bool:
+    import difflib
+    import re
+    na, nb = (re.sub(r"\W+", " ", x.lower()).strip() for x in (a, b))
+    # solo una copia quasi identica (spazi, maiuscole, punteggiatura): dividere le frasi o
+    # correggere la grammatica e' gia' un miglioramento
+    return difflib.SequenceMatcher(None, na, nb).ratio() > 0.96
+
+
 def _key_tokens(text: str) -> List[str]:
     """Codici, numeri e date di un testo (da non perdere riscrivendolo)."""
     import re
@@ -437,31 +517,17 @@ class AIService:
         if compose and not sources:
             raise ValueError("Il campo è vuoto: scrivi prima qualcosa o fornisci le informazioni da cui partire.")
         field = field_label or "campo"
+        doc_line = f"Documento: {document}\n" if document else ""
+        field_line = f"Campo: {field}" + (f" ({field_description})" if field_description else "")
         if compose:
-            system = (
-                "Sei un redattore professionale di documenti. Scrivi il contenuto di UN campo di un modulo "
-                "usando SOLO le informazioni del testo dell'utente che riguardano quel campo.\n"
-                "REGOLE: non aggiungere fatti, numeri, date, nomi, codici o cause che non sono nel testo; "
-                "riporta codici, numeri e nomi esattamente come scritti; frasi chiare e complete, tono "
-                "professionale; stessa lingua del testo dell'utente. Se il testo non contiene nulla su "
-                "questo campo rispondi con testo vuoto.")
-            user = ((f"Documento: {document}\n" if document else "")
-                    + f"Campo da scrivere: {field}" + (f" ({field_description})" if field_description else "")
-                    + "\n\nTesto dell'utente:\n" + _truncate("\n\n".join(sources), 6000, "fonti")
-                    + "\n\n/no_think")
+            # campo vuoto: l'AI lo scrive dalle informazioni fornite, solo la parte pertinente
+            system = IMPROVE_POLICY + "\n\n" + COMPOSE_EXAMPLE
+            user = (doc_line + field_line + "\nInformazioni:\n" + _truncate("\n\n".join(sources), 6000, "fonti")
+                    + "\nTesto del campo:\n/no_think")
             reference = "\n".join(sources)
         else:
-            system = (
-                "Sei un redattore professionale di documenti aziendali. Migliora la forma del testo di un "
-                "campo di un modulo.\n"
-                "REGOLE: mantieni TUTTE le informazioni; non aggiungere fatti, numeri, date, nomi, codici, "
-                "cause o conclusioni che non sono nel testo; riporta codici, numeri, misure e nomi "
-                "ESATTAMENTE come scritti; correggi grammatica, punteggiatura e terminologia tecnica; frasi "
-                "brevi e chiare, tono professionale e impersonale; stessa lingua del testo originale; "
-                "lunghezza simile all'originale.")
-            user = ((f"Documento: {document}\n" if document else "")
-                    + f"Campo: {field}" + (f" ({field_description})" if field_description else "")
-                    + f"\n\nTesto originale:\n{text}\n\n/no_think")
+            system = IMPROVE_POLICY + "\n\n" + IMPROVE_EXAMPLE
+            user = doc_line + field_line + f"\nAppunti: {text}\nTesto:\n/no_think"
             reference = "\n".join([text] + sources)
         schema = {"type": "object", "properties": {"testo": {"type": "string"}}, "required": ["testo"],
                   "additionalProperties": False}
@@ -469,11 +535,12 @@ class AIService:
         checker = GroundingChecker([reference])
         must_keep = [] if compose else _key_tokens(text)
         best: Tuple[str, List[str]] = ("", [])
+        best_score = 99
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         max_tokens = min(1500, max(300, int(len(reference if compose else text) / 2.5) + 200))
-        for attempt in range(2):
+        for attempt in range(3):
             self.touch()
-            resp = pipe.chat(messages, temperature=0.2 if attempt == 0 else 0.1, max_tokens=max_tokens,
+            resp = pipe.chat(messages, temperature=(0.3, 0.5, 0.4)[attempt], max_tokens=max_tokens,
                              json_schema=schema)
             self.touch()
             raw = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content", "")
@@ -481,27 +548,46 @@ class AIService:
                 raise RuntimeError("Motore AI non disponibile: installa i componenti AI.")
             raw = _re.sub(r"<think>.*?</think>", "", raw or "", flags=_re.S).strip()
             out = _improved_text(raw)
+            problems: List[str] = []  # da correggere con un nuovo tentativo
+            warnings: List[str] = []  # da mostrare all'utente se restano
             if not out:
-                if compose:
-                    raise ValueError("Le informazioni fornite non contengono dati per questo campo.")
-                continue
-            warnings: List[str] = []
-            check = checker.check_value(out)
-            if check.status == "missing":
-                warnings.append("Dati non presenti nel testo originale: " + ", ".join(check.missing[:5]))
-            lost = _lost_tokens(must_keep, out)
-            if lost:
-                warnings.append("Dati del testo originale che mancano: " + ", ".join(lost[:5]))
-            if not compose and len(out) < len(text) * 0.4:
-                warnings.append("Il testo riscritto è molto più corto dell'originale.")
-            if not best[0] or len(warnings) < len(best[1]):
-                best = (out, warnings)
-            if not warnings:
+                problems.append("Hai restituito un testo vuoto: scrivi il testo del campo.")
+            elif not compose and _same_text(text, out):
+                # il modello piccolo tendeva a ricopiare l'originale: "non funziona"
+                problems.append("Hai ricopiato gli appunti quasi uguali: riscrivili davvero in frasi complete, "
+                                "forma impersonale, punteggiatura corretta.")
+                warnings.append("L'AI non ha trovato nulla da migliorare.")
+            else:
+                check = checker.check_value(out)
+                if check.status == "missing":
+                    warnings.append("Dati non presenti nel testo originale: " + ", ".join(check.missing[:5]))
+                lost = _lost_tokens(must_keep, out)
+                if lost:
+                    warnings.append("Dati del testo originale che mancano: " + ", ".join(lost[:5]))
+                invented = _invented_causes(reference, out)
+                if invented:
+                    warnings.append("Cause o conclusioni non presenti nel testo: " + ", ".join(invented))
+                missing_words = [] if compose else _lost_words(text, out)
+                if missing_words:
+                    warnings.append("Parti del testo originale che mancano: " + ", ".join(missing_words[:5]))
+                problems += warnings
+            score = (0 if out else 9) + len(problems)
+            if out and (not best[0] or score < best_score):
+                best, best_score = (out, warnings), score
+            if not problems:
                 break
-            messages = messages + [
-                {"role": "assistant", "content": raw},
-                {"role": "user", "content": "Correggi: " + " ".join(warnings)
-                 + ". Riscrivi rispettando le REGOLE, senza aggiungere né togliere dati.\n/no_think"}]
+            messages = [messages[0], messages[1],
+                        {"role": "assistant", "content": raw or '{"testo": ""}'},
+                        {"role": "user", "content": "Correggi: " + " ".join(problems)
+                         + " Non aggiungere e non togliere informazioni.\n/no_think"}]
+        if not best[0] and compose:
+            raise ValueError("Le informazioni fornite non contengono dati per questo campo.")
+        if best[0] and _invented_causes(reference, best[0]):
+            # il modello piccolo insiste: si toglie la spiegazione inventata, il resto resta
+            cleaned = _strip_causes(reference, best[0])
+            if cleaned and cleaned != best[0]:
+                best = (cleaned, [w for w in best[1] if not w.startswith("Cause o conclusioni")]
+                        + ["Tolta una causa che il testo non indica: controlla il risultato."])
         if not best[0]:
             raise RuntimeError("L'AI non ha restituito un testo valido. Riprova.")
         return best
