@@ -377,8 +377,13 @@ class ReportPage(ctk.CTkFrame):
         if fixes:
             LOG.info("Controllo dei fatti: %s", "; ".join(fixes))
             fields = sorted({f.split(":", 1)[0].split("[", 1)[0] for f in fixes})
-            self.win.toast(t("Controllo automatico: {n} valori corretti, tolti o completati dal programma ({f}). "
-                             "Verificali nella revisione.", n=len(fixes), f=", ".join(fields[:4])), "warning")
+            if len(fixes) == 1:
+                msg = t("Controllo automatico: 1 valore corretto, tolto o completato dal programma ({f}). "
+                        "Verificalo nella revisione.", f=", ".join(fields[:4]))
+            else:
+                msg = t("Controllo automatico: {n} valori corretti, tolti o completati dal programma ({f}). "
+                        "Verificali nella revisione.", n=len(fixes), f=", ".join(fields[:4]))
+            self.win.toast(msg, "warning")
         if getattr(outcome, "ai_failed", ""):
             self.win.toast(t("L'AI non è riuscita a compilare il modulo: completa i campi nella revisione."),
                            "warning")
@@ -423,6 +428,11 @@ class ReportPage(ctk.CTkFrame):
         self.stepper.set(4, "ok")
         self.photos.clear()
         self._render_photos()
+        # il testo e' salvato nel documento: lasciarlo qui faceva accodare le informazioni
+        # del documento successivo (es. testo da OCR) a quelle di quello appena esportato
+        self.desc.delete("1.0", "end")
+        self._show_placeholder()
+        self._update_quality()
         self.win.emit("reports")
         self.win.refresh_status()
         from ..dialogs.export_done import ExportDoneDialog

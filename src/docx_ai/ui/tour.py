@@ -76,8 +76,11 @@ class Tour:
         self.canvas.create_rectangle(0, 0, w, h, fill="#020617", width=0)
         self.canvas.create_rectangle(tx - pad, ty - pad, tx + tw + pad, ty + th + pad, fill=HOLE, width=0)
         self.overlay.lift()
-        if reposition_only and self.box is not None:
-            self._place_box(tx + x, ty + y, tw, th)
+        if reposition_only:
+            # <Configure> arriva anche mentre il riquadro viene creato (CTkToplevel aggiorna la
+            # finestra): crearne un altro qui lasciava riquadri "1/6" orfani sempre in primo piano
+            if self.box is not None:
+                self._place_box(tx + x, ty + y, tw, th)
             return
         if self.box is not None:
             self.box.destroy()
@@ -115,6 +118,8 @@ class Tour:
         self.box.lift()
 
     def next(self) -> None:
+        if self.overlay is None:  # tour gia' chiuso
+            return
         self.i += 1
         if self.i >= len(self.steps):
             self.end()

@@ -95,5 +95,6 @@ class TableImportDialog(Dialog):
         ids = import_service.import_rows(self.win.db, self.mod, self.table, mapping, status=status,
                                          description_column=None if desc == NONE else desc)
         self.win.emit("reports")
-        self.win.toast(t("Importati {n} documenti.", n=len(ids)), "success")
+        self.win.toast(t("Importato 1 documento.") if len(ids) == 1 else t("Importati {n} documenti.", n=len(ids)),
+                       "success")
         self.close()

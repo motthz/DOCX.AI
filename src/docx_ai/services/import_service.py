@@ -89,7 +89,31 @@ def suggest_mapping(headers: List[str], schema: Dict[str, Any]) -> Dict[str, Opt
         out[f] = hit
         if hit:
             used.add(hit)
+    # secondo passaggio, solo abbinamenti univoci: "Giorni" -> giorni_lavorativi (parole
+    # contenute nel nome del campo), "Dal"/"Al" -> data_inizio/data_fine
+    free = [h for h in headers if h not in used]
+    for h in free:
+        hw = set(_norm(h).split("_")) - {""}
+        if not hw:
+            continue
+        cands = []
+        for f in fields:
+            if out.get(f):
+                continue
+            spec = (schema["properties"][f] or {})
+            fw = set(_norm(f).split("_")) | set(_norm(spec.get("title", "")).split("_"))
+            if (all(len(w) >= 4 for w in hw) and hw <= fw) or any(
+                    hw <= syn and fw & targets for syn, targets in _PERIOD_SYNONYMS):
+                cands.append(f)
+        if len(cands) == 1:
+            out[cands[0]] = h
+            used.add(h)
     return out
+
+
+# intestazioni brevi di un periodo e parole dei campi a cui corrispondono
+_PERIOD_SYNONYMS = (({"dal", "da", "dalla", "inizio"}, {"inizio", "dal", "partenza"}),
+                    ({"al", "a", "alla", "fino", "fine"}, {"fine", "al", "termine", "rientro"}))
 
 
 def _convert(value: Any, spec: Dict[str, Any]) -> Any:

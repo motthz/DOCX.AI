@@ -144,9 +144,17 @@ class RulesEditorDialog(tk.Toplevel):
                 "Priorità: regole dell'app, poi regole della funzione, poi regole del modulo, poi la tua richiesta."
             ),
             font=FONTS["body_sm"], fg=COLORS["muted"], bg=COLORS["card_bg"],
-            justify="left", anchor="w",
+            justify="left", anchor="w", wraplength=int(640 * scale),
         )
         info_bar.pack(fill="x", pady=(8, 0))
+
+        # a capo alla larghezza della finestra: su una riga sola gli esempi allargavano il
+        # riquadro oltre il bordo destro (testo e stato "Nessuna modifica" tagliati)
+        def _rewrap(e=None):
+            if e is not None and e.widget is not self:
+                return
+            info_bar.configure(wraplength=max(240, self.winfo_width() - int(110 * scale)))
+        self.bind("<Configure>", _rewrap, add="+")
 
     # --------------------------------------------------------------
     def _header_subtitle(self) -> str:

@@ -23,8 +23,13 @@ HEADER_FONT = Font(color="FFFFFF", bold=True)
 
 def _cell(value: Any) -> Any:
     if isinstance(value, (list, dict)):
+        from ..parsers.docx_parser import display_row
         if isinstance(value, list) and all(isinstance(v, dict) for v in value):
-            return "; ".join(", ".join(f"{k}: {v}" for k, v in item.items()) for item in value)
+            return "; ".join(display_row(item) for item in value)
+        if isinstance(value, list) and all(not isinstance(v, (list, dict)) for v in value):
+            # elenco semplice (partecipanti...): testo leggibile, non JSON; "; " come
+            # separatore e' quello che "Importa CSV/Excel" riconosce
+            return "; ".join(str(v) for v in value if v is not None and str(v).strip())
         return json.dumps(value, ensure_ascii=False)
     if isinstance(value, bool):
         return "Sì" if value else "No"

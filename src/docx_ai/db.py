@@ -590,10 +590,12 @@ class Database:
         if status is not None:
             clauses.append("status = ?")
             params.append(status)
-        sql = "SELECT created_at FROM reports"
+        # documenti approvati/esportati: l'ora dell'approvazione (= esportazione), non quella
+        # della bozza ("Ultima esportazione" mostrava l'ora in cui era stata scritta la bozza)
+        sql = "SELECT COALESCE(approved_at, created_at) AS created_at FROM reports"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY created_at DESC LIMIT 1"
+        sql += " ORDER BY COALESCE(approved_at, created_at) DESC LIMIT 1"
         with self._lock:
             cur = self._conn.execute(sql, params)
             row = cur.fetchone()

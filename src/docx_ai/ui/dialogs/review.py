@@ -471,6 +471,8 @@ class ReviewDialog(Dialog):
             from tkinter import messagebox
             if not messagebox.askyesno(
                     t("Valori da verificare"),
+                    t("1 valore non compare nelle fonti e potrebbe essere stato inventato dall'AI.\n\n"
+                      "L'hai controllato e vuoi approvare comunque?") if n_bad == 1 else
                     t("{n} valori non compaiono nelle fonti e potrebbero essere stati inventati dall'AI.\n\n"
                       "Li hai controllati e vuoi approvare comunque?", n=n_bad), parent=self):
                 return

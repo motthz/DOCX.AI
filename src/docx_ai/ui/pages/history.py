@@ -310,14 +310,17 @@ class HistoryPage(ctk.CTkFrame):
 
     def delete_selected(self) -> None:
         sel = self._selected()
+        one = len(sel) == 1
         if not sel or not messagebox.askyesno(
-                t("Elimina documenti"), t("Eliminare {n} documenti dallo storico? I file già esportati restano su disco.",
-                                         n=len(sel)), parent=self.win.root, icon="warning"):
+                t("Elimina documenti"),
+                t("Eliminare il documento dallo storico? I file già esportati restano su disco.") if one else
+                t("Eliminare {n} documenti dallo storico? I file già esportati restano su disco.", n=len(sel)),
+                parent=self.win.root, icon="warning"):
             return
         for r in sel:
             self.win.db.delete_report(r["id"])
         self.win.emit("reports")
-        self.win.toast(t("{n} documenti eliminati.", n=len(sel)), "success")
+        self.win.toast(t("Documento eliminato.") if one else t("{n} documenti eliminati.", n=len(sel)), "success")
 
     def export_excel(self, selected: bool = False) -> None:
         if selected:
@@ -337,7 +340,8 @@ class HistoryPage(ctk.CTkFrame):
         f = self._filters()
         period = " - ".join(x for x in (f["date_from"], f["date_to"]) if x)
         export_summary(rows, Path(dest), title=t("Riepilogo documenti {p}", p=period).strip())
-        self.win.toast(t("Esportati {n} documenti in Excel.", n=len(rows)), "success",
+        self.win.toast(t("Esportato 1 documento in Excel.") if len(rows) == 1 else
+                       t("Esportati {n} documenti in Excel.", n=len(rows)), "success",
                        action=(t("Apri"), lambda: os.startfile(dest)))
 
     def import_table(self) -> None:

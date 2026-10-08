@@ -135,15 +135,33 @@ def _match(context: set, stems: set) -> bool:
     return False
 
 
+_REFILL_REASONS = {"è il nome del campo, non un dato", "Sì/No non è un valore per questo campo",
+                   "è il nome del modulo, non un dato del testo"}
+# nome e cognome (due parole con la maiuscola) dentro una frase
+_PERSON_NAME = re.compile(r"\b[A-ZÀ-Ý][a-zà-ÿ]+\s+[A-ZÀ-Ý][a-zà-ÿ]+\b")
+_YES_NO = {"si", "no", "true", "false", "vero", "falso", "yes"}
+
+# parole vuote che il modello piccolo aggiunge o salta copiando una frase
+_FILLER = {"di", "a", "da", "in", "con", "su", "per", "tra", "fra", "e", "ed", "o", "il", "lo", "la", "i", "gli",
+           "le", "l", "un", "uno", "una", "del", "della", "dei", "delle", "al", "alla", "ai", "alle", "che",
+           "the", "of", "to", "and", "a", "an"}
+
+
 class EvidenceChecker:
-    def __init__(self, sources: Iterable[str]):
+    def __init__(self, sources: Iterable[str], *, document: str = ""):
+        sources = list(sources)
         raw = "\n".join(s for s in sources if s)
+        # nome e descrizione del modulo: contesto per il modello, non un dato del testo
+        self.document = " " + re.sub(r"[^a-z0-9]+", " ", fs.norm(document or "")).strip() + " "
+        self.raw = raw
         self.norm = fs.norm(raw)
         # testo dell'utente (prima fonte): dove cercare le parole vicine a un valore
         self.user = fs.norm(next((s for s in sources if s), ""))
         self.flat = re.sub(r"[^a-z0-9]+", " ", self.norm).strip()
         self.stems = set(_stems(raw))
         self.fixes: List[Fix] = []
+        self._refillable: set = set()
+        self._blank_before: set = set()
 
     def quote_found(self, quote: Optional[str]) -> bool:
         """La frase citata compare nel testo (uguale, o quasi: piccole differenze di
@@ -165,6 +183,85 @@ class EvidenceChecker:
         hit = sum(1 for s in stems if s in self.flat)
         return hit / len(stems) >= 0.75
 
+    def _verbatim(self, quote: str) -> bool:
+        """Frase di almeno 3 parole copiata dal testo dell'utente: uguale, o diversa solo
+        per parole vuote ("e approvare" per "e di approvare"). Una parola di contenuto
+        cambiata, aggiunta o tolta (anche un "non") non vale."""
+        import difflib
+        q = re.sub(r"[^a-z0-9]+", " ", fs.norm(quote or "")).split()
+        u = re.sub(r"[^a-z0-9]+", " ", self.user).split()
+        if len(q) < 3 or not u:
+            return False
+        if f" {' '.join(q)} " in f" {' '.join(u)} ":
+            return True
+        sm = difflib.SequenceMatcher(None, q, u, autojunk=False)
+        blocks = [b for b in sm.get_matching_blocks() if b.size]
+        if not blocks:
+            return False
+        # una sola zona del testo: dalla prima all'ultima parola citata
+        start, end = blocks[0].b, blocks[-1].b + blocks[-1].size
+        span = u[start:end]
+        matched = sum(b.size for b in blocks)
+        if matched < 3 or len(span) > len(q) + 3:
+            return False
+        sm2 = difflib.SequenceMatcher(None, q, span, autojunk=False)
+        for tag, i1, i2, j1, j2 in sm2.get_opcodes():
+            if tag != "equal" and any(w not in _FILLER for w in q[i1:i2] + span[j1:j2]):
+                return False
+        return True
+
+    def _quoted_literally(self, quote: Optional[str]) -> bool:
+        """La prova e' proprio una frase del testo dell'utente (non una data riscritta)."""
+        q = re.sub(r"[^a-z0-9]+", " ", fs.norm(quote or "")).strip()
+        user = " " + re.sub(r"[^a-z0-9]+", " ", self.user).strip() + " "
+        return bool(q) and f" {q} " in user
+
+    def _date_quote_ok(self, quote: Optional[str], value: str) -> bool:
+        """La prova di un campo data e' una frase del testo o una data scritta come nel
+        testo ("16 novembre"), non la data riscritta dal modello ("2026-11-16")."""
+        from .fact_guard import date_mentions_ctx, parse_date_value
+        if not quote:
+            return False
+        if self._quoted_literally(quote):
+            return True
+        target = parse_date_value(value)
+        if parse_date_value(quote.strip()) is not None:
+            return False  # solo la data riscritta
+        return target is not None and any(m.date == target for m in date_mentions_ctx(quote))
+
+    def _short_term(self, quote: str) -> bool:
+        """Una o due parole di contenuto copiate dal testo ("ferie", "Spedizioni")."""
+        words = re.sub(r"[^a-z0-9]+", " ", fs.norm(quote or "")).split()
+        return 1 <= len(words) <= 2 and len(" ".join(words)) >= 4 and self._quoted_literally(quote) \
+            and not set(words) <= _FILLER | _YES_NO
+
+    def _from_document(self, value: str) -> bool:
+        """Valore copiato dal nome/descrizione del modulo e assente dal testo dell'utente."""
+        v = re.sub(r"[^a-z0-9]+", " ", fs.norm(value or "")).strip()
+        if len(v.split()) < 2 or self.document.strip() == "":
+            return False
+        user = " " + re.sub(r"[^a-z0-9]+", " ", self.user).strip() + " "
+        return f" {v} " in self.document and f" {v} " not in user
+
+    @staticmethod
+    def _bare_date(value: str) -> bool:
+        from .fact_guard import parse_date_value
+        return bool(value) and parse_date_value(value) is not None
+
+    @staticmethod
+    def _bare_date_quoted(quote: str) -> bool:
+        from .fact_guard import date_mentions_ctx
+        return bool(quote) and bool(date_mentions_ctx(quote))
+
+    def _literal(self, value: str) -> bool:
+        """Valore (cifre, date) scritto cosi' nel testo, o data che il testo indica."""
+        v = re.sub(r"[^a-z0-9]+", " ", fs.norm(value)).strip()
+        if v and f" {v} " in f" {self.flat} ":
+            return True
+        from .fact_guard import parse_date_value, source_dates
+        dt = parse_date_value(value)
+        return dt is not None and dt in source_dates(self.raw)
+
     def overlap(self, value: str) -> float:
         stems = _stems(value)
         if not stems:
@@ -176,6 +273,11 @@ class EvidenceChecker:
               schema: Dict[str, Any]) -> Dict[str, Any]:
         props = (schema or {}).get("properties") or {}
         out = dict(data)
+        # campi che il recupero dalla frase citata puo' riempire: vuoti in origine o svuotati
+        # perche' il valore non era un dato (nome del campo/modulo, Si'/No)
+        self._refillable = {k for k, v in data.items() if v is None or (isinstance(v, str) and (
+            not v.strip() or v.strip().upper() == NON_SPEC))}
+        self._blank_before = set(self._refillable)
         for key, value in data.items():
             if key not in evidence or evidence[key] is None:
                 continue  # risposta senza prove (backend senza grammatica): nessuna regola
@@ -199,6 +301,34 @@ class EvidenceChecker:
                 v = value.strip()
                 if v and v.upper() != NON_SPEC and not found and self.overlap(v) < 0.4:
                     self._fix(out, key, name, value, NON_SPEC, "non presente nel testo")
+                elif k == "text" and self._from_document(v):
+                    # "Oggetto: Verbale di riunione": il nome del modulo, non un dato del testo
+                    self._fix(out, key, name, value, NON_SPEC, "è il nome del modulo, non un dato del testo")
+                elif k == "text" and v and not found and not re.search(r"[^\W\d_]", v) \
+                        and not self._literal(v):
+                    # solo cifre (una data di oggi in "Oggetto"): l'anno da solo bastava per
+                    # avere "parole in comune" con il testo
+                    self._fix(out, key, name, value, NON_SPEC, "non presente nel testo")
+                elif k == "text" and self._bare_date(v) and not self._bare_date_quoted(ev):
+                    # campo di testo ("Oggetto") con solo una data e una prova senza date:
+                    # il modello piccolo ripete la data del documento nei campi vicini
+                    self._fix(out, key, name, value, NON_SPEC, "una data non è il contenuto di questo campo")
+                elif k == "text" and fs.norm(v).strip(" .!") in _YES_NO \
+                        and (self._short_term(ev) or self._verbatim(ev)) \
+                        and not set(re.findall(r"[a-z]+", fs.norm(ev))) & (_NEGATIONS | _YES_NO):
+                    # "Tipo di assenza: Sì" con prova "ferie": risposta Sì/No a un campo di testo
+                    self._fix(out, key, name, value, NON_SPEC, "Sì/No non è un valore per questo campo")
+            elif k == "date" and isinstance(value, str) and value.strip() and value.strip().upper() != NON_SPEC:
+                # stessa data di un altro campo data, con una "prova" che non e' una frase del
+                # testo (il modello riscrive la data): "Data richiesta" = data di inizio ferie
+                same = [o for o in props if o != key and fs.kind(o, props.get(o)) == "date"
+                        and isinstance(out.get(o), str) and out.get(o, "").strip() == value.strip()
+                        and self._date_quote_ok(evidence.get(o), value)]
+                from .fact_guard import _generic_date_field
+                # il campo "Data" del documento coincide spesso davvero con la data dell'intervento
+                if same and not self._date_quote_ok(ev, value) and not _generic_date_field(key, spec):
+                    self._fix(out, key, name, value, NON_SPEC,
+                              f"data di un altro campo ({fs.label(same[0], props.get(same[0]))})")
             elif k == "list" and isinstance(value, list) and value and not found:
                 kept = [item for item in value if self._item_grounded(item)]
                 if len(kept) != len(value):
@@ -209,7 +339,34 @@ class EvidenceChecker:
         self._persons_in_place(out, props)
         self._numbers_in_place(out, props)
         self._pairs(out, props, evidence)
+        self._fill_from_quotes(out, props, evidence)
         return out
+
+    def _fill_from_quotes(self, out: Dict[str, Any], props: Dict[str, Any],
+                          evidence: Dict[str, Optional[str]]) -> None:
+        """Campi di testo rimasti vuoti (o svuotati dai controlli) con una frase del testo
+        dell'utente citata come prova: il modello piccolo cita la frase giusta ma lascia il
+        valore vuoto, o ci scrive il nome del campo / "Sì" (decisioni, motivazione, tipo...)."""
+        used = {re.sub(r"[^a-z0-9]+", " ", fs.norm(v)).strip() for v in out.values() if isinstance(v, str)}
+        for key, value in list(out.items()):
+            spec = props.get(key) or {}
+            ev = (evidence.get(key) or "").strip()
+            if fs.kind(key, spec) != "text" or not isinstance(value, str) or not ev:
+                continue
+            if key not in self._refillable:
+                continue  # svuotato apposta (valore di un altro campo, numero fuori posto...)
+            if value.strip() and value.strip().upper() != NON_SPEC:
+                continue
+            q = re.sub(r"[^a-z0-9]+", " ", fs.norm(ev)).strip()
+            if q in used or not (self._verbatim(ev) or self._short_term(ev)):
+                continue
+            if key not in self._blank_before and _PERSON_NAME.search(ev):
+                # il modello aveva scritto il nome del campo (non sapeva): una frase con un nome
+                # di persona e' quasi sempre quella di un altro campo ("Lo chiede Paolo Gatti")
+                continue
+            filled = ev[0].upper() + ev[1:]
+            used.add(q)
+            self._fix(out, key, fs.label(key, spec), value, filled, "ricavato dalla frase del testo citata dall'AI")
 
     # ------------------------------------------------------------------
     def _option_in_text(self, option: str) -> bool:
@@ -423,12 +580,15 @@ class EvidenceChecker:
 
     def _fix(self, out: Dict[str, Any], key: str, name: str, old: Any, new: Any, reason: str) -> None:
         out[key] = new
+        if reason in _REFILL_REASONS:
+            self._refillable.add(key)
         self.fixes.append(Fix(name, old, new, reason))
 
 
 def apply(data: Dict[str, Any], evidence: Dict[str, Optional[str]], schema: Dict[str, Any],
-          sources: Iterable[str]) -> Tuple[Dict[str, Any], List[Fix]]:
-    checker = EvidenceChecker(sources)
+          sources: Iterable[str], *, document: str = "") -> Tuple[Dict[str, Any], List[Fix]]:
+    """``document``: nome e descrizione del modulo (contesto dato al modello, non una fonte)."""
+    checker = EvidenceChecker(sources, document=document)
     return checker.apply(data, evidence, schema), checker.fixes
 
 

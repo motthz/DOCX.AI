@@ -98,6 +98,44 @@ def _year(y: Optional[str], today: date) -> int:
 # ---------------------------------------------------------------------------
 # Date
 # ---------------------------------------------------------------------------
+# "Oggi 7 ottobre 2026", "oggi, lunedì 07/10/2026", "today, October 7": chi scrive dichiara
+# la data di "oggi" (testo scritto un altro giorno, dettato in ritardo...)
+_STATED_TODAY_RE = re.compile(
+    r"(?<![^\W\d_])(?:oggi|stamattina|stamani|stasera|today)(?![^\W\d_])"
+    r"(?:[\s,:(]+(?:è|e'|is|il|giorno|lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|"
+    r"venerdì|venerdi|sabato|domenica|monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?![^\W\d_]))*"
+    r"[\s,:(]+", re.I)
+
+
+def stated_today(text: str, today: Optional[date] = None) -> date:
+    """La data di "oggi" secondo il testo: quella scritta subito dopo "oggi", se c'e',
+    altrimenti la data del PC. Senza questo "Oggi 7 ottobre" scritto l'8 dava due date
+    "vere" e il modello sceglieva quella sbagliata."""
+    today = today or date.today()
+    for m in _STATED_TODAY_RE.finditer(text or ""):
+        dt = _date_at_start(text[m.end(): m.end() + 40], today)
+        if dt is not None:
+            return dt
+    return today
+
+
+def _date_at_start(s: str, today: date) -> Optional[date]:
+    """Data scritta all'inizio di ``s`` (2026-10-07, 7 ottobre 2026, 07/10/2026, October 7)."""
+    iso = _ISO_RE.match(s)
+    if iso:
+        return _mkdate(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+    txt = _TEXT_RE.match(s)
+    if txt:
+        return _mkdate(_year(txt.group(3), today), _ALL_MONTHS[txt.group(2).lower()], int(txt.group(1)))
+    eu = _EU_RE.match(s)
+    if eu:
+        return _mkdate(_year(eu.group(3), today), int(eu.group(2)), int(eu.group(1)))
+    en = _TEXT_EN_RE.match(s)
+    if en and en.group(1).lower() in MONTHS:
+        return _mkdate(_year(en.group(3), today), MONTHS[en.group(1).lower()], int(en.group(2)))
+    return None
+
+
 def explicit_dates(text: str, today: Optional[date] = None) -> Set[date]:
     """Date scritte nel testo (giorno/mese all'italiana); senza anno: anno corrente."""
     today = today or date.today()
@@ -133,7 +171,7 @@ def _count(word: str) -> Optional[int]:
 
 def relative_dates(text: str, today: Optional[date] = None) -> Set[date]:
     """Date indicate a parole: oggi, ieri, lunedì scorso, tra 3 giorni, 2 settimane fa..."""
-    today = today or date.today()
+    today = stated_today(text, today)
     t = _norm(text)
     out: Set[date] = set()
     for word, delta in _RELATIVE_DAYS.items():
@@ -232,7 +270,9 @@ def _context(text: str, start: int, end: int) -> str:
     right = text[end: end + 30]
     if len(text) > end + 30 and not text[end + 30].isspace() and " " in right:
         right = right.rsplit(" ", 1)[0]  # parola intera
-    right = re.split(r"[.;,:\n!?]", right)[0]
+    # la punteggiatura chiude il contesto solo se seguita da uno spazio: "alle 14:30 ci siamo
+    # riuniti" deve arrivare a "riuniti" (campo "data riunione")
+    right = re.split(r"[.;,:!?](?=\s|$)|\n", right)[0]
     return re.sub(r"\s+", " ", (left + " … " + right).strip())
 
 
@@ -243,7 +283,7 @@ def date_mentions_ctx(text: str, today: Optional[date] = None, limit: int = 16) 
     ottobre, October 5, dal 3 al 5 ottobre, il 5/10, "il 15" (mese della data precedente
     o il mese corrente), oggi/ieri/domani, lunedì scorso, venerdì prossimo, tra 3 giorni,
     2 settimane fa."""
-    today = today or date.today()
+    today = stated_today(text, today)
     text = text or ""
     found: List[Tuple[int, int, str, date]] = []
     taken: List[Tuple[int, int]] = []

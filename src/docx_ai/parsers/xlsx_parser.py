@@ -76,7 +76,8 @@ def _cell_value_for_write(value: Any) -> Any:
 
 def _line_for(value: Any) -> str:
     if isinstance(value, dict):
-        return " ; ".join(f"{k}={v}" for k, v in value.items())
+        from .docx_parser import display_row
+        return display_row(value)
     return "" if value is None else str(value)
 
 

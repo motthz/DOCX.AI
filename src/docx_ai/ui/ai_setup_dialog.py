@@ -63,17 +63,20 @@ class AISetupDialog(Dialog):
         label(self.body, t("I file vengono salvati in: {p}", p=config.data_root), kind="caption", muted=True,
               wraplength=640).pack(anchor="w", pady=(10, 4))
 
-        self.progress = ctk.CTkProgressBar(self.body, mode="determinate")
-        self.progress.set(0)
-        self.progress.pack(fill="x", pady=(6, 2))
-        self.msg = label(self.body, "", kind="small", muted=True)
-        self.msg.pack(fill="x")
-
         self.install_btn = button(self.footer, t("Scarica e installa"), self.start, kind="primary",
                                   icon_name="download")
         self.install_btn.pack(side="right", padx=(8, 20), pady=12)
         self.close_btn = button(self.footer, t("Chiudi"), self.cancel)
         self.close_btn.pack(side="right", pady=12)
+        # avanzamento nel piede, sempre visibile: nel corpo finiva sotto il bordo della
+        # finestra sugli schermi bassi (la finestra viene ridotta all'altezza dello schermo)
+        prog = ctk.CTkFrame(self.footer, fg_color="transparent")
+        prog.pack(side="left", fill="x", expand=True, padx=(20, 8))
+        self.progress = ctk.CTkProgressBar(prog, mode="determinate")
+        self.progress.set(0)
+        self.progress.pack(fill="x", pady=(14, 2))
+        self.msg = label(prog, "", kind="small", muted=True, anchor="w")
+        self.msg.pack(fill="x")
         if auto_model:  # scelta fatta nell'installer: parte subito
             self.after(800, self.start)
 

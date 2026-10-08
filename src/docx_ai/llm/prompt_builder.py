@@ -15,6 +15,8 @@ import json
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
+from .fact_guard import stated_today
+
 
 SYSTEM_POLICY = """Sei un sistema di compilazione di moduli e documenti di qualsiasi tipo
 (rapporti, verbali, schede, richieste, checklist, moduli amministrativi...).
@@ -227,7 +229,7 @@ def build_extraction_messages(
                 + 120 * len(schema.get("properties") or {}) > int(max_prompt_chars):
             ev_policy = EVIDENCE_POLICY.split("ESEMPIO", 1)[0]
     system_text = SYSTEM_POLICY + "\n" + (ev_policy + "\n" if ev_policy else "") \
-        + today_line(today) + "\n\n" + _schema_semantics(schema)
+        + today_line(stated_today(operator_description or "", today)) + "\n\n" + _schema_semantics(schema)
     if document_context:
         system_text += "\nDOCUMENTO DA COMPILARE: " + _truncate(document_context.strip(), 600, "modulo")
 

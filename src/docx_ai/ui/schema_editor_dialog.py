@@ -86,7 +86,11 @@ class SchemaEditorDialog:
         if isinstance(t, list):
             t = next((x for x in t if x != "null"), "string")
         if t == "array":
-            return "array<string>"
+            # elenco di righe con piu' colonne (azioni: attivita/responsabile/scadenza)
+            items = spec.get("items") if isinstance(spec.get("items"), dict) else {}
+            return "array<object>" if items.get("type") == "object" else "array<string>"
+        if t == "string" and spec.get("format") in ("date", "date-time"):
+            return "string (data)"
         return t if t in ALLOWED_TYPES else "string"
 
     def _row_values(self, name: str, spec: Dict[str, Any], required: bool) -> tuple:

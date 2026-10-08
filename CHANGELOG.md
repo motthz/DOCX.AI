@@ -6,6 +6,38 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.9.2] - 2026-10-08
+
+### Corretto
+- **Tour guidato bloccato sullo schermo.** Al primo avvio si aprivano più riquadri del tour uno sopra
+  l'altro: finito il tour restavano riquadri "1/6" sempre in primo piano che non si chiudevano più.
+- **Download dell'AI senza avanzamento.** Sugli schermi bassi la barra di avanzamento del download dei
+  componenti AI finiva sotto il bordo della finestra: ora è nel piede, sempre visibile.
+- **"Oggi 7 ottobre" scritto l'8.** La parola "oggi" seguita da una data usa quella data (anche per
+  "ieri", "domani"... e per la data di oggi data all'AI): prima la data del PC rendeva "vera" anche la
+  data sbagliata e il modello piccolo la sceglieva.
+- **Elenchi di righe nel Word/Excel.** Le azioni (attività, responsabile, scadenza) uscivano come
+  "attivita=... ; responsabile=..." nel documento: ora "Preparare il piano (responsabile: Paolo Verdi,
+  scadenza: 20/10/2026)". Nel riepilogo Excel dello storico i partecipanti non sono più in formato JSON.
+- **Migliora testo** non ripete più l'intestazione del campo ("Argomenti (Argomenti discussi...): ...").
+- Finestra **Regole AI** con il testo tagliato a destra; nell'**Elenco campi (avanzato)** gli elenchi di
+  righe comparivano come `array<string>` e le date come semplice testo (anche nella pagina Modulo).
+- "Ultima esportazione" nella barra di stato mostrava l'ora della bozza invece di quella dell'esportazione.
+- Dopo l'esportazione il testo del documento restava in "Compila": il testo da OCR o le informazioni
+  del documento successivo vi si accodavano, mescolando i dati di due documenti. Ora viene svuotato
+  (resta salvato nello Storico).
+- Messaggi al singolare ("1 valore non compare...", "Documento eliminato.") invece di "1 valori", "1 documenti".
+
+### Migliorato
+- **Compilazione con il modello più leggero (Qwen3 0.6B).** Il modello cita spesso la frase giusta del
+  testo ma lascia il valore vuoto, ci scrive il nome del campo, "Sì", il nome del modulo o la data di un
+  altro campo: ora il programma usa la frase citata (solo se è davvero nel testo, al massimo con parole
+  vuote diverse: un "non" o una data cambiata non passano) e toglie i valori sbagliati.
+- Banco di prova (15 moduli, 4 thread come su un PC datato): Qwen3 0.6B da 120/151 a 123/151 campi
+  corretti (81,5%), Qwen3 1.7B da 140/151 a 141/151 (93,4%), nessun modulo peggiorato con la 1.7B.
+- **Importa da tabella** abbina anche le colonne brevi ("Dal", "Al", "Giorni") quando l'abbinamento è
+  univoco.
+
 ## [0.9.1] - 2026-10-08
 
 ### Corretto

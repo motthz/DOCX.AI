@@ -239,6 +239,28 @@ def _improved_text(raw: str) -> str:
     return raw.strip().strip('"').strip()
 
 
+def _strip_label_echo(out: str, field: str, description: str = "") -> str:
+    """Toglie l'intestazione ripetuta dal modello piccolo: "Argomenti (Argomenti discussi,
+    in forma sintetica): ..." o "Campo: Argomenti - ..." in testa al testo."""
+    import re
+    s = out.strip()
+    for _ in range(2):
+        before = s
+        s = re.sub(r"^campo\s*:\s*", "", s, flags=re.I)
+        for head in (field, description):
+            head = (head or "").strip()
+            if len(head) >= 3 and s.lower().startswith(head.lower()):
+                rest = s[len(head):]
+                rest = re.sub(r"^\s*\([^)]{0,200}\)", "", rest)  # "(descrizione del campo)"
+                m = re.match(r"^\s*[:\-–—]\s*", rest)
+                if m:
+                    s = rest[m.end():]
+        if s == before:
+            break
+    s = s.strip()
+    return (s[0].upper() + s[1:]) if s else out.strip()
+
+
 @dataclass
 class AIResult:
     """Wrapper unificato risultato generico AI."""
@@ -547,7 +569,7 @@ class AIService:
             if not self.is_real_ai:
                 raise RuntimeError("Motore AI non disponibile: installa i componenti AI.")
             raw = _re.sub(r"<think>.*?</think>", "", raw or "", flags=_re.S).strip()
-            out = _improved_text(raw)
+            out = _strip_label_echo(_improved_text(raw), field, field_description)
             problems: List[str] = []  # da correggere con un nuovo tentativo
             warnings: List[str] = []  # da mostrare all'utente se restano
             if not out:

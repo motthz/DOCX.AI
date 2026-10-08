@@ -228,7 +228,18 @@ def apply_placeholders(doc: DocxDocument, values: Dict[str, Any]) -> None:
         LOG.info("DOCX apply_placeholders: %s paragraphs total (%.2fs)", cnt, elapsed)
 
 
+def display_row(row: Dict[str, Any]) -> str:
+    """Riga di un elenco di oggetti nel documento: "Preparare il piano (responsabile:
+    Paolo Verdi, scadenza: 20/10/2026)" invece di "attivita=... ; responsabile=..."."""
+    items = [(str(k), str(v).strip()) for k, v in row.items() if v is not None and str(v).strip()]
+    if not items:
+        return ""
+    first = items[0][1]
+    rest = ", ".join(f"{k.replace('_', ' ')}: {v}" for k, v in items[1:])
+    return f"{first} ({rest})" if rest else first
+
+
 def _to_display_line(value: Any) -> str:
     if isinstance(value, dict):
-        return " ; ".join(f"{k}={v}" for k, v in value.items())
+        return display_row(value)
     return "" if value is None else str(value)

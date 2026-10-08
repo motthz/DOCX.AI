@@ -9,6 +9,7 @@ from typing import Any
 
 import customtkinter as ctk
 
+from ...llm import field_semantics as fs
 from ..design import C, GAP, font
 from ..i18n import t
 from ..icons import icon
@@ -115,7 +116,9 @@ class ModulePage(ctk.CTkFrame):
             label(r, (spec or {}).get("title") or name.replace("_", " ").capitalize(), kind="body_b").pack(
                 side="left")
             typ = (spec or {}).get("type", "string")
-            kind = t("elenco") if (spec or {}).get("enum") else t(TYPE_LABELS.get(str(typ), str(typ)))
+            sem = fs.kind(name, spec) if typ == "string" else ""
+            kind = t("elenco") if (spec or {}).get("enum") else t("data") if sem == "date" else \
+                t("ora") if sem == "time" else t(TYPE_LABELS.get(str(typ), str(typ)))
             Chip(r, kind + (" · " + t("obbligatorio") if name in req else ""), "neutral").pack(side="right")
             if (spec or {}).get("description"):
                 label(fields.body, spec["description"], kind="caption", muted=True, wraplength=520).pack(

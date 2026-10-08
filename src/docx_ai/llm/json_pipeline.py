@@ -561,7 +561,7 @@ class JsonPipeline:
 
             # Prove citate dall'AI: Sì/No e scelte senza una frase che le confermi, testi
             # senza riscontro e caselle Sì/No incoerenti vengono tolti (llm/evidence.py)
-            repaired, ev_fixes = _ev.apply(repaired, proofs, schema, sources)
+            repaired, ev_fixes = _ev.apply(repaired, proofs, schema, sources, document=document_context)
             # Controllo deterministico: date, numeri, codici e nomi devono avere
             # riscontro nel testo dell'utente o nei documenti (non nello storico);
             # i campi data vuoti ricevono la data del testo che si riferisce a loro.
