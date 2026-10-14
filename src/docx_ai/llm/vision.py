@@ -57,7 +57,7 @@ class HandwritingReader:
         from PIL import Image, ImageOps
         img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")  # foto del telefono ruotate
         if max(img.size) > MAX_SIDE:
-            img.thumbnail((MAX_SIDE, MAX_SIDE), Image.LANCZOS)
+            img.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=90)
         return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
