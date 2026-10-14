@@ -1,0 +1,152 @@
+[
+  {
+    "id": "sporco_manut_telegrafico",
+    "note": "tutto minuscolo, niente punteggiatura, abbreviazioni, refusi (stesse informazioni di manut_completo)",
+    "schema": "examples/modules/Rapporto_Manutenzione_Citterio/schema.json",
+    "text": "rapp 245/26 lunedi scorso rep affettati linea2 laffettatrice af300 faceva rumore metalico e la lama vibrava cambiato 2 cuscinetti 6205-2rs e 1 cinghia dentata htd 8m-1200 manut straordinaria fatta da marco galli poi pulizia e sanific superfici a contatto alimenti fatta da sara conti macchina usabile dopo pulizia serale verifica finale ok conforme firma paolo riva",
+    "expected": {
+      "numero_rapporto": {"contains": ["245"]},
+      "tipologia_intervento": "manutenzione_straordinaria",
+      "reparto": {"contains": ["affettati"]},
+      "linea": {"contains": ["2"]},
+      "data": {"date": "lastwd0"},
+      "apparecchiatura": {"contains": ["300"]},
+      "descrizione_anomalia": {"contains": ["rumore"]},
+      "pezzi_sostituiti": {"items": [{"contains": ["6205"]}, {"contains": ["htd"]}]},
+      "data_intervento": {"date": "lastwd0"},
+      "firma_operatore_manutenzione": {"contains": ["galli"]},
+      "pulizia_sanificazione_si": true,
+      "pulizia_sanificazione_no": false,
+      "superfici_contatto_alimenti": true,
+      "superfici_non_contatto_alimenti": false,
+      "uso_macchina_dopo_pulizia_serale": true,
+      "firma_esecutore_pulizia": {"contains": ["conti"]},
+      "esito_verifica": "conforme",
+      "firma_verifica": {"contains": ["riva"]}
+    }
+  },
+  {
+    "id": "sporco_manut_dettato",
+    "note": "dettatura vocale: intercalari, numeri a parole, codici spezzati (stesse informazioni di manut_completo)",
+    "schema": "examples/modules/Rapporto_Manutenzione_Citterio/schema.json",
+    "text": "eh allora rapporto numero 245 barra 26 lunedì scorso nel reparto affettati sulla linea due l'affettatrice a effe 300 faceva un rumore tipo metallico e la lama vibrava abbiamo sostituito due cuscinetti 6205 2RS e una cinghia dentata HTD 8M 1200 intervento straordinario fatto da marco galli poi sara conti ha fatto la pulizia e la sanificazione delle superfici a contatto con gli alimenti e la macchina si può usare dopo la pulizia serale verifica finale conforme firmata paolo riva",
+    "expected": {
+      "numero_rapporto": {"contains": ["245"]},
+      "tipologia_intervento": "manutenzione_straordinaria",
+      "reparto": {"contains": ["affettati"]},
+      "linea": {"any": [{"contains": ["2"]}, {"contains": ["due"]}]},
+      "data": {"date": "lastwd0"},
+      "apparecchiatura": {"contains": ["300"]},
+      "descrizione_anomalia": {"contains": ["rumore"]},
+      "pezzi_sostituiti": {"items": [{"contains": ["6205"]}, {"contains": ["htd"]}]},
+      "data_intervento": {"date": "lastwd0"},
+      "firma_operatore_manutenzione": {"contains": ["galli"]},
+      "pulizia_sanificazione_si": true,
+      "pulizia_sanificazione_no": false,
+      "superfici_contatto_alimenti": true,
+      "superfici_non_contatto_alimenti": false,
+      "uso_macchina_dopo_pulizia_serale": true,
+      "firma_esecutore_pulizia": {"contains": ["conti"]},
+      "esito_verifica": "conforme",
+      "firma_verifica": {"contains": ["riva"]}
+    }
+  },
+  {
+    "id": "sporco_acquisto_refusi",
+    "note": "abbreviazioni da chat (x, xke, +), refusi, simbolo euro (stesse informazioni di acquisto)",
+    "schema": "examples/modules/Richiesta_acquisto/schema.json",
+    "text": "sn elena bassi uff qualita, chiedo x oggi 2 calibbri digitali mitutoyo + 1 micrometro 0-25mm. fornitore tecnoutensili srl, spesa circa 680€. e urgente xke i calibri vechi sono fuori taratura e abbiamo i controlli fermi in accettazione",
+    "expected": {
+      "richiedente": {"contains": ["elena bassi"]},
+      "reparto": {"contains": ["qualita"]},
+      "data_richiesta": {"date": "today"},
+      "fornitore": {"contains": ["tecnoutensili"]},
+      "articoli": {"contains": ["calib", "micrometro"]},
+      "importo_stimato": {"contains": ["680"]},
+      "urgenza": "alta",
+      "motivazione": {"contains": ["taratura"]}
+    }
+  },
+  {
+    "id": "sporco_acquisto_ripensamento",
+    "note": "autocorrezioni a meta' frase (anzi no, scusa): deve valere l'ultimo valore",
+    "schema": "examples/modules/Richiesta_acquisto/schema.json",
+    "text": "richiesta di acquisto da parte di elena bassi, reparto produzione anzi no scusate reparto qualità. servono 2 calibri digitali e un micrometro dalla ditta Utensilmarket, no aspetta, da Tecnoutensili srl. costo 500 euro, anzi no 680. urgenza media... in realtà alta perché i calibri sono fuori taratura",
+    "expected": {
+      "richiedente": {"contains": ["elena bassi"]},
+      "reparto": {"contains": ["qualit"]},
+      "fornitore": {"contains": ["tecnoutensili"]},
+      "articoli": {"contains": ["calibri", "micrometro"]},
+      "importo_stimato": {"contains": ["680"]},
+      "urgenza": "alta",
+      "motivazione": {"contains": ["taratura"]}
+    }
+  },
+  {
+    "id": "sporco_verbale_flusso",
+    "note": "un'unica frase senza punti, parlato (stesse informazioni di verbale)",
+    "schema": "examples/modules/Verbale_di_riunione/schema.json",
+    "text": "allora riunione progetto nuovo magazzino il 2 ottobre sala b c'erano giulia neri andrea costa e fabio greco il verbale lo scrive giulia abbiamo parlato del layout delle scaffalature e del budget e si è deciso di approvare il budget di 45000 euro e prendiamo rossi scaffali come fornitore poi andrea costa deve chiedere tre preventivi per i carrelli entro il 16 ottobre e fabio greco aggiorna la planimetria entro il 23 ottobre ci rivediamo il 30 ottobre",
+    "expected": {
+      "oggetto": {"contains": ["magazzino"]},
+      "data_riunione": {"date": "2026-10-02"},
+      "luogo": {"contains": ["sala b"]},
+      "partecipanti": {"items": [{"contains": ["neri"]}, {"contains": ["costa"]}, {"contains": ["greco"]}]},
+      "redattore": {"contains": ["giulia"]},
+      "argomenti": {"contains": ["scaffal", "budget"]},
+      "decisioni": {"contains": ["45", "rossi"]},
+      "azioni": {"items": [{"fields": {"responsabile": {"contains": ["costa"]}, "scadenza": {"date": "2026-10-16"}}}, {"fields": {"responsabile": {"contains": ["greco"]}, "scadenza": {"date": "2026-10-23"}}}]},
+      "prossimo_incontro": {"date": "2026-10-30"}
+    }
+  },
+  {
+    "id": "sporco_ferie_sms",
+    "note": "stile SMS: abbreviazioni (matr, gg, resp), date 13/11, refusi (stesse informazioni di ferie)",
+    "schema": {"type": "object", "additionalProperties": false, "properties": {"dipendente": {"type": "string"}, "matricola": {"type": "string"}, "reparto": {"type": "string"}, "dal": {"type": "string", "format": "date"}, "al": {"type": "string", "format": "date"}, "giorni": {"type": "integer"}, "tipo_assenza": {"type": "string", "enum": ["ferie", "permesso", "malattia"]}, "sostituto": {"type": "string"}, "approvato_responsabile": {"type": "boolean"}}, "required": ["dipendente", "matricola", "reparto", "dal", "al", "giorni", "tipo_assenza", "sostituto", "approvato_responsabile"]},
+    "text": "chiara moretti matr 10457 magaz chiede ferie dal 9 al 13/11 5 gg. la sostituisce ivan rota. resp. non ha ancora aprovato",
+    "expected": {
+      "dipendente": {"contains": ["moretti"]},
+      "matricola": {"contains": ["10457"]},
+      "reparto": {"contains": ["magaz"]},
+      "dal": {"date": "2026-11-09"},
+      "al": {"date": "2026-11-13"},
+      "giorni": 5,
+      "tipo_assenza": "ferie",
+      "sostituto": {"contains": ["rota"]},
+      "approvato_responsabile": false
+    }
+  },
+  {
+    "id": "sporco_nc_dialetto",
+    "note": "italiano regionale/colloquiale (il Marco, c'hanno, roba grave) (stesse informazioni di non_conformita)",
+    "schema": {"type": "object", "additionalProperties": false, "properties": {"numero_nc": {"type": "string"}, "data_rilevazione": {"type": "string"}, "fornitore": {"type": "string"}, "lotto": {"type": "string"}, "quantita_non_conforme": {"type": "number"}, "descrizione_difetto": {"type": "string"}, "gravita": {"type": "string", "enum": ["lieve", "maggiore", "critica"]}, "azione_correttiva": {"type": "string"}, "rilevata_da": {"type": "string"}, "reso_al_fornitore": {"type": "boolean"}}, "required": ["numero_nc", "data_rilevazione", "fornitore", "lotto", "quantita_non_conforme", "descrizione_difetto", "gravita", "azione_correttiva", "rilevata_da", "reso_al_fornitore"]},
+    "text": "ieri il marco pini al controllo accettazione ha aperto la nc 2026/031 perche nel lotto L-8842 della plastiform 120 vaschette c'hanno il bordo tutto storto, difetto maggiore. il lotto l'abbiamo rimandato indietro tutto quanto e al fornitore gli abbiamo chiesto di analizzare le cause",
+    "expected": {
+      "numero_nc": {"contains": ["2026/031"]},
+      "data_rilevazione": {"date": "today-1"},
+      "fornitore": {"contains": ["plastiform"]},
+      "lotto": {"contains": ["L-8842"]},
+      "quantita_non_conforme": 120,
+      "descrizione_difetto": {"contains": ["bordo"]},
+      "gravita": "maggiore",
+      "azione_correttiva": {"contains": ["caus"]},
+      "rilevata_da": {"contains": ["pini"]},
+      "reso_al_fornitore": true
+    }
+  },
+  {
+    "id": "sporco_chiavi_telefono",
+    "note": "scritto dal telefono: parole tronche, refusi del correttore (stesse informazioni di consegna_chiavi)",
+    "schema": {"type": "object", "additionalProperties": false, "properties": {"destinatario": {"type": "string"}, "data_consegna": {"type": "string"}, "data_restituzione": {"type": "string"}, "chiavi": {"type": "array", "items": {"type": "string"}}, "badge_consegnato": {"type": "boolean"}, "cauzione_euro": {"type": "number"}, "consegnato_da": {"type": "string"}}, "required": ["destinatario", "data_consegna", "data_restituzione", "chiavi", "badge_consegnato", "cauzione_euro", "consegnato_da"]},
+    "text": "stamatina consegnate a roberto leoni chiavi magazino 2 e uff tecnico. badge no. restituz entro 31/10. cauz 20 eur. consegnato da anna riva",
+    "expected": {
+      "destinatario": {"contains": ["leoni"]},
+      "data_consegna": {"date": "today"},
+      "data_restituzione": {"date": "2026-10-31"},
+      "chiavi": {"items": [{"contains": ["magaz"]}, {"contains": ["tecnico"]}]},
+      "badge_consegnato": false,
+      "cauzione_euro": 20,
+      "consegnato_da": {"contains": ["anna riva"]}
+    }
+  }
+]

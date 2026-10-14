@@ -22,8 +22,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config import Config
 from ..db import Database
-from ..parsers.docx_parser import extract_text as docx_extract, load_document as docx_load
-from ..parsers.xlsx_parser import extract_text as xlsx_extract, load_workbook_safe as xlsx_load
 from ..security import (
     SecurityError,
     SecurityLimits,
@@ -239,6 +237,8 @@ class DocumentLoader:
     def _load_docx(self, path: Path) -> LoadedDocument:
         doc = LoadedDocument(path=path, ext="docx", file_sha256="", size_bytes=0)
         try:
+            # python-docx / openpyxl importati qui: ~1 s in meno all'avvio dell'app
+            from ..parsers.docx_parser import extract_text as docx_extract, load_document as docx_load
             d = docx_load(path)
             ext = docx_extract(d)
             doc.full_text = ext.full_text
@@ -264,6 +264,7 @@ class DocumentLoader:
     def _load_xlsx(self, path: Path) -> LoadedDocument:
         doc = LoadedDocument(path=path, ext="xlsx", file_sha256="", size_bytes=0)
         try:
+            from ..parsers.xlsx_parser import extract_text as xlsx_extract, load_workbook_safe as xlsx_load
             wb = xlsx_load(path)
             ext = xlsx_extract(wb)
             try:

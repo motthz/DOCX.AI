@@ -13,7 +13,13 @@ Non fallisce tutto il flusso se una pagina è illeggibile: segnala in errors.
 
 from __future__ import annotations
 
+import atexit
 import logging
+import os
+import queue
+import re
+import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
@@ -58,6 +64,197 @@ class OCRExtraction:
         if 0 <= idx < len(self.pages):
             return self.pages[idx].words or []
         return []
+
+
+def _ocr_variants(path: Path, tmp: Path) -> List[Path]:
+    """Copie ritoccate della pagina per l'OCR di Windows, che sbaglia molto con certe
+    immagini: tratti troppo netti (scansioni pulite, scrittura a mano grande) e righe
+    del quaderno che toccano le lettere. Leggera sfocatura e righe chiare tolte: sullo
+    stampatello a mano l'errore e' sceso dal 43% al 6% dei caratteri."""
+    try:
+        from PIL import Image, ImageFilter, ImageOps
+        img = Image.open(path)
+        img.load()
+    except Exception:  # noqa: BLE001 - formato non leggibile da Pillow: solo l'originale
+        return []
+    if img.width * img.height > 40_000_000:
+        return []
+    img = img.convert("RGB")
+    no_lines = ImageOps.grayscale(img).point(lambda v: 255 if v > 160 else v)
+    out = []
+    for name, im in (("sfocata", img.filter(ImageFilter.GaussianBlur(1.2))), ("senza_righe", no_lines),
+                     ("senza_righe_sfocata", no_lines.filter(ImageFilter.GaussianBlur(1.0)))):
+        q = tmp / f"{name}.png"
+        try:
+            im.save(q)
+            out.append(q.resolve())
+        except OSError:
+            pass
+    return out
+
+
+_GOOD_TOKEN = re.compile(r"^[(\"']?([A-Za-zÀ-ÿ]+(['’][A-Za-zÀ-ÿ]+)?|\d+([.,/:\-]\d+)*[A-Za-z]{0,3}|"
+                         r"[A-Z]{1,5}-?\d+[\w\-/]*)[)\"'.,;:!?]?$")
+_COMMON_WORDS = set("""a ad al alla alle allo ai agli anche che chi con col come da dal dalla dalle dai dagli
+de del della delle dello dei degli di e ed è era fa fatto fatta già gli ha hanno ho i il in la le lo ma mi ne
+nel nella nelle nello nei negli no non o per più poi può quando se si sì sia sono stato stata su sul sulla
+sulle sui tra un una uno via ore data n numero dopo prima tutto tutti ogni oggi ieri domani entro the and of
+to for with is""".split())
+
+
+def _reading_score(text: str) -> float:
+    """Quanto una lettura OCR sembra testo vero: parole comuni riconosciute e parole
+    "pulite" (lettere, numeri, codici) contro i frammenti con simboli spuri."""
+    raw = text.split()
+    hits = sum(w.strip(".,;:()\"'").lower() in _COMMON_WORDS for w in raw)
+    good = sum(len(w) for w in raw if _GOOD_TOKEN.match(w))
+    bad = sum(len(w) for w in raw if not _GOOD_TOKEN.match(w))
+    return 4 * hits + (good - 2 * bad) / 10
+
+
+def _best_reading(texts: List[str]) -> str:
+    """La lettura migliore tra originale (primo) e varianti: una variante vince solo se
+    nettamente migliore, sulle scritture illeggibili (corsivo) cambierebbe a caso."""
+    if not texts:
+        return ""
+    best, best_score = texts[0], _reading_score(texts[0])
+    floor = best_score * 1.15 + 2
+    for txt in texts[1:]:
+        s = _reading_score(txt)
+        if s > floor and s > best_score:
+            best, best_score = txt, s
+    return best
+
+
+_PS_HEADER = r"""$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | ? { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+Function Await($WinRtTask, $ResultType) {
+    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+    $netTask = $asTask.Invoke($null, @($WinRtTask))
+    $netTask.Wait(-1) | Out-Null
+    $netTask.Result
+}
+[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime] | Out-Null
+[Windows.Storage.Streams.IRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime] | Out-Null
+[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
+[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
+[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
+[Windows.Media.Ocr.OcrResult,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
+$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if ($engine -eq $null) { $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('it-IT')) }
+if ($engine -eq $null) { throw 'Nessuna lingua OCR installata in Windows' }
+"""
+_PS_RECOGNIZE = r"""
+    $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath)) ([Windows.Storage.StorageFile])
+    $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+    $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+    $bmp = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    $result = Await ($engine.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])
+    $stream.Dispose()
+    Write-Output '@@OCR-VARIANTE@@'
+    foreach ($line in $result.Lines) { Write-Output $line.Text }
+"""
+_PS_ONE_SHOT = "foreach ($imgPath in @(__IMG_PATHS__)) {" + _PS_RECOGNIZE + "}\n"
+# processo fisso: un elenco di immagini per riga (separate da |), risposta chiusa da @@OCR-FINE@@
+_PS_WORKER = r"""
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+while ($true) {
+  $req = [Console]::In.ReadLine()
+  if ($req -eq $null -or $req -eq '@@FINE@@') { break }
+  foreach ($imgPath in $req.Split('|')) {
+    try {""" + _PS_RECOGNIZE + r"""    } catch { Write-Output '@@OCR-VARIANTE@@' }
+  }
+  Write-Output '@@OCR-FINE@@'
+  [Console]::Out.Flush()
+}
+"""
+
+
+class _OcrWorker:
+    """PowerShell con l'OCR di Windows gia' caricato, riusato per tutte le pagine
+    (prima ~1 s di avvio per ogni immagine: lungo per i PDF scansionati di molte
+    pagine). Si chiude da solo dopo qualche minuto di inattivita'."""
+
+    IDLE_SECONDS = 300
+    _lock = threading.Lock()
+    _proc: Optional[subprocess.Popen] = None
+    _lines: "queue.Queue[Optional[str]]" = queue.Queue()
+    _timer: Optional[threading.Timer] = None
+    disabled = False
+
+    @classmethod
+    def _start(cls) -> None:
+        from .. import winshell
+        cls._lines = queue.Queue()
+        cls._proc = winshell.popen(_PS_HEADER + _PS_WORKER, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                                   bufsize=1)
+        proc, lines = cls._proc, cls._lines
+
+        def _read() -> None:
+            try:
+                for line in proc.stdout:  # type: ignore[union-attr]
+                    lines.put(line.rstrip("\r\n"))
+            except Exception:  # noqa: BLE001
+                pass
+            lines.put(None)
+        threading.Thread(target=_read, name="ocr-worker", daemon=True).start()
+
+    @classmethod
+    def close(cls) -> None:
+        proc, cls._proc = cls._proc, None
+        if cls._timer is not None:
+            cls._timer.cancel()
+            cls._timer = None
+        if proc is None:
+            return
+        try:
+            proc.stdin.write("@@FINE@@\n")  # type: ignore[union-attr]
+            proc.stdin.flush()  # type: ignore[union-attr]
+            proc.wait(timeout=3)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+    @classmethod
+    def recognize(cls, paths: List[str], timeout: float) -> Optional[List[str]]:
+        """Testo di ogni immagine, o None se il processo fisso non funziona."""
+        if cls.disabled or os.name != "nt" or any("|" in p or "\n" in p for p in paths):
+            return None
+        import time as _time
+        with cls._lock:
+            try:
+                if cls._proc is None or cls._proc.poll() is not None:
+                    cls._start()
+                cls._proc.stdin.write("|".join(paths) + "\n")  # type: ignore[union-attr]
+                cls._proc.stdin.flush()  # type: ignore[union-attr]
+                out: List[str] = []
+                deadline = _time.monotonic() + timeout
+                while True:
+                    line = cls._lines.get(timeout=max(0.1, deadline - _time.monotonic()))
+                    if line is None:
+                        raise RuntimeError("processo OCR terminato")
+                    if line.strip() == "@@OCR-FINE@@":
+                        break
+                    out.append(line)
+            except Exception as exc:  # noqa: BLE001
+                LOG.info("OCR con processo fisso non disponibile (%s): uso uno script per immagine", exc)
+                cls.close()
+                cls.disabled = True
+                return None
+            if cls._timer is not None:
+                cls._timer.cancel()
+            cls._timer = threading.Timer(cls.IDLE_SECONDS, cls.close)
+            cls._timer.daemon = True
+            cls._timer.start()
+        return [x.strip() for x in "\n".join(out).split("@@OCR-VARIANTE@@")[1:]]
+
+
+atexit.register(_OcrWorker.close)
 
 
 class OCRService:
@@ -271,49 +468,30 @@ class OCRService:
     # --------------------------------------------------------------
     def _ocr_image_windows(self, path: Path, idx: int) -> OCRPage:
         page = OCRPage(page_index=idx, ocr_engine="windows_ocr", used=True)
-        ps_code = r"""
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | ? { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
-Function Await($WinRtTask, $ResultType) {
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
-    $netTask.Result
-}
-[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime] | Out-Null
-[Windows.Storage.Streams.IRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
-[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
-[Windows.Media.Ocr.OcrResult,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
-$imgPath = '__IMG_PATH__'
-$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath)) ([Windows.Storage.StorageFile])
-$stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
-$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$bmp = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if ($engine -eq $null) { $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('it-IT')) }
-if ($engine -eq $null) { throw 'Nessuna lingua OCR installata in Windows' }
-$result = Await ($engine.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])
-$stream.Dispose()
-foreach ($line in $result.Lines) { Write-Output $line.Text }
-"""
+        import shutil
+        import tempfile
+        tmp = Path(tempfile.mkdtemp(prefix="docx_ai_ocr_"))
         try:
-            safe_path = str(Path(path).resolve()).replace("'", "''")
-            code = ps_code.replace("__IMG_PATH__", safe_path)
-            # niente "-ExecutionPolicy Bypass" (segnale tipico dei malware per gli antivirus):
-            # con -Command i criteri di esecuzione degli script non si applicano
-            from .. import winshell
-            proc = winshell.run(code, timeout=120)
-            text = (proc.stdout or "").strip()
-            if not text and proc.stderr:
-                raise RuntimeError((proc.stderr or "").strip()[:500])
-            page.text = text or ""
+            paths = [Path(path).resolve()] + _ocr_variants(Path(path), tmp)
+            timeout = 120 + 60 * (len(paths) - 1)
+            # processo OCR che resta aperto: PowerShell + WinRT costano ~1 s ad ogni avvio
+            texts = _OcrWorker.recognize([str(p) for p in paths], timeout)
+            if texts is None:  # processo fisso non disponibile: uno script per volta
+                code = _PS_HEADER + _PS_ONE_SHOT.replace("__IMG_PATHS__", ",".join(
+                    "'" + str(p).replace("'", "''") + "'" for p in paths))
+                # niente "-ExecutionPolicy Bypass" (segnale tipico dei malware per gli antivirus):
+                # con -Command i criteri di esecuzione degli script non si applicano
+                from .. import winshell
+                proc = winshell.run(code, timeout=timeout)
+                texts = [x.strip() for x in (proc.stdout or "").split("@@OCR-VARIANTE@@")[1:]]
+                if not any(texts) and proc.stderr:
+                    raise RuntimeError((proc.stderr or "").strip()[:500])
+            page.text = _best_reading(texts)
             page.confidence_avg = 0.75 if page.text else None  # rough approximation
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"PowerShell OCR: {exc}") from exc
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
         return page
 
     # --------------------------------------------------------------
@@ -360,5 +538,4 @@ foreach ($line in $result.Lines) { Write-Output $line.Text }
         return page
 
 
-import os  # noqa: E402  (used inside _ocr_image_* helpers)
 import sys  # noqa: E402

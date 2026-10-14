@@ -19,10 +19,14 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from ..config import Config
-from ..exporters.pdf_exporter import export_pdf
 from .ai_service import AIResult, AIService
 from .document_loader import DocumentLoader, LoadedDocument
 from .source_tracker import SourceRef
+
+
+def export_pdf(*args, **kwargs):  # ReportLab importato solo quando serve (avvio piu' rapido)
+    from ..exporters.pdf_exporter import export_pdf as _export_pdf
+    return _export_pdf(*args, **kwargs)
 
 
 LOG = logging.getLogger(__name__)

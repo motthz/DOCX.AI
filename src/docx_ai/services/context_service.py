@@ -18,8 +18,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..config import Config
 from ..db import Database
 from ..module_manager import LoadedModule, ModuleManager
-from ..parsers.docx_parser import extract_text as docx_extract, load_document as docx_load
-from ..parsers.xlsx_parser import extract_text as xlsx_extract, load_workbook_safe as xlsx_load
 from ..security import sha256_file
 
 
@@ -86,12 +84,15 @@ class ContextService:
                 )
             return text, meta
         ext = path.suffix.lower()
+        # parser importati qui: python-docx e openpyxl (con numpy) costano ~1 s all'avvio
         if ext == ".docx":
+            from ..parsers.docx_parser import extract_text as docx_extract, load_document as docx_load
             doc = docx_load(path)
             data = docx_extract(doc)
             text = data.full_text
             meta = {"placeholders": data.placeholders, "meta": data.meta}
         elif ext == ".xlsx":
+            from ..parsers.xlsx_parser import extract_text as xlsx_extract, load_workbook_safe as xlsx_load
             wb = xlsx_load(path)
             data = xlsx_extract(wb)  # type: ignore[assignment]
             try:

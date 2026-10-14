@@ -60,6 +60,10 @@ Esempi già pronti nella cartella `examples/modules`: *Verbale di riunione* (DOC
    dove, importi, decisioni, esiti. Più dettagli dai, più campi vengono compilati. Puoi anche:
    - **aggiungere foto o immagini** (o aprire la *Fotocamera* di Windows): finiscono nel PDF;
    - passare a **Da documenti** per compilare leggendo altri file, tabelle o scansioni.
+
+   Va bene anche scrivere di fretta: abbreviazioni comuni (*rapp*, *manut*, *matr*, *gg*, *xké*...)
+   e correzioni a metà frase (*"costo 500 euro, anzi no 680"*, *"no scusa"*, *"no aspetta"*)
+   vengono sistemate prima della compilazione: vale il valore detto dopo la correzione.
 3. Premi **Compila con AI** (`Ctrl+E`). Le fasi (Contesto → AI → Verifica fonti →
    Revisione → Export) sono mostrate sotto il pulsante; con *Mostra l'output dell'AI in
    tempo reale* vedi il testo mentre viene generato.
@@ -129,9 +133,9 @@ mostra cosa cambia rispetto alla versione attuale e permette di ripristinarla.
 |---|---|
 | Crea documento | Procedure, istruzioni, lettere o relazioni a partire dai documenti di riferimento |
 | Modifica documento | Nuova versione di un DOCX/PDF/scansione secondo le tue richieste |
-| Audit documenti | Contraddizioni, date incoerenti, dati mancanti, revisioni non allineate |
+| Audit documenti | Date impossibili tra documenti collegati (ordine → intervento → collaudo, apertura → chiusura), documenti citati ma assenti, revisioni diverse da quella presente, tarature e offerte scadute, codici incoerenti, firme e responsabili mancanti |
 | Compila da documenti | Compila un modulo leggendo altri documenti, tabelle e scansioni |
-| Testo da scansione (OCR) | Estrae il testo da foto e PDF scansionati con l'OCR di Windows |
+| Testo da scansione (OCR) | Estrae il testo da foto e PDF scansionati con l'OCR di Windows; **Lettura avanzata** per la scrittura a mano, anche in corsivo (modello facoltativo da *Componenti AI*, più lento) |
 | Regole AI | Istruzioni permanenti per funzione o per modulo |
 
 Gli originali non vengono mai modificati: ogni risultato è una nuova versione.

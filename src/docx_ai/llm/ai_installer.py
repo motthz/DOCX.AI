@@ -75,6 +75,20 @@ EMBEDDING_MODEL: Dict[str, Dict[str, Any]] = {
         "label": "Ricerca semantica nei documenti (~640 MB)",
     },
 }
+# Lettura avanzata della scrittura a mano (llm/vision.py): modello + proiettore delle immagini
+VISION_MODEL: Dict[str, Dict[str, Any]] = {
+    "Qwen3VL-2B-Instruct-Q4_K_M.gguf": {
+        "url": "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen3VL-2B-Instruct-Q4_K_M.gguf",
+        "sha256": "089d75c52f4b7ffc56ba998ffc50aae89fcafc755f9e7208aacca281dca6c2ae",
+        "label": "Lettura avanzata della scrittura a mano, anche corsivo (~1.5 GB)",
+    },
+    "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf": {
+        "url": "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main/"
+               "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
+        "sha256": "f9a68fabba69c3b81e153367b2c7521030b0fa8bb0de400c9599c8e6725f9c82",
+        "label": "Lettura avanzata: proiettore immagini",
+    },
+}
 RUNTIME_VARIANTS = {"cpu": ("win-cpu", "llama"), "vulkan": ("win-vulkan", "llama-vulkan")}
 
 USER_AGENT = "DOCX.AI-installer"
@@ -204,7 +218,7 @@ class AIInstaller:
         return target
 
     def install_model(self, name: str, progress: ProgressFn) -> Path:
-        info = MODELS.get(name) or EMBEDDING_MODEL[name]
+        info = MODELS.get(name) or EMBEDDING_MODEL.get(name) or VISION_MODEL[name]
         dest = self.models_dir / name
         if dest.is_file():
             progress(1.0, f"Modello {name} già presente.")
@@ -221,7 +235,7 @@ class AIInstaller:
         return dest
 
     def install(self, model_name: str, progress: ProgressFn, *, gpu: bool = False,
-                embeddings: bool = False) -> InstallResult:
+                embeddings: bool = False, vision: bool = False) -> InstallResult:
         self._cancel.clear()
         runtime = self.install_runtime(progress)
         if gpu:
@@ -234,5 +248,8 @@ class AIInstaller:
         model = self.install_model(model_name, progress)
         if embeddings:
             self.install_model(next(iter(EMBEDDING_MODEL)), progress)
+        if vision:
+            for name in VISION_MODEL:
+                self.install_model(name, progress)
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         return InstallResult(runtime_dir=runtime, model_path=model)

@@ -18,9 +18,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config import Config
 from ..db import Database
-from ..exporters.docx_exporter import export_docx
-from ..exporters.pdf_exporter import export_pdf
-from ..exporters.xlsx_exporter import export_xlsx
 from ..llm.json_pipeline import ExtractionResult, JsonPipeline
 from ..llm.llama_server import LlamaServerOptions, LlamaServer, MockLlamaServer
 from ..module_manager import LoadedModule, ModuleManager
@@ -58,6 +55,7 @@ def _export_pdf_isolated(pdf_path: Path, data: Dict[str, Any], schema: Dict[str,
     in un thread bloccherebbe l'interfaccia. Se il processo non e' disponibile
     (es. ambiente limitato) ripiega sull'esecuzione diretta."""
     global _PDF_POOL
+    from ..exporters.pdf_exporter import export_pdf  # ReportLab solo quando serve
     try:
         import concurrent.futures as cf
         import multiprocessing as mp
@@ -341,9 +339,11 @@ class ReportService:
         try:
             if mod.template_type == "docx":
                 doc_path = base / f"{base.name}.docx"
+                from ..exporters.docx_exporter import export_docx
                 export_docx(mod.template_path, doc_path, shown)
             elif mod.template_type == "xlsx":
                 doc_path = base / f"{base.name}.xlsx"
+                from ..exporters.xlsx_exporter import export_xlsx
                 export_xlsx(mod.template_path, doc_path, mod.mapping or {}, shown)
         except Exception:  # noqa: BLE001
             logging.getLogger(__name__).exception("Esportazione %s non riuscita", mod.template_type)

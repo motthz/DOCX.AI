@@ -22,12 +22,16 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config import Config
-from ..exporters.pdf_exporter import export_pdf
-from .ai_service import AIResult, AIService
+from .ai_service import AIService
 from .document_indexer import Chunk, DocumentIndexer
 from .document_loader import DocumentLoader, LoadedDocument
 from .document_retriever import DocumentRetriever
 from .source_tracker import SourceRef
+
+
+def export_pdf(*args, **kwargs):  # ReportLab importato solo quando serve (avvio piu' rapido)
+    from ..exporters.pdf_exporter import export_pdf as _export_pdf
+    return _export_pdf(*args, **kwargs)
 
 
 LOG = logging.getLogger(__name__)
@@ -36,8 +40,41 @@ LOG = logging.getLogger(__name__)
 SEVERITY_LEVELS = ["CRITICO", "ALTO", "MEDIO", "BASSO", "OSSERVAZIONE"]
 
 
+_CHECK_REASONS = {
+    "cronologia": "La sequenza delle date non è possibile.",
+    "riferimento": "Un documento citato deve essere disponibile per la tracciabilità.",
+    "revisione": "Va applicata la revisione in vigore del documento.",
+    "taratura": "Uno strumento con taratura scaduta non garantisce le misure.",
+    "scadenza": "Il documento di riferimento non era più valido.",
+    "codice": "Documenti dello stesso lavoro devono riportare lo stesso codice.",
+    "firma": "Responsabile e firma sono necessari per la validità del documento.",
+}
+
+_DOC_AUDIT_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["problemi"],
+    "properties": {"problemi": {"type": "array", "maxItems": 3, "items": {
+        "type": "object", "additionalProperties": False, "required": ["titolo", "evidenza", "descrizione"],
+        "properties": {"titolo": {"type": "string", "maxLength": 80},
+                       "evidenza": {"type": "string", "maxLength": 160},
+                       "descrizione": {"type": "string", "maxLength": 220}}}}},
+}
+
+
+def _quote_in(quote: str, text: str) -> bool:
+    """La frase citata compare nel testo (spazi, maiuscole e punteggiatura a parte)."""
+    q = re.sub(r"[^a-z0-9]+", " ", (quote or "").lower()).strip()
+    t = re.sub(r"[^a-z0-9]+", " ", (text or "").lower())
+    if len(q) < 6:
+        return False
+    if q in t:
+        return True
+    words = [w for w in q.split() if len(w) >= 3]
+    return bool(words) and sum(w in t.split() for w in words) / len(words) >= 0.8
+
+
 IDENTIFIER_PATTERNS: List[Tuple[str, re.Pattern]] = [
-    ("numero_rapporto", re.compile(r"\b(?:rapporto|rpt|report)\s*[:#]?\s*([A-Za-z0-9_\-]{3,30})", re.I)),
+    ("numero_rapporto", re.compile(r"\b(?:rapporto|rpt|report)\s*(?:n\.?|nr\.?|num\.?)?\s*[:#]?\s*"
+                                    r"((?=[A-Za-z0-9_\-/]*\d)[A-Za-z0-9_\-/]{3,30})", re.I)),
     ("ticket", re.compile(r"\b(?:ticket|tk)\s*[:#]?\s*([A-Za-z0-9_\-]{3,30})", re.I)),
     ("macchina", re.compile(r"\b(?:macchina|impianto|macchinario)\s*[:#]?\s*([A-Za-z0-9_\-]{2,30})", re.I)),
     ("codice_macchina", re.compile(r"\b([A-Z]{1,4}[\-_]?\d{2,6}[A-Za-z0-9\-_]{0,6})\b")),
@@ -119,57 +156,6 @@ class AuditReport:
         return c
 
 
-AUDIT_SCHEMA = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "criticita": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "titolo": {"type": "string"},
-                    "gravita": {"type": "string", "enum": SEVERITY_LEVELS},
-                    "descrizione": {"type": "string"},
-                    "file_interessati": {"type": "array", "items": {"type": "string"}},
-                    "posizioni": {"type": "array", "items": {"type": "string"}},
-                    "evidenza": {"type": "string"},
-                    "motivo": {"type": "string"},
-                    "suggerimento": {"type": "string"},
-                    "fiducia": {
-                        "type": "string",
-                        "enum": [
-                            "Possibile criticità",
-                            "Da verificare",
-                            "Informazioni insufficienti",
-                        ],
-                    },
-                },
-                "required": [
-                    "titolo", "gravita", "descrizione",
-                    "file_interessati", "posizioni",
-                    "evidenza", "motivo", "suggerimento", "fiducia",
-                ],
-            },
-        },
-        "domande_aperte": {"type": "array", "items": {"type": "string"}},
-        "incoerenze": {"type": "array", "items": {"type": "string"}},
-        "dati_mancanti": {"type": "array", "items": {"type": "string"}},
-        "problemi_tracciabilita": {"type": "array", "items": {"type": "string"}},
-        "documenti_potenzialmente_mancanti": {"type": "array", "items": {"type": "string"}},
-        "collegamenti_tra_documenti": {"type": "array", "items": {"type": "string"}},
-        "controlli_effettuati": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": [
-        "criticita", "domande_aperte", "incoerenze", "dati_mancanti",
-        "problemi_tracciabilita", "documenti_potenzialmente_mancanti",
-        "collegamenti_tra_documenti", "controlli_effettuati",
-    ],
-}
-
-
 class AuditEngine:
     def __init__(
         self,
@@ -229,93 +215,47 @@ class AuditEngine:
         heuristic_findings = self._heuristic_findings(
             docs, identifiers, per_doc_ids, doc_refs_between_docs, report
         )
-        # 4) AI pass: deep audit of selected chunks (dynamic questions)
-        step("Analisi AI (domande dinamiche)…")
-        audit_prompt = self._build_audit_prompt(
-            docs, identifiers, per_doc_ids, heuristic_findings,
-            extra_user_notes, all_chunks,
-        )
-        # Use top-k chunks that contain identifiers as context
-        retrieved = self.retriever.retrieve(
-            all_chunks,
-            " ".join(
-                [f"{k}={v}" for k, vs in identifiers.items() for v in list(vs)[:5]]
-            ),
-            top_k=25, max_total_chars=15000,
-        )
-        result: AIResult = self.ai.extract_structured(
-            "document_audit", AUDIT_SCHEMA,
-            user_request=audit_prompt,
-            module=None,
-            retrieved_chunks=retrieved,
-            reference_docs=None,
-            history_snippets=None,
-            use_mock=use_mock,
-        )
-        step("Assemblaggio report…")
-        report.sources_used = result.sources_used
-        ai_findings: List[AuditFinding] = []
-        if result.success and result.data:
-            data = result.data or {}
-            crits = data.get("criticita") or []
-            for c in crits:
-                if not isinstance(c, dict):
-                    continue
-                try:
-                    f = AuditFinding(
-                        title=str(c.get("titolo", "")),
-                        severity=str(c.get("gravita", "MEDIO")).upper() if str(c.get("gravita")).upper() in SEVERITY_LEVELS else "MEDIO",
-                        description=str(c.get("descrizione", "")),
-                        files=_as_list(c.get("file_interessati")),
-                        locations=_as_list(c.get("posizioni")),
-                        evidence=str(c.get("evidenza", "")),
-                        reason=str(c.get("motivo", "")),
-                        suggestion=str(c.get("suggerimento", "")),
-                        confidence=str(c.get("fiducia", "Possibile criticità")),
-                    )
-                    ai_findings.append(f)
-                except Exception:  # noqa: BLE001
-                    pass
-            for field_name, attr in [
-                ("domande_aperte", "open_questions"),
-                ("incoerenze", "inconsistencies"),
-                ("dati_mancanti", "missing_data"),
-                ("problemi_tracciabilita", "traceability_issues"),
-                ("documenti_potenzialmente_mancanti", "potentially_missing_documents"),
-                ("collegamenti_tra_documenti", "links_between_documents"),
-                ("controlli_effettuati", "controls_executed"),
-            ]:
-                items = _as_list(data.get(field_name))
-                for item in items:
-                    if isinstance(item, str) and item.strip():
-                        getattr(report, attr).append(item.strip())
+        # 4) Controlli deterministici: cronologia, documenti citati, revisioni, scadenze,
+        #    codici incoerenti, firme vuote (il modello piccolo non li faceva)
+        step("Controllo di date, riferimenti, revisioni e firme…")
+        from .audit_checks import run_checks
+        checks = run_checks(docs)
+        check_findings = [AuditFinding(
+            title=i.title, severity=i.severity, description=i.description, files=list(i.files),
+            locations=list(i.files), evidence=i.evidence, reason=_CHECK_REASONS.get(i.kind, ""),
+            suggestion=i.suggestion, confidence="Possibile criticità") for i in checks]
+        for i in checks:
+            target = {"cronologia": report.inconsistencies, "codice": report.inconsistencies,
+                      "revisione": report.inconsistencies, "riferimento": report.potentially_missing_documents,
+                      "firma": report.missing_data, "taratura": report.traceability_issues,
+                      "scadenza": report.traceability_issues}.get(i.kind)
+            if target is not None:
+                target.append(i.description)
 
-        # Le incoerenze tra documenti sono le criticita' piu' utili: prima finivano solo nella
-        # scheda "Domande / Coerenze" e la tabella principale mostrava solo i dati mancanti.
-        for item in report.inconsistencies:
-            ai_findings.append(AuditFinding(
-                title=("Incoerenza: " + item)[:120], severity="ALTO", description=item,
-                files=[d.path.name for d in docs if d.path.name in item],
-                confidence="Possibile criticità",
-                suggestion="Verifica quale documento è aggiornato e allinea l'altro.",
-            ))
-        # Merge heuristic + AI findings, heuristic first for high severity triggers.
-        # Il modello tende a ripetere le criticita' euristiche che gli vengono passate: niente doppioni.
-        seen_titles = {f.title.strip().lower() for f in heuristic_findings}
-        all_findings = list(heuristic_findings)
-        for f in ai_findings:
+        # 5) AI: domande brevi su un documento alla volta; tenute solo le segnalazioni con una
+        #    frase citata che esiste davvero nel documento (prima un'unica richiesta enorme:
+        #    il modello piccolo ripeteva le euristiche o inventava documenti "mancanti")
+        ai_findings = self._ai_per_document(docs, extra_user_notes, step, use_mock=use_mock)
+
+        step("Assemblaggio report…")
+        names = {d.path.name.lower() for d in docs} | {d.path.stem.lower() for d in docs}
+        report.potentially_missing_documents = [
+            x for x in dict.fromkeys(report.potentially_missing_documents)
+            if x.strip().lower() not in names]
+        # i controlli precisi prima; poi euristiche e AI senza doppioni
+        all_findings: List[AuditFinding] = []
+        seen: set = set()
+        for f in check_findings + heuristic_findings + ai_findings:
             key = f.title.strip().lower()
-            if key and key not in seen_titles:
-                seen_titles.add(key)
-                all_findings.append(f)
+            ev = (f.evidence or "").strip().lower()
+            if not key or key in seen or (ev and any(ev == (g.evidence or "").strip().lower() for g in all_findings)):
+                continue
+            seen.add(key)
+            all_findings.append(f)
         report.findings = all_findings
-        # Count severities
         for f in all_findings:
             sev = f.severity if f.severity in SEVERITY_LEVELS else "MEDIO"
-            report.criticalities_by_severity[sev] = (
-                report.criticalities_by_severity.get(sev, 0) + 1
-            )
-        # Summary
+            report.criticalities_by_severity[sev] = report.criticalities_by_severity.get(sev, 0) + 1
         report.summary = (
             f"Audit di {report.total_documents} documenti. "
             f"Criticità: "
@@ -325,14 +265,85 @@ class AuditEngine:
             )
             + "."
         )
-        if not report.controls_executed:
-            report.controls_executed = [
-                "Estrazione testo nativa + OCR ove disponibile",
-                "Indicizzazione chunk per identificatori",
-                "Ricerca incrociata identificatori tra documenti",
-                "Analisi AI di criticità con domande dinamiche",
-            ]
+        report.controls_executed = [
+            "Estrazione testo nativa + OCR ove disponibile",
+            "Cronologia: apertura/chiusura, ordine → intervento → collaudo, ordine → consegna",
+            "Documenti citati ma assenti dal pacchetto e revisioni diverse da quella presente",
+            "Strumenti e documenti usati dopo la scadenza (tarature, offerte, certificati)",
+            "Codici di macchine/strumenti diversi tra documenti collegati",
+            "Firme e responsabili lasciati vuoti",
+            "Analisi AI documento per documento con i modelli da 4B in su (segnalazioni con prova nel testo)",
+        ]
         return report, docs
+
+    # --------------------------------------------------------------
+    # AI: un documento alla volta
+    # --------------------------------------------------------------
+    def _ai_per_document(self, docs: List[LoadedDocument], notes: str,
+                         step: Callable[[str], Any], *, use_mock: bool = False) -> List[AuditFinding]:
+        if use_mock or not docs:
+            return []
+        try:
+            pipeline = self.ai.pipeline(use_mock=False)
+        except Exception:  # noqa: BLE001
+            return []
+        from ..llm.json_pipeline import is_small_model
+        from ..llm.llama_server import MockLlamaServer
+        real = [s for s in getattr(pipeline, "server_chain", []) if not isinstance(s, MockLlamaServer)]
+        if not real:
+            return []  # nessuna AI installata: restano i controlli deterministici
+        if is_small_model(real[0]):
+            # Qwen3 0.6B e 1.7B, provati su due pacchetti con problemi noti: segnalazioni quasi
+            # tutte sbagliate ("campo vuoto" su campi compilati, date corrette "impossibili") e
+            # nessun problema in piu' rispetto ai controlli deterministici. Solo rumore.
+            LOG.info("Audit: analisi AI per documento saltata con un modello piccolo")
+            return []
+        from ..llm.json_pipeline import _lenient_json_parse
+        user_rules = ""
+        try:
+            user_rules = (self.ai.rules.read_feature_rules("document_audit") or "").strip()[:1500]
+        except Exception:  # noqa: BLE001
+            pass
+        system = (
+            "Sei un auditor che controlla UN documento alla volta. Segnala solo problemi che si vedono nel "
+            "testo del documento: campi obbligatori vuoti, valori contraddittori, date impossibili, "
+            "quantità o importi incoerenti. Per ogni problema copia in \"evidenza\" la frase esatta del "
+            "documento. Non inventare documenti mancanti e non ripetere cose corrette. Se non ci sono "
+            "problemi rispondi con un elenco vuoto."
+            + (f"\nREGOLE DELL'UTENTE:\n{user_rules}" if user_rules else ""))
+        others = ", ".join(d.path.name for d in docs)[:800]
+        # i documenti con piu' testo sono quelli che contano; limite per le cartelle grandi
+        chosen = sorted((d for d in docs if (d.full_text or "").strip()),
+                        key=lambda d: -len(d.full_text or ""))[:10]
+        out: List[AuditFinding] = []
+        for i, d in enumerate(chosen, 1):
+            step(f"Analisi AI {i}/{len(chosen)}: {d.path.name}")
+            text = (d.full_text or "")[:3000]
+            user = (f"DOCUMENTO: {d.path.name}\n{text}\n\nAltri documenti del pacchetto: {others}\n"
+                    + (f"Note dell'utente: {notes}\n" if notes else "")
+                    + "Elenca al massimo 3 problemi di questo documento.\n/no_think")
+            try:
+                resp = pipeline.chat(messages=[{"role": "system", "content": system},
+                                               {"role": "user", "content": user}],
+                                     temperature=0.1, max_tokens=420, json_schema=_DOC_AUDIT_SCHEMA)
+                raw = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                parsed, _err = _lenient_json_parse(raw)
+            except Exception as exc:  # noqa: BLE001
+                LOG.info("Analisi AI di %s non riuscita: %s", d.path.name, exc)
+                continue
+            for item in (parsed or {}).get("problemi", []) if isinstance(parsed, dict) else []:
+                if not isinstance(item, dict):
+                    continue
+                ev = str(item.get("evidenza") or "").strip()
+                title = str(item.get("titolo") or "").strip()
+                if not title or not _quote_in(ev, d.full_text or ""):
+                    continue  # senza una frase vera del documento: probabilmente inventato
+                out.append(AuditFinding(
+                    title=f"{d.path.name}: {title}"[:160], severity="MEDIO",
+                    description=str(item.get("descrizione") or title), files=[d.path.name],
+                    locations=[d.path.name], evidence=ev, reason="Segnalato dall'AI con prova nel testo.",
+                    suggestion="Verifica il punto citato nel documento.", confidence="Da verificare"))
+        return out
 
     # --------------------------------------------------------------
     # Cross-doc heuristic identifier extraction
@@ -393,30 +404,8 @@ class AuditEngine:
         report: AuditReport,
     ) -> List[AuditFinding]:
         findings: List[AuditFinding] = []
-        # 1) Date inconsistencies for same rapporto/macchina/lotto
-        for id_type in ["numero_rapporto", "lotto", "macchina", "codice_macchina"]:
-            vals = identifiers[id_type]
-            for value in list(vals):
-                # collect dates across docs
-                doc_dates: Dict[str, List[str]] = {}
-                for dname, per_doc in per_doc_ids.items():
-                    if value in per_doc[id_type]:
-                        doc_dates[dname] = sorted(per_doc["data"] | per_doc["data_iso"])
-                docs_with = [d for d, dates in doc_dates.items() if dates]
-                if len(docs_with) >= 2:
-                    all_dates = {d for dates in doc_dates.values() for d in dates}
-                    if len(all_dates) > 1:
-                        findings.append(AuditFinding(
-                            title=f"Date diverse per {id_type} {value}",
-                            severity="ALTO",
-                            description=f"Lo stesso {id_type} compare in documenti diversi con date non coerenti.",
-                            files=list(doc_dates.keys()),
-                            locations=[f"{d}: date={sorted(set(ds))}" for d, ds in doc_dates.items() if ds],
-                            evidence=f"{id_type}={value}, date trovate={sorted(all_dates)}",
-                            reason=f"Uno stesso {id_type} non può avere date evento diverse in documenti diversi a meno che non siano revisioni.",
-                            suggestion=f"Verificare quale data è corretta per {id_type} {value} e confermare la sequenza temporale.",
-                            confidence="Possibile criticità",
-                        ))
+        # (le date tra documenti collegati sono confrontate per ruolo in audit_checks:
+        #  "date diverse" scattava per qualsiasi coppia di documenti sulla stessa macchina)
         # 2) Referenced document missing (mentions but no file present)
         doc_names = {d.path.name for d in docs}
         for dname, mentions_dict in cross_refs.items():
@@ -439,7 +428,7 @@ class AuditEngine:
             dname = d.path.name
             ids = per_doc_ids.get(dname, {})
             missing: List[str] = []
-            for must_have in ["responsabile", "data"]:
+            for must_have in ["data"]:
                 if not ids.get(must_have):
                     missing.append(must_have)
             if missing:
@@ -501,7 +490,7 @@ class AuditEngine:
                     if mancano and len(docs_with) >= 1:
                         findings.append(AuditFinding(
                             title=f"Anelli mancanti catena tracciabilità per {id_type} {value}",
-                            severity="MEDIO",
+                            severity="OSSERVAZIONE",
                             description="Evento→registrazione→documento→responsabile→data→approvazione→azione successiva→chiusura: alcuni passaggi non sono documentati.",
                             files=docs_with,
                             locations=docs_with,
@@ -514,7 +503,11 @@ class AuditEngine:
         # 6) Duplicates: same identifier value, multiple documents of same type
         for id_type in ["numero_rapporto", "ticket"]:
             for value in list(identifiers[id_type]):
-                docs_with = [d for d, per_doc in per_doc_ids.items() if value in per_doc[id_type]]
+                # numero proprio del documento nel titolo ("Rapporto n. 245/26"), non una citazione
+                # ("Nota per il rapporto 245/26")
+                own_no = re.compile(r"(?:\bn\.?|n°|\bnr\.?|\bnumero)\s*" + re.escape(value), re.I)
+                docs_with = [d.path.name for d in docs
+                             if own_no.search(((d.full_text or "").strip().splitlines() or [""])[0])]
                 if len(docs_with) >= 2:
                     findings.append(AuditFinding(
                         title=f"Possibile duplicato {id_type} {value}",
@@ -541,48 +534,6 @@ class AuditEngine:
                     confidence="Informazioni insufficienti",
                 ))
         return findings
-
-    # --------------------------------------------------------------
-    def _build_audit_prompt(
-        self,
-        docs: List[LoadedDocument],
-        identifiers: Dict[str, set],
-        per_doc_ids: Dict[str, Dict[str, set]],
-        heuristic_findings: List[AuditFinding],
-        extra_user_notes: str,
-        all_chunks: List[Chunk],
-    ) -> str:
-        lines: List[str] = []
-        lines.append("ANALISI AUDIT DI PACCHETTO DOCUMENTALE.")
-        lines.append(f"Documenti in analisi: {len(docs)}")
-        lines.append("Elenco: " + ", ".join(d.path.name for d in docs))
-        ids_summ = []
-        for name, vals in identifiers.items():
-            if vals:
-                ids_summ.append(f"{name}: {sorted(vals)[:15]}")
-        lines.append("Identificatori trovati:")
-        lines.extend(["- " + s for s in ids_summ])
-        lines.append("")
-        lines.append("Criticità euristiche già trovate (usale come base ma NON limitarti):")
-        for f in heuristic_findings[:20]:
-            lines.append(f"- [{f.severity}] {f.title}: {f.description[:200]}")
-        lines.append("")
-        if extra_user_notes:
-            lines.append("NOTE AGGIUNTIVE DELL'UTENTE:")
-            lines.append(extra_user_notes)
-        lines.append("")
-        lines.append(
-            "Genera molte domande dinamiche in base ai documenti: "
-            "il documento citato esiste? Versioni coincidono? Date possibili? "
-            "Responsabile presente? Esiste evidenza? Codici coerenti? "
-            "Revisioni superate? Catena evento→registrazione→approvazione→chiusura? "
-            "Proponi criticità, domande aperte, incoerenze, dati mancanti, "
-            "problemi di tracciabilità, documenti potenzialmente mancanti, "
-            "collegamenti tra documenti e controlli effettuati. "
-            "Usa formule prudenziali: 'Possibile criticità', 'Da verificare', "
-            "'Informazioni insufficienti'. Non dichiarare non conformità certe."
-        )
-        return "\n".join(lines)
 
     # --------------------------------------------------------------
     # Public: salva report dopo conferma

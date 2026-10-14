@@ -76,6 +76,12 @@ automatically** every 20 seconds. **Approve and generate the document** produces
 Create documents, edit documents (new version), audit documents, fill in a module from
 other documents, extract text from scans (Windows OCR), AI rules. Originals are never changed.
 
+- **Audit** checks dates across linked documents (order → work → test, opening → closing),
+  documents cited but missing, revision mismatches, expired calibrations and offers,
+  inconsistent codes and missing signatures.
+- **Advanced reading** (OCR window) reads handwriting, cursive included, with an optional
+  model installed from *AI components* (slower on the CPU).
+
 ## 7. Settings
 
 - **Appearance**: light, dark or *like Windows* theme; language; **text size** (80–160%).

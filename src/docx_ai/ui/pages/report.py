@@ -72,7 +72,7 @@ class ReportPage(ctk.CTkFrame):
         self._show_placeholder()
         self.desc.bind("<FocusIn>", lambda e: self._hide_placeholder(), add="+")
         self.desc.bind("<FocusOut>", lambda e: self._show_placeholder(), add="+")
-        self.desc.bind("<KeyRelease>", lambda e: self._update_quality(), add="+")
+        self.desc.bind("<KeyRelease>", lambda e: (self._update_quality(), self._prewarm()), add="+")
 
         self.docs_frame = ctk.CTkFrame(self.input_host, fg_color="transparent")
         self.docs_list = ctk.CTkScrollableFrame(self.docs_frame, height=140, fg_color=C["surface_alt"])
@@ -158,6 +158,19 @@ class ReportPage(ctk.CTkFrame):
     def on_show(self) -> None:
         self._update_module()
         self._update_ai_info()
+        if self._text():
+            self._prewarm()
+
+    def _prewarm(self) -> None:
+        """Mentre l'utente scrive, l'AI legge in anticipo regole e campi del modulo
+        (e si avvia, se spenta): alla pressione di Compila resta solo il testo."""
+        mod = self.win.selected
+        if mod is None or self.busy or not mod.schema:
+            return
+        st = self.win.config.ai_components_status()
+        if self.win.ai.is_running or self.win.ollama_available or (
+                st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])):
+            self.win.ai.prewarm_async(mod.schema, mod.ai_context())
 
     def _update_module(self) -> None:
         m = self.win.selected
@@ -318,7 +331,9 @@ class ReportPage(ctk.CTkFrame):
 
         try:
             outcome = self.win.reports.create_draft(mod, desc, on_progress=prog, on_token=self._on_token, **args)
-            sources = [desc]
+            from ...llm.text_cleanup import clean_user_text
+            # anche il testo pulito (abbreviazioni sciolte) per i controlli della revisione
+            sources = list(dict.fromkeys([desc, clean_user_text(desc)[0]]))
             if args["use_references"]:
                 try:
                     sources += [txt for _n, txt in self.win.app.context.parse_reference_documents(mod)]

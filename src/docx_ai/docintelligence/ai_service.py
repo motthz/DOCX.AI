@@ -304,6 +304,10 @@ class AIService:
         self._idle_stop = threading.Event()
         self._idle_thread: Optional[threading.Thread] = None
         self.semantic = None  # llm.embeddings.SemanticSearch (impostato dall'App)
+        self._prewarm_key: Any = None
+        self._prewarm_at = 0.0
+        self._prewarm_busy = False
+        self._handwriting: Any = None
 
     # --------------------------------------------------------------
     # LLM pipeline: lazy-init + failover chain + debug artifacts
@@ -396,21 +400,31 @@ class AIService:
         from ..llm import hardware
         ctx_size = int(self._setting("ai.context", 0) or 0) or int(eff.get("context_size", 8192))
         cands: List[Tuple[Path, int]] = [(p, ctx_size) for p in self.config.installed_chat_models()]
-        if len(cands) < 2:
+        if not cands or (len(cands) < 2 and ctx_size <= 4096):
             return cands
         hw = hardware.refresh_memory()
         if not hw.ram_available:
             return cands
-        fits = [c for c in cands if hardware.model_ram_need(c[0], c[1]) <= hw.ram_available]
+        # prima di ripiegare su un modello piu' piccolo (molto meno preciso: 85% contro 96% dei
+        # campi nei casi di prova) prova lo stesso modello con il contesto ridotto a 4096 token:
+        # la sua memoria (KV cache) scende di ~0,45 GB e basta per i prompt dell'app
+        expanded: List[Tuple[Path, int]] = []
+        for path, ctx in cands:
+            expanded.append((path, ctx))
+            if ctx > 4096:
+                expanded.append((path, 4096))
+        fits = [c for c in expanded if hardware.model_ram_need(c[0], c[1]) <= hw.ram_available]
         if not fits:
             self.ram_warning = (f"RAM libera {hw.ram_available_gb} GB: l'AI potrebbe essere lenta. "
                                 "Chiudi altri programmi o usa il profilo 'compatibility'.")
             LOG.warning(self.ram_warning)
             return cands
-        if fits[0] != cands[0]:
+        if fits[0][0] != cands[0][0]:
             self.ram_warning = (f"RAM libera {hw.ram_available_gb} GB insufficiente per "
                                 f"{cands[0][0].name}: uso {fits[0][0].name}.")
             LOG.warning(self.ram_warning)
+        elif fits[0] != cands[0]:
+            LOG.info("RAM libera %s GB: %s con contesto %s", hw.ram_available_gb, fits[0][0].name, fits[0][1])
         return fits + [c for c in cands if c not in fits]
 
     def _build_pipeline(self) -> JsonPipeline:
@@ -486,6 +500,29 @@ class AIService:
             except Exception as exc:  # noqa: BLE001
                 LOG.info("Precaricamento AI fallito: %s", exc)
         threading.Thread(target=_run, daemon=True, name="ai-preload").start()
+
+    def prewarm_async(self, schema: Dict[str, Any], document_context: str = "") -> None:
+        """Mentre l'utente scrive: avvia il motore AI (se spento) e gli fa leggere in
+        anticipo la parte fissa del prompt del modulo (vedi JsonPipeline.prewarm)."""
+        if self._mock:
+            return
+        key = (json.dumps(schema, sort_keys=True, default=str), document_context)
+        if self._prewarm_key == key and (self._prewarm_busy or (
+                time.time() - self._prewarm_at < 20 and self._last_used <= self._prewarm_at)):
+            # gia' fatto (arriva un evento per ogni tasto premuto); si ripete se intanto
+            # l'AI ha lavorato su altro e la cache del server contiene un altro prompt
+            return
+        self._prewarm_key, self._prewarm_busy = key, True
+
+        def _run():
+            try:
+                self.pipeline().prewarm(schema, document_context=document_context)
+                self.touch()
+            except Exception as exc:  # noqa: BLE001
+                LOG.info("Pre-lettura del modulo non riuscita: %s", exc)
+            finally:
+                self._prewarm_at, self._prewarm_busy = time.time(), False
+        threading.Thread(target=_run, daemon=True, name="ai-prewarm").start()
 
     def start_idle_watch(self, minutes_fn) -> None:
         """Spegne llama-server dopo N minuti senza richieste (libera la RAM)."""
@@ -628,7 +665,18 @@ class AIService:
         self._idle_stop.set()
         self.shutdown()
 
+    @property
+    def handwriting(self):
+        """Lettura avanzata della scrittura a mano (llm/vision.py), caricata solo se usata."""
+        if self._handwriting is None:
+            from ..llm.vision import HandwritingReader
+            threads = int(self._setting("ai.threads", 0) or 0) or None
+            self._handwriting = HandwritingReader(self.config, thread_override=threads)
+        return self._handwriting
+
     def shutdown(self) -> None:
+        if self._handwriting is not None:
+            self._handwriting.stop()
         excs: List[str] = []
         chain = self._server_chain or []
         for srv in reversed(chain):

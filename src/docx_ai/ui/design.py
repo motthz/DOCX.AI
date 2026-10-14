@@ -19,6 +19,29 @@ from . import theme as legacy
 
 Color = Tuple[str, str]
 
+
+def _skip_forced_layout() -> None:
+    """CTkScrollbar e CTkOptionMenu chiudono ogni ridisegno con update_idletasks():
+    ricalcolo dell'impaginazione di TUTTA la finestra, ripetuto a ogni movimento della
+    barra durante la costruzione di una pagina (circa 2/3 del tempo di apertura delle
+    schede). Senza, Tk ridisegna comunque appena libero, una volta sola."""
+    for cls in (ctk.CTkScrollbar, ctk.CTkOptionMenu):
+        draw = cls._draw
+        if getattr(draw, "_no_forced_layout", False):
+            continue
+
+        def _draw(self, *a, _draw=draw, **k):
+            canvas = getattr(self, "_canvas", None)
+            if canvas is not None and "update_idletasks" not in vars(canvas):
+                canvas.update_idletasks = lambda: None
+            return _draw(self, *a, **k)
+
+        _draw._no_forced_layout = True  # type: ignore[attr-defined]
+        cls._draw = _draw
+
+
+_skip_forced_layout()
+
 # ---------------------------------------------------------------- colori
 # Contrasti verificati WCAG AA (>= 4.5:1 testo normale) su bg e surface.
 C: Dict[str, Color] = {

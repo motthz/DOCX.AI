@@ -491,6 +491,31 @@ class MainWindow:
         if not (st["runtime_ok"] and (st["model_ok"] or st["fallback_ok"])):
             threading.Thread(target=self._probe_ollama, daemon=True, name="ollama-probe").start()
         self.root.after(60000, self._poll_ai)
+        self.root.after(2500, self._prebuild_pages)
+
+    def _prebuild_pages(self, keys: Optional[List[str]] = None) -> None:
+        """Prepara le schede non ancora aperte, una alla volta e nascoste sotto quella
+        visibile: il primo disegno dei widget arrotondati di CustomTkinter costava fino a
+        2 secondi al primo clic su una scheda (Impostazioni, Modulo...)."""
+        if keys is None:
+            keys = [k for k, _l, _i in PAGES if k not in self.pages]
+        while keys and keys[0] in self.pages:
+            keys.pop(0)
+        if not keys:
+            return
+        key = keys.pop(0)
+        try:
+            pg = self.page(key)
+            if not pg.winfo_ismapped():
+                pg.place(in_=self.page_host, x=0, y=0, relwidth=1, relheight=1)
+                pg.lower()
+                self.root.update_idletasks()
+                pg.place_forget()
+        except tk.TclError:
+            return  # finestra chiusa nel frattempo
+        except Exception:  # noqa: BLE001 - solo un'ottimizzazione
+            LOG.exception("Preparazione della scheda %s", key)
+        self.root.after(250, lambda: self._prebuild_pages(keys))
 
     def _probe_ollama(self) -> None:
         """Senza componenti AI installati l'app usa un Ollama locale, se c'e': lo segnala

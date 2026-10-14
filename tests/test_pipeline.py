@@ -38,7 +38,7 @@ class PromptBuilderTests(unittest.TestCase):
             history_snippets=[{"input": "esempio", "final_json": {"impianto": "X"}}],
         )
         self.assertEqual(msgs[0]["role"], "system")
-        self.assertIn("NON è inventare", msgs[0]["content"])
+        self.assertIn("non inventare", msgs[0]["content"])
         self.assertIn("impianto", msgs[0]["content"])
         self.assertIn("P1", msgs[1]["content"])
         self.assertIn("/no_think", msgs[-1]["content"])

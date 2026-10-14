@@ -6,6 +6,49 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.10.0] - 2026-10-14
+
+### Aggiunto
+- **Audit su cartella molto più affidabile.** Nuovi controlli precisi, senza AI: date impossibili tra
+  documenti collegati (ordine di lavoro → intervento → collaudo, ordine → consegna, apertura →
+  chiusura), documenti citati ma assenti dal pacchetto, revisione citata diversa da quella presente,
+  strumenti usati con la taratura scaduta e ordini emessi dopo la scadenza dell'offerta, codici
+  macchina diversi tra documenti dello stesso lavoro, firme e responsabili lasciati vuoti. Su due
+  pacchetti di prova con 13 problemi noti li trova tutti, senza falsi allarmi (prima 1 su 8, con
+  molte segnalazioni inesistenti), in pochi secondi invece di 2 minuti. L'analisi libera dell'AI resta
+  solo con i modelli da 4B in su: con 0.6B e 1.7B produceva quasi solo segnalazioni sbagliate.
+- **Lettura avanzata della scrittura a mano** (finestra *Testo da scansione*): un modello AI che legge
+  le immagini trascrive anche il corsivo, che l'OCR di Windows non riesce a leggere (prove: 0-1% di
+  caratteri sbagliati invece del 50-90%). Facoltativo, si installa da *Componenti AI* (~1,5 GB); sulla
+  CPU richiede da qualche secondo a un paio di minuti a pagina. Quando l'OCR legge male, l'app lo
+  propone.
+- **Testi scritti di fretta**: abbreviazioni comuni (rapp, manut, matr, gg, xké...) sciolte e
+  autocorrezioni applicate prima della compilazione ("costo 500 euro, anzi no 680" → 680).
+
+### Migliorato
+- **Compilazione AI molto più veloce sulla CPU.** Il motore llama.cpp attivava da solo la "flash
+  attention", che sulla CPU rallenta la generazione con i prompt lunghi dell'app: ora è spenta quando
+  non si usa la scheda video. La decodifica speculativa "n-gram" scrive in un colpo solo le parti
+  copiate dal testo (citazioni, nomi dei campi). Prompt più corto (stesse regole), gruppi di campi un
+  po' più grandi con i modelli piccoli (−40% di chiamate) e niente citazioni per numeri ed elenchi
+  (già verificati dal programma). Risultati sui casi di prova: con il modello
+  0.6B −38% di tempo e campi corretti dal 79% all'85%; con l'1.7B −37% di tempo a parità di
+  precisione (92%); sui testi scritti male −41/46% di tempo e dal 62% al 77% (0.6B) e dall'80% all'86%
+  (1.7B). Misure su CPU limitata a 4 thread, come un PC datato.
+- **La prima bozza parte subito.** Mentre scrivi in "Compila", l'AI si avvia (se spenta) e legge in
+  anticipo regole e campi del modulo: alla pressione di Compila resta da elaborare solo il testo
+  (10-40 secondi risparmiati su un PC lento).
+- **Con poca RAM libera** l'app usa lo stesso modello con un contesto ridotto prima di ripiegare su
+  quello più leggero (molto meno preciso).
+- **Avvio e schede più rapidi.** Word, Excel, PDF e la validazione degli schemi vengono caricati solo
+  quando servono (−1,8 s di avvio); le schede vengono preparate in background dopo l'avvio e si aprono
+  subito (prima fino a 1,5 s al primo clic); barre di scorrimento e menu non ricalcolano più
+  l'impaginazione dell'intera finestra a ogni ridisegno.
+- **OCR più veloce e più preciso.** Il motore OCR resta pronto tra una pagina e l'altra (0,4 s a pagina
+  invece di 1,3 s) e prova anche una versione leggermente sfocata e una senza le righe del quaderno:
+  sullo stampatello a mano le parole riconosciute passano dal 37% al 93%.
+- Date scritte di fretta riconosciute: "entro 31/10", "dal 9 al 13/11", "stamatina".
+
 ## [0.9.2] - 2026-10-08
 
 ### Corretto

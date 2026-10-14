@@ -51,7 +51,8 @@ NUMBER_WORDS = {
     "eight": 8, "nine": 9, "ten": 10,
 }
 _RELATIVE_DAYS = {
-    "oggi": 0, "stamattina": 0, "stamani": 0, "stasera": 0, "stanotte": 0, "today": 0, "tonight": 0,
+    "oggi": 0, "stamattina": 0, "stamani": 0, "stamane": 0, "stasera": 0, "stanotte": 0, "today": 0,
+    "tonight": 0, "stamatina": 0, "stammattina": 0,  # refusi frequenti scrivendo di fretta
     "ieri": -1, "yesterday": -1, "altroieri": -2, "avantieri": -2, "l'altro ieri": -2,
     "altro ieri": -2, "domani": 1, "tomorrow": 1, "dopodomani": 2,
 }
@@ -227,15 +228,17 @@ class DateMention:
 
 
 # preposizioni che introducono un giorno: "il 15", "entro il 30", "dal 3"
-_DAY_INTRO = r"(?:\b(?:il|l'|del|dal|al|entro\s+il|fino\s+al|per\s+il|giorno|in\s+data|data)\s+)"
+_DAY_INTRO = r"(?:\b(?:il|l'|del|dal|al|entro(?:\s+il)?|fino\s+al|per\s+il|giorno|in\s+data|data)\s+)"
 _DAY_ONLY_RE = re.compile(_DAY_INTRO + r"(\d{1,2})(?:°|º)?(?=\s*(?:$|[,;:)\n]|\.(?!\d)|\s+(?:alle|ore|h\b|e\b|ed\b|o\b|"
                           r"mattina|pomeriggio|sera|prossimo|p\.v\.|c\.m\.)))", re.I)
-_SHORT_EU_RE = re.compile(_DAY_INTRO + r"(\d{1,2})\s*[/.]\s*(\d{1,2})(?!\d|\s*[/.,]\s*\d|\s*%|\s+per\s?cento|\s+"
+_SHORT_EU_RE = re.compile(_DAY_INTRO + r"(\d{1,2})\s*[/.]\s*(\d{1,2})(?!\d|\s*[/.,]\s*\d|\s*%|\s+per\s?cento|\s+(?:della|dei|delle|degli)\b|\s+"
                           r"(?:volte|mm|cm|m|km|kg|g|bar|v|a|w|kw|l|lt|h|min|pollic\w*)\b)", re.I)
 # "dal 3 al 5 ottobre", "3 e 4 ottobre", "3-5 ottobre": il primo giorno prende il mese del secondo
 _RANGE_RE = re.compile(r"\b(\d{1,2})(?:°|º)?\s*(?:-|e|ed|al|/|,)\s*(?:il\s+)?(\d{1,2})(?:°|º)?\s+("
                        + "|".join(sorted(_ALL_MONTHS, key=len, reverse=True))
                        + r")\.?(?:\s+(?:del\s+)?(\d{4}))?\b", re.I)
+# "dal 9 al 13/11": il primo giorno prende il mese del secondo
+_SHORT_RANGE_RE = re.compile(r"\bdal\s+(\d{1,2})\s+al\s+(\d{1,2})\s*[/.]\s*(\d{1,2})(?!\d|\s*[/.]\s*\d)", re.I)
 _PRIMO_RE = re.compile(r"\bprimo\s+(" + "|".join(sorted(MONTHS, key=len, reverse=True))
                        + r")(?:\s+(?:del\s+)?(\d{4}))?\b", re.I)
 _WEEKDAY_RE = re.compile(r"\b(luned[iì]|marted[iì]|mercoled[iì]|gioved[iì]|venerd[iì]|sabato|domenica|monday|"
@@ -316,6 +319,8 @@ def date_mentions_ctx(text: str, today: Optional[date] = None, limit: int = 16) 
         if not year_s:  # "3/4" senza anno: piu' spesso una frazione o una misura (vedi _SHORT_EU_RE)
             continue
         add(m.start(), m.end(), m.group(0), _mkdate(_year(year_s, today), int(mon_s), int(day_s)))
+    for m in _SHORT_RANGE_RE.finditer(text):
+        add(m.start(1), m.end(1), f"dal {m.group(1)}", _mkdate(today.year, int(m.group(3)), int(m.group(1))))
     for m in _SHORT_EU_RE.finditer(text):  # "il 5/10", "entro il 30.11": con la preposizione e' una data
         add(m.start(1), m.end(2), m.group(0), _mkdate(today.year, int(m.group(2)), int(m.group(1))))
     for word, delta in sorted(_RELATIVE_DAYS.items(), key=lambda kv: -len(kv[0])):  # "l'altro ieri" prima di "ieri"

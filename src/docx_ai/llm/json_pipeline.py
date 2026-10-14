@@ -23,8 +23,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import jsonschema
-
 from .llama_server import MockLlamaServer
 from .prompt_builder import build_extraction_messages
 from . import evidence as _ev
@@ -395,7 +393,8 @@ def prompt_char_budget(server: Any, max_tokens: int) -> int:
 # risposta ne salta molti; a gruppi di ~8 li compila quasi tutti.
 GROUP_WEIGHT = 8
 # modelli piccoli (0.6B/1.7B): gruppi piu' piccoli, ogni campo riceve piu' "attenzione"
-SMALL_MODEL_GROUP_WEIGHT = 5
+# (a 5 le chiamate erano il 60% in piu' con la stessa precisione)
+SMALL_MODEL_GROUP_WEIGHT = 7
 
 
 def is_small_model(server: Any) -> bool:
@@ -492,6 +491,9 @@ class JsonPipeline:
         ``on_token``: se il backend supporta lo streaming riceve il testo generato."""
         logger = _logmod.getLogger(__name__)
         reference_docs = list(reference_docs or [])
+        # testo scritto di fretta: abbreviazioni sciolte e autocorrezioni ("anzi no") applicate
+        from .text_cleanup import clean_user_text
+        operator_description, cleanup = clean_user_text(operator_description)
         history_snippets = list(history_snippets or [])
 
         dump_dir = _prepare_debug_dump(self.debug_root) if (self._do_debug and self.debug_root) else None
@@ -508,17 +510,10 @@ class JsonPipeline:
         # Iterate BACKEND failover chain (primary 1.7B → fallback 0.6B → mock)
         for server_index, server in enumerate(self.server_chain):
             server_name = self._backend_name(server)
-            weight = self.group_weight
-            if weight is None:
-                weight = SMALL_MODEL_GROUP_WEIGHT if is_small_model(server) else GROUP_WEIGHT
-            groups = split_schema(schema, weight)
+            groups, budget = self._plan(schema, server)
             chunked = len(groups) > 1
             if on_progress:
                 on_progress(0, len(groups), f"Backend {server_index+1}/{len(self.server_chain)}: {server_name}")
-            # stesso budget per tutti i gruppi: prompt identico salvo l'elenco dei campi
-            # finale, cosi' llama-server rielabora solo quello (cache del prompt)
-            max_tokens = max(self._estimate_max_tokens(g, server, evidence=self.evidence) for g in groups)
-            budget = prompt_char_budget(server, max_tokens)
             merged: Dict[str, Any] = {}
             proofs: Dict[str, Optional[str]] = {}
             raws: List[str] = []
@@ -547,6 +542,9 @@ class JsonPipeline:
                 continue
 
             notes: List[str] = []
+            if "autocorrezioni applicate" in cleanup:
+                notes.append("Il testo contiene correzioni (\"anzi no\", \"no scusa\"...): "
+                             "usato il valore indicato dopo la correzione.")
             if failed:
                 # un gruppo non riuscito non butta via gli altri: i suoi campi restano
                 # vuoti e vanno completati in revisione
@@ -610,6 +608,38 @@ class JsonPipeline:
             quality_score=0,
             debug_dir=str(dump_dir) if dump_dir else None,
         )
+
+    def _plan(self, schema: Dict[str, Any], server: ServerLike) -> Tuple[List[Dict[str, Any]], int]:
+        """Gruppi di campi e budget del prompt (in caratteri) per questo backend."""
+        weight = self.group_weight
+        if weight is None:
+            weight = SMALL_MODEL_GROUP_WEIGHT if is_small_model(server) else GROUP_WEIGHT
+        groups = split_schema(schema, weight)
+        # stesso budget per tutti i gruppi: prompt identico salvo l'elenco dei campi
+        # finale, cosi' llama-server rielabora solo quello (cache del prompt)
+        max_tokens = max(self._estimate_max_tokens(g, server, evidence=self.evidence) for g in groups)
+        return groups, prompt_char_budget(server, max_tokens)
+
+    def prewarm(self, schema: Dict[str, Any], *, document_context: str = "") -> bool:
+        """Fa leggere al modello la parte fissa del prompt (regole, esempio, campi del
+        modulo) prima che l'utente finisca di scrivere: llama-server la tiene in cache e
+        la compilazione elabora solo il testo dell'utente. Sono ~2000 token: 10-40 s
+        risparmiati sulla prima bozza con una CPU lenta. Ritorna False senza AI vera."""
+        server = next((s for s in self.server_chain if not isinstance(s, MockLlamaServer)), None)
+        if server is None or not isinstance(schema, dict) or not schema.get("properties"):
+            return False
+        groups, budget = self._plan(schema, server)
+        focus = list(groups[0].get("properties") or {}) if len(groups) > 1 else None
+        system = build_extraction_messages(
+            schema, "", document_context=document_context, max_prompt_chars=budget,
+            focus_fields=focus, evidence=self.evidence)[0]
+        try:
+            server.chat_completions(messages=[system, {"role": "user", "content": "."}],
+                                    temperature=0.0, max_tokens=1, timeout=300.0)
+        except Exception as exc:  # noqa: BLE001 - solo un'ottimizzazione
+            _logmod.getLogger(__name__).info("Pre-lettura del prompt non riuscita: %s", exc)
+            return False
+        return True
 
     def _verify_placement(self, server: ServerLike, schema: Dict[str, Any], data: Dict[str, Any],
                           text: str, sources: List[str]) -> Tuple[Dict[str, Any], List[Any]]:
@@ -736,6 +766,7 @@ class JsonPipeline:
                 parsed, proofs = _ev.unwrap(parsed, group_props)
             repaired = _fill_missing_defaults(parsed, group)
             _write_debug(dump_dir, f"{tag}_{attempt}_3_parsed.json", repaired)
+            import jsonschema  # qui e non in cima: ~0,2 s in meno all'avvio
             try:
                 jsonschema.validate(repaired, value_schema)
             except jsonschema.ValidationError as exc:

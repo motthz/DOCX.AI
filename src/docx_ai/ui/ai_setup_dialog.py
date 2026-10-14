@@ -12,7 +12,7 @@ import customtkinter as ctk
 
 from ..config import Config
 from ..llm import hardware
-from ..llm.ai_installer import EMBEDDING_MODEL, MODELS, AIInstaller, InstallCancelled
+from ..llm.ai_installer import EMBEDDING_MODEL, MODELS, VISION_MODEL, AIInstaller, InstallCancelled
 from ..llm.embeddings import EMBED_MODEL_PATH
 from .design import C, font
 from .dialogs.base import Dialog
@@ -60,6 +60,9 @@ class AISetupDialog(Dialog):
         self.emb_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(self.body, text=t(next(iter(EMBEDDING_MODEL.values()))["label"]), variable=self.emb_var,
                         font=font("body")).pack(anchor="w", pady=2)
+        self.vision_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(self.body, text=t(next(iter(VISION_MODEL.values()))["label"]), variable=self.vision_var,
+                        font=font("body")).pack(anchor="w", pady=2)
         label(self.body, t("I file vengono salvati in: {p}", p=config.data_root), kind="caption", muted=True,
               wraplength=640).pack(anchor="w", pady=(10, 4))
 
@@ -86,11 +89,14 @@ class AISetupDialog(Dialog):
         st = self.config.ai_components_status()
         gpu_ok = (self.config.resolve_ai_path("runtime/llama-vulkan") / "llama-server.exe").is_file()
         emb_ok = self.config.resolve_ai_path(EMBED_MODEL_PATH).is_file()
+        models_dir = self.config.resolve_ai_path(self.config.llm_effective.get("model_dir", "models"))
+        vision_ok = all((models_dir / n).is_file() for n in VISION_MODEL)
         rows = [(t("Runtime llama.cpp (CPU)"), st["runtime_ok"]),
                 (t("Runtime GPU (Vulkan)"), gpu_ok),
                 (t("Modello principale · {n}", n=st["model"].name if st["model"] else "-"), st["model_ok"]),
                 (t("Modello leggero · {n}", n=st["fallback"].name if st["fallback"] else "-"), st["fallback_ok"]),
-                (t("Ricerca semantica"), emb_ok)]
+                (t("Ricerca semantica"), emb_ok),
+                (t("Lettura avanzata (scrittura a mano)"), vision_ok)]
         for text, ok in rows:
             r = ctk.CTkFrame(self.status_box, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=3)
@@ -124,13 +130,14 @@ class AISetupDialog(Dialog):
         self.install_btn.configure(state="disabled")
         self.close_btn.configure(text=t("Annulla"))
         self._installer = AIInstaller(self.config.data_root)
-        threading.Thread(target=self._worker, args=(self.model_var.get(), self.gpu_var.get(), self.emb_var.get()),
+        threading.Thread(target=self._worker, args=(self.model_var.get(), self.gpu_var.get(), self.emb_var.get(),
+                                                    self.vision_var.get()),
                          daemon=True, name="ai-install").start()
 
-    def _worker(self, model: str, gpu: bool, emb: bool) -> None:
+    def _worker(self, model: str, gpu: bool, emb: bool, vision: bool = False) -> None:
         try:
             assert self._installer is not None
-            self._installer.install(model, self._progress_cb, gpu=gpu, embeddings=emb)
+            self._installer.install(model, self._progress_cb, gpu=gpu, embeddings=emb, vision=vision)
             self.after(0, self._done_ok)
         except InstallCancelled:
             self.after(0, lambda: self._done_err(None))

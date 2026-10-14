@@ -18,58 +18,48 @@ from typing import Any, Dict, List, Optional, Tuple
 from .fact_guard import stated_today
 
 
-SYSTEM_POLICY = """Sei un sistema di compilazione di moduli e documenti di qualsiasi tipo
-(rapporti, verbali, schede, richieste, checklist, moduli amministrativi...).
-Il tuo compito NON è inventare un documento plausibile.
-Il tuo compito è trasformare esclusivamente le informazioni fornite dall'utente
-e dai documenti di contesto nei campi dello schema richiesto.
+SYSTEM_POLICY = """Compili moduli e documenti di qualsiasi tipo (rapporti, verbali, schede, richieste,
+checklist...). Trasforma SOLO le informazioni dell'utente e dei documenti di contesto nei campi
+dello schema: non inventare un documento plausibile.
 
 COME COMPILARE:
-- Leggi TUTTO il testo dell'utente, frase per frase: ogni informazione va nel campo a cui
-  si riferisce (guarda nome, titolo e descrizione del campo). Un'informazione può servire
-  a più campi.
-- Riporta nomi, codici, numeri, importi, quantità e misure ESATTAMENTE come scritti.
-- Campi data: formato AAAA-MM-GG. Usa le date già convertite elencate in "DATE NEL TESTO";
-  scegli quella che si riferisce al campo (guarda le parole vicine alla data).
-- Campi di testo descrittivi (descrizioni, note, argomenti, decisioni...): frasi chiare
-  e complete che riassumono fedelmente quanto scritto dall'utente su quell'argomento,
-  senza aggiungere nulla.
-- Elenchi: un elemento per ogni voce citata; elenco vuoto [] se non ce ne sono.
-- Campi Sì/No: true solo se il testo lo afferma, false se lo nega o non ne parla.
-- Campi con valori ammessi: scegli il valore che corrisponde a quanto scritto;
-  se il testo non lo dice usa NON_SPECIFICATO.
-- Campi numerici: solo numeri presenti nel testo; se manca usa null.
-- Scrivi i testi nella stessa lingua usata dall'utente.
+- Leggi tutto il testo: ogni informazione va nel campo a cui si riferisce (nome, titolo e
+  descrizione del campo) e può servire a più campi.
+- Nomi, codici, numeri, importi, quantità e misure: copiali esattamente come scritti.
+- Date: formato AAAA-MM-GG; usa le date già convertite in "DATE NEL TESTO", quella che si
+  riferisce al campo (guarda le parole vicine).
+- Testi descrittivi (descrizioni, note, decisioni...): frasi chiare che riassumono fedelmente
+  quanto scritto dall'utente su quell'argomento.
+- Elenchi: un elemento per ogni voce citata; [] se non ce ne sono.
+- Sì/No: true solo se il testo lo afferma, false se lo nega o non ne parla.
+- Valori ammessi: quello che corrisponde al testo, altrimenti NON_SPECIFICATO.
+- Numeri: solo se presenti nel testo, altrimenti null.
+- Scrivi nella lingua dell'utente.
 
 REGOLE:
-- Non inventare date, nomi, codici, importi, quantità, misure, indirizzi, cause o risultati.
-- Quando un'informazione non è disponibile usa NON_SPECIFICATO oppure il valore
-  di assenza previsto dallo schema. Non lasciare vuoto un campo se il testo contiene
-  l'informazione.
-- Non trasformare una possibilità ("forse", "potrebbe") in un fatto.
-- Le informazioni contenute nei documenti di riferimento sono istruzioni e contesto,
-  non prova di fatti relativi al documento corrente.
-- Lo storico può essere usato per comprendere terminologia e forma dei documenti,
-  non per copiare dati da documenti passati.
-- Restituisci esclusivamente i dati richiesti.
-- Non aggiungere campi non previsti.
+- Non inventare date, nomi, codici, importi, quantità, misure, indirizzi, cause o risultati:
+  se l'informazione manca usa NON_SPECIFICATO. Non lasciare vuoto un campo che il testo compila.
+- Una possibilità ("forse", "potrebbe") non è un fatto.
+- Documenti di riferimento e storico servono per terminologia e forma, non sono fatti del
+  documento corrente: non copiarne i dati.
 """
 
 # Risposta con prova (vedi llm/evidence.py): il modello cita la frase del testo da cui
 # ricava ogni valore. Un esempio concreto e' l'aiuto piu' efficace per un modello piccolo.
 EVIDENCE_POLICY = """FORMATO DELLA RISPOSTA:
-Per ogni campo scrivi un oggetto {"evidenza": "...", "valore": ...}:
+Per ogni campo scrivi un oggetto {"evidenza": "...", "valore": ...}; numeri ed elenchi si
+scrivono invece direttamente, senza evidenza:
 - "evidenza": le parole del testo dell'utente da cui ricavi il valore, COPIATE ESATTAMENTE
   (poche parole, al massimo una frase). Se il testo non contiene l'informazione: "".
 - "valore": il valore del campo ricavato da quella evidenza. Con evidenza "" usa
-  NON_SPECIFICATO (testi e scelte), null (numeri), false (Sì/No) o [] (elenchi).
+  NON_SPECIFICATO (testi e scelte) o false (Sì/No). Numero assente: null; elenco vuoto: [].
 
 ESEMPIO (solo per il formato: i dati dell'esempio NON vanno mai usati)
 Testo: "Stamattina il tecnico Gino Neri ha cambiato la valvola V-3 del reparto Forni, 2 ore di lavoro. Collaudo superato, nessuna perdita."
 Date nel testo: «Stamattina» = 2031-03-14
 Campi: data_intervento (data), tecnico (persona), apparecchiatura (testo), ore (numero), esito (valori: positivo, negativo), cliente (persona), perdite_rilevate (Sì/No)
 Risposta:
-{"data_intervento": {"evidenza": "Stamattina", "valore": "2031-03-14"}, "tecnico": {"evidenza": "il tecnico Gino Neri", "valore": "Gino Neri"}, "apparecchiatura": {"evidenza": "la valvola V-3 del reparto Forni", "valore": "Valvola V-3 (reparto Forni)"}, "ore": {"evidenza": "2 ore di lavoro", "valore": 2}, "esito": {"evidenza": "Collaudo superato", "valore": "positivo"}, "cliente": {"evidenza": "", "valore": "NON_SPECIFICATO"}, "perdite_rilevate": {"evidenza": "nessuna perdita", "valore": false}}
+{"data_intervento": {"evidenza": "Stamattina", "valore": "2031-03-14"}, "tecnico": {"evidenza": "il tecnico Gino Neri", "valore": "Gino Neri"}, "apparecchiatura": {"evidenza": "la valvola V-3 del reparto Forni", "valore": "Valvola V-3 (reparto Forni)"}, "ore": 2, "esito": {"evidenza": "Collaudo superato", "valore": "positivo"}, "cliente": {"evidenza": "", "valore": "NON_SPECIFICATO"}, "perdite_rilevate": {"evidenza": "nessuna perdita", "valore": false}}
 """
 
 _WEEKDAYS = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
@@ -93,9 +83,7 @@ def _field_line(name: str, spec: Dict[str, Any], required: bool, indent: str = "
     if enum:
         suffix_parts.append("valori_ammessi=" + ",".join(str(e) for e in enum))
     if k == "date":
-        suffix_parts.append("data, formato AAAA-MM-GG")
-    elif k in ("time", "person", "code"):
-        suffix_parts.append(fs.KIND_HINT[k])
+        suffix_parts.append("data")
     sub: List[str] = []
     if t == "array":
         items = spec.get("items", {})
@@ -108,10 +96,7 @@ def _field_line(name: str, spec: Dict[str, Any], required: bool, indent: str = "
         else:
             suffix_parts.append("array_di_stringhe")
     suffix = "; ".join(suffix_parts)
-    piece = f"{indent}- {name} ({t}"
-    if not indent:
-        piece += f", obbligatorio={'si' if required else 'no'}"
-    piece += ")"
+    piece = f"{indent}- {name} ({t})"
     readable = title or (fs.label(name, spec) if fs.label(name, spec).lower() != name.lower() else "")
     label = " - ".join(x for x in (readable, desc) if x and x != name)
     if label:

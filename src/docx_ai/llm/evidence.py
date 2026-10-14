@@ -53,6 +53,16 @@ class Fix:
 # ---------------------------------------------------------------------------
 # Schema imposto al modello
 # ---------------------------------------------------------------------------
+# Numeri ed elenchi senza frase citata: il controllo dei fatti verifica gia' ogni numero e
+# ogni voce sul testo, e le citazioni degli elenchi erano le piu' lunghe (il modello copia
+# tutta la frase). Le citazioni sono oltre meta' dei token scritti dal modello.
+NO_PROOF_KINDS = {"number", "list"}
+
+
+def needs_proof(key: str, spec: Any) -> bool:
+    return fs.kind(key, spec) not in NO_PROOF_KINDS
+
+
 def wrap_schema(model_schema: Dict[str, Any]) -> Dict[str, Any]:
     """Ogni campo diventa ``{"evidenza": testo, "valore": <campo>}`` (in quest'ordine:
     la grammatica fa scrivere prima la prova). Tutti i campi sono obbligatori: con
@@ -61,6 +71,9 @@ def wrap_schema(model_schema: Dict[str, Any]) -> Dict[str, Any]:
     props = (model_schema or {}).get("properties") or {}
     wrapped: Dict[str, Any] = {}
     for key, spec in props.items():
+        if not needs_proof(key, spec):
+            wrapped[key] = spec
+            continue
         wrapped[key] = {
             "type": "object",
             "properties": {
