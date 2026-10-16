@@ -6,6 +6,8 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+## [0.11.0] - 2026-10-16
+
 ### Aggiunto
 - **Campi automatici nei modelli.** Nell'editor del modello ogni campo ha la scelta *Chi compila il
   campo?*: l'AI (come prima), *Data di oggi*, *Valore fisso* o *Ultimo valore usato* (dall'ultimo
