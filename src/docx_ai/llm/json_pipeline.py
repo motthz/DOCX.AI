@@ -26,6 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .llama_server import MockLlamaServer
 from .prompt_builder import build_extraction_messages
 from . import evidence as _ev
+from . import field_semantics as fs
 from . import quality_scorer as _qs
 
 
@@ -61,6 +62,8 @@ ServerLike = Any  # protocol: chat_completions(...) compatible
 
 _NON_SPEC = "NON_SPECIFICATO"
 NON_SPEC_VALUE = _NON_SPEC
+# "backend" della bozza quando tutti i campi li ha compilati il programma (llm/prefill.py)
+NO_AI_BACKEND = "Programma (senza AI)"
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +346,8 @@ def _relax_props(props: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(spec, dict):
             out[key] = spec
             continue
-        spec = dict(spec)
+        # impostazioni dei campi automatici (llm/prefill.py): non servono alla grammatica
+        spec = {k: v for k, v in spec.items() if k not in ("x-auto", "default")}
         t = spec.get("type")
         enum = spec.get("enum")
         if isinstance(enum, list) and enum and not any("specificato" in str(e).lower() for e in enum):
@@ -452,6 +456,38 @@ def split_schema(schema: Dict[str, Any], max_weight: int = GROUP_WEIGHT) -> List
     return out
 
 
+def _drop_known_repeats(data: Dict[str, Any], known: Dict[str, Any], schema: Dict[str, Any],
+                        proofs: Dict[str, Optional[str]]) -> List[Any]:
+    """Date compilate dal programma che l'AI ripete in un campo che non e' una data: il
+    modello piccolo, senza piu' il campo data da compilare, scriveva "ieri" in "Rilevata da"
+    o la data nell'oggetto. Tolte. Le date uguali in due campi data restano (data del
+    rapporto = data dell'intervento). Ritorna le correzioni."""
+    from .fact_guard import parse_date_value
+    props = schema.get("properties") or {}
+    words = set()
+    dates = set()
+    for key, k in known.items():
+        if fs.kind(key, props.get(key)) == "date" and isinstance(k.value, str):
+            dates.add(k.value)
+            if k.words:
+                words.add(fs.norm(k.words))
+    if not dates:
+        return []
+    fixes: List[Any] = []
+    for key, value in list(data.items()):
+        if key in known or not isinstance(value, str):
+            continue
+        spec: Dict[str, Any] = props[key] if isinstance(props.get(key), dict) else {}
+        if spec.get("enum") or fs.kind(key, spec) == "date":
+            continue
+        as_date = parse_date_value(value.strip())
+        if fs.norm(value) in words or (as_date is not None and as_date.isoformat() in dates):
+            fixes.append(_ev.Fix(fs.label(key, spec), value, NON_SPEC_VALUE, "informazione di un altro campo"))
+            data[key] = NON_SPEC_VALUE
+            proofs.pop(key, None)  # altrimenti la prova lo rimetterebbe
+    return fixes
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -472,6 +508,8 @@ class JsonPipeline:
         self.evidence = bool(evidence)
         # verifica dei valori sospetti di stare nel campo sbagliato (una domanda per campo)
         self.verify_placement = True
+        # campi ricavati dal testo senza AI (llm/prefill.py), non chiesti al modello
+        self.prefill = True
 
     # ------------------------------------------------------------------
     def extract(
@@ -486,15 +524,28 @@ class JsonPipeline:
         temperature: Optional[float] = None,
         on_token: Optional[Callable[[str], None]] = None,
         document_context: str = "",
+        known: Optional[Dict[str, Any]] = None,
     ) -> ExtractionResult:
         """``temperature``: temperatura del primo tentativo (i retry la alzano un po').
-        ``on_token``: se il backend supporta lo streaming riceve il testo generato."""
+        ``on_token``: se il backend supporta lo streaming riceve il testo generato.
+        ``known``: valori gia' decisi (campi automatici, ``prefill.Known``): non chiesti all'AI."""
         logger = _logmod.getLogger(__name__)
         reference_docs = list(reference_docs or [])
         # testo scritto di fretta: abbreviazioni sciolte e autocorrezioni ("anzi no") applicate
         from .text_cleanup import clean_user_text
         operator_description, cleanup = clean_user_text(operator_description)
         history_snippets = list(history_snippets or [])
+        # campi che il programma compila da solo (llm/prefill.py): non vanno chiesti all'AI
+        from . import prefill as _pf
+        props_all = (schema.get("properties") or {}) if isinstance(schema, dict) else {}
+        pre: Dict[str, Any] = dict(_pf.from_text(schema, operator_description)) if self.prefill else {}
+        pre.update(known or {})
+        pre = {k: v for k, v in pre.items() if k in props_all}
+        ask_schema = schema
+        if pre:
+            ask_schema = dict(schema)
+            ask_schema["properties"] = {k: v for k, v in props_all.items() if k not in pre}
+            ask_schema["required"] = [k for k in (schema.get("required") or []) if k not in pre]
 
         dump_dir = _prepare_debug_dump(self.debug_root) if (self._do_debug and self.debug_root) else None
         _write_debug(dump_dir, "01_schema.json", schema)
@@ -503,14 +554,30 @@ class JsonPipeline:
             f"[{n}]\n{c}" for n, c in reference_docs
         ) if reference_docs else "")
         _write_debug(dump_dir, "04_history.json", history_snippets)
+        _write_debug(dump_dir, "05_prefill.json", {k: [v.value, v.source] for k, v in pre.items()})
 
         last_error = ""
         total_attempts = 0
+        notes: List[str] = []
+        if "autocorrezioni applicate" in cleanup:
+            notes.append("Il testo contiene correzioni (\"anzi no\", \"no scusa\"...): "
+                         "usato il valore indicato dopo la correzione.")
+        pre_values = {k: v.value for k, v in pre.items()}
+        pre_sources = {k: v.source for k, v in pre.items() if v.source}
+
+        if pre and not ask_schema.get("properties"):
+            # tutti i campi compilati dal programma: l'AI non serve
+            filled = _drop_empty_items(_fill_missing_defaults(pre_values, schema))
+            _write_debug(dump_dir, "99_final_validated.json", filled)
+            return ExtractionResult(success=True, data=filled, attempts=0, raw="", failover_used=NO_AI_BACKEND,
+                                    quality_score=_qs.score(filled, schema),
+                                    debug_dir=str(dump_dir) if dump_dir else None,
+                                    corrections=list(notes), evidence=pre_sources)
 
         # Iterate BACKEND failover chain (primary 1.7B → fallback 0.6B → mock)
         for server_index, server in enumerate(self.server_chain):
             server_name = self._backend_name(server)
-            groups, budget = self._plan(schema, server)
+            groups, budget = self._plan(ask_schema, server)
             chunked = len(groups) > 1
             if on_progress:
                 on_progress(0, len(groups), f"Backend {server_index+1}/{len(self.server_chain)}: {server_name}")
@@ -528,7 +595,7 @@ class JsonPipeline:
                     reference_docs=reference_docs, history_snippets=history_snippets,
                     document_context=document_context, budget=budget, temperature=temperature,
                     on_token=on_token, extra=extra, dump_dir=dump_dir,
-                    tag=f"{server_index}_{gi}", chunked=chunked)
+                    tag=f"{server_index}_{gi}", chunked=chunked or bool(pre))
                 total_attempts += attempts
                 if data is None:
                     last_error = err
@@ -541,18 +608,17 @@ class JsonPipeline:
                 logger.warning(f"[{server_name}] Esauriti tutti i tentativi — passo al fallback successivo.")
                 continue
 
-            notes: List[str] = []
-            if "autocorrezioni applicate" in cleanup:
-                notes.append("Il testo contiene correzioni (\"anzi no\", \"no scusa\"...): "
-                             "usato il valore indicato dopo la correzione.")
+            run_notes = list(notes)
             if failed:
                 # un gruppo non riuscito non butta via gli altri: i suoi campi restano
                 # vuoti e vanno completati in revisione
                 props = schema.get("properties") or {}
                 names = [str((props.get(k) or {}).get("title") or k) for k in failed]
-                notes.append("L'AI non ha compilato questi campi (da completare in revisione): "
-                             + ", ".join(names))
+                run_notes.append("L'AI non ha compilato questi campi (da completare in revisione): "
+                                 + ", ".join(names))
                 logger.warning(f"[{server_name}] campi non compilati: {failed} ({last_error})")
+            moved_pre = _drop_known_repeats(merged, pre, schema, proofs)
+            merged.update(pre_values)
             repaired = _drop_empty_items(_fill_missing_defaults(merged, schema))
             raw = "\n".join(raws)
             sources = [operator_description] + [t for _n, t in reference_docs]
@@ -565,13 +631,23 @@ class JsonPipeline:
             # i campi data vuoti ricevono la data del testo che si riferisce a loro.
             from .fact_guard import verify as _verify_facts
             repaired, fixes = _verify_facts(repaired, schema, sources)
-            all_fixes: List[Any] = list(ev_fixes) + list(fixes)
+            all_fixes: List[Any] = list(moved_pre) + list(ev_fixes) + list(fixes)
             # Informazione vera ma nel campo sbagliato: domanda separata al modello per i
             # campi sospetti (valore lontano dalle parole del campo); tolto se anche il
             # modello, interrogato solo su quel campo, risponde che il testo non lo indica
             if self.verify_placement and not isinstance(server, MockLlamaServer):
-                repaired, moved = self._verify_placement(server, schema, repaired, operator_description, sources)
+                repaired, moved = self._verify_placement(server, schema, repaired, operator_description, sources,
+                                                         skip=set(pre))
                 all_fixes += moved
+            if pre:
+                # i valori del programma restano com'erano: i controlli sopra sono per l'AI
+                repaired.update(pre_values)
+                pre_labels = set()
+                for k in pre:
+                    spec: Dict[str, Any] = props_all[k] if isinstance(props_all.get(k), dict) else {}
+                    pre_labels |= {fs.label(k, spec), str(spec.get("title") or k)}
+                all_fixes = [c for c in all_fixes if getattr(c, "field", None) not in pre_labels]
+                proofs.update(pre_sources)
             _write_debug(dump_dir, "97_evidence.json", proofs)
             _write_debug(dump_dir, "98_fact_guard.json", [c.describe() for c in all_fixes])
             quality = _qs.score(repaired, schema)
@@ -593,7 +669,7 @@ class JsonPipeline:
                 failover_used=server_name,
                 quality_score=quality,
                 debug_dir=str(dump_dir) if dump_dir else None,
-                corrections=notes + [c.describe() for c in all_fixes],
+                corrections=run_notes + [c.describe() for c in all_fixes],
                 evidence={k: v for k, v in proofs.items() if v},
             )
 
@@ -642,11 +718,13 @@ class JsonPipeline:
         return True
 
     def _verify_placement(self, server: ServerLike, schema: Dict[str, Any], data: Dict[str, Any],
-                          text: str, sources: List[str]) -> Tuple[Dict[str, Any], List[Any]]:
+                          text: str, sources: List[str], skip: Optional[set] = None,
+                          ) -> Tuple[Dict[str, Any], List[Any]]:
         props = schema.get("properties") or {}
         out = dict(data)
         fixes: List[Any] = []
-        for key in _ev.placement_suspects(out, schema, sources)[:8]:
+        suspects = [k for k in _ev.placement_suspects(out, schema, sources) if k not in (skip or ())]
+        for key in suspects[:8]:
             try:
                 resp = server.chat_completions(
                     messages=_ev.placement_question(text, key, props.get(key)), temperature=0.0, max_tokens=60,

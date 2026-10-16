@@ -82,7 +82,9 @@ class ModelSchemaTests(unittest.TestCase):
             seen["schema"] = json_schema
             return {"data_riunione": "2026-10-05", "esito": "NON_SPECIFICATO", "importo": None,
                     "azioni": [], "note": "Discussione sul budget"}
-        res = JsonPipeline(MockLlamaServer(answer), max_retries=0).extract(SCHEMA, "riunione di ieri")
+        pipe = JsonPipeline(MockLlamaServer(answer), max_retries=0)
+        pipe.prefill = False  # qui conta lo schema chiesto all'AI con tutti i campi
+        res = pipe.extract(SCHEMA, "riunione di ieri")
         self.assertTrue(res.success, res.error_message)
         self.assertEqual(res.attempts, 1)
         self.assertEqual(res.data["esito"], "NON_SPECIFICATO")

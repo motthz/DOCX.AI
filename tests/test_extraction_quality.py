@@ -206,9 +206,11 @@ class PipelineEvidenceTests(unittest.TestCase):
             "esito": {"type": "string", "enum": ["conforme", "non_conforme"]}},
             "required": ["data", "tecnico", "pulizia_eseguita", "esito"]}
         prompts = []
+        asked = []
 
         def answer(messages, json_schema=None):
             prompts.append(messages)
+            asked.append(json_schema)
             return {"data": {"evidenza": "", "valore": "NON_SPECIFICATO"},
                     "tecnico": {"evidenza": "il tecnico Rossi", "valore": "Rossi"},
                     "pulizia_eseguita": {"evidenza": "", "valore": True},
@@ -224,6 +226,7 @@ class PipelineEvidenceTests(unittest.TestCase):
         user = prompts[0][1]["content"]
         self.assertIn("DATE NEL TESTO", user)
         self.assertIn("«Ieri»", user)
+        self.assertIn("data", asked[0]["properties"])  # le date del discorso restano all'AI
         self.assertIn("data = Data (data, scrivi AAAA-MM-GG)", user)
         self.assertIn("evidenza", prompts[0][0]["content"])
 

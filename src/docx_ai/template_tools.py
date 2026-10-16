@@ -73,6 +73,51 @@ def change_kind(spec: Dict[str, Any], kind: str, options: Optional[List[str]] = 
     return new
 
 
+# campi automatici (llm/prefill.py): valori decisi dal programma, mai chiesti all'AI
+AUTO_LABELS = {"": "Lo compila l'AI", "today": "Data di oggi", "fixed": "Valore fisso",
+               "last": "Ultimo valore usato"}
+
+
+def auto_modes(kind: str) -> List[str]:
+    """Modi proposti per un tipo di campo ("" = lo compila l'AI)."""
+    modes = [""]
+    if kind == "date":
+        modes.append("today")
+    if kind != "list":
+        modes.append("fixed")
+    modes.append("last")
+    return modes
+
+
+def auto_of(spec: Dict[str, Any]) -> Tuple[str, str]:
+    """(modo, valore fisso come testo) del campo."""
+    from .llm.prefill import auto_mode
+    spec = spec or {}
+    mode = auto_mode(spec)
+    default = spec.get("default")
+    if isinstance(default, bool):
+        text = "Sì" if default else "No"
+    else:
+        text = "" if default is None else str(default)
+    return mode, text if mode == "fixed" else ""
+
+
+def with_auto(spec: Dict[str, Any], key: str, mode: str, value: str = "") -> Dict[str, Any]:
+    """Definizione con il modo automatico scelto. ValueError se il valore fisso non e'
+    adatto al tipo del campo (es. "abc" in un numero, un'opzione che non esiste)."""
+    from .llm.prefill import coerce
+    new = {k: v for k, v in (spec or {}).items() if k not in ("x-auto", "default")}
+    if mode not in auto_modes(kind_of(new)) or not mode:
+        return new
+    if mode == "fixed":
+        conv = coerce(value, key, new)
+        if conv is None:
+            raise ValueError(value)
+        new["default"] = conv
+    new["x-auto"] = mode
+    return new
+
+
 def field_key(label: str, existing: Iterable[str] = ()) -> str:
     """Nome tecnico (lettere, numeri, _) dal nome scritto dall'utente, unico tra ``existing``.
 

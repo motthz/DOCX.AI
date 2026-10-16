@@ -6,6 +6,18 @@ fonte: `src/docx_ai/__init__.py`.
 
 ## [Non rilasciato]
 
+### Aggiunto
+- **Campi automatici nei modelli.** Nell'editor del modello ogni campo ha la scelta *Chi compila il
+  campo?*: l'AI (come prima), *Data di oggi*, *Valore fisso* o *Ultimo valore usato* (dall'ultimo
+  documento approvato dello stesso modulo). Questi campi non vengono chiesti all'AI: compilazione più
+  veloce e sempre giusta per i dati che non cambiano.
+- **Campi compilati dal programma prima dell'AI.** I valori scritti come "Etichetta: valore"
+  ("Reparto: Cottura", "Tipo: straordinaria", "Dal: 09/11/2026"), email, telefono, codice fiscale e
+  partita IVA vengono inseriti senza AI e
+  tolti dalle domande al modello; se il programma li trova tutti l'AI non viene nemmeno avviata.
+  Solo quando il valore è univoco: nel dubbio decide l'AI. In revisione la prova del campo mostra il
+  testo da cui viene.
+
 ## [0.10.0] - 2026-10-14
 
 ### Aggiunto

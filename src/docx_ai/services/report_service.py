@@ -18,8 +18,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config import Config
 from ..db import Database
-from ..llm.json_pipeline import ExtractionResult, JsonPipeline
+from ..llm import prefill
+from ..llm.json_pipeline import NO_AI_BACKEND, ExtractionResult, JsonPipeline
 from ..llm.llama_server import LlamaServerOptions, LlamaServer, MockLlamaServer
+from ..llm.text_cleanup import clean_user_text
 from ..module_manager import LoadedModule, ModuleManager
 from ..security import sha256_file
 from .context_service import ContextService
@@ -222,8 +224,16 @@ class ReportService:
         else:
             first_err = ""
 
-        _tick(2, "Estrazione dati con LLM locale…")
-        pipeline = self.pipeline(use_mock=use_mock)
+        # campi automatici del modulo (data di oggi, valore fisso, ultimo valore approvato)
+        known = prefill.auto_values(mod.schema, self._last_approved_values(mod))
+        props = (mod.schema or {}).get("properties") or {}
+        cleaned = clean_user_text(description)[0]  # lo stesso testo che legge la pipeline
+        if props and set(props) <= set(known) | set(prefill.from_text(mod.schema, cleaned)):
+            # il programma compila tutto da solo: niente modello da avviare
+            pipeline = JsonPipeline(MockLlamaServer(), max_retries=0)
+        else:
+            _tick(2, "Estrazione dati con LLM locale…")
+            pipeline = self.pipeline(use_mock=use_mock)
         extraction: ExtractionResult = pipeline.extract(
             schema=mod.schema,
             operator_description=description,
@@ -232,6 +242,7 @@ class ReportService:
             temperature=temperature,
             on_token=on_token,
             document_context=mod.ai_context(),
+            known=known,
         )
         _tick(3, "Salvataggio bozza nel DB…")
         report_id = self.db.create_report(
@@ -262,13 +273,25 @@ class ReportService:
             source_doc_hashes=hashes,
         )
 
+    def _last_approved_values(self, mod: LoadedModule) -> Optional[Dict[str, Any]]:
+        """Dati dell'ultimo documento approvato del modulo (campi "ultimo valore usato")."""
+        if not any(prefill.auto_mode(s) == prefill.AUTO_LAST
+                   for s in ((mod.schema or {}).get("properties") or {}).values()):
+            return None
+        try:
+            rows = self.db.list_reports(module_id=mod.id, status="approved", limit=1)
+            data = json.loads(rows[0].get("final_json") or "null") if rows else None
+        except Exception:  # noqa: BLE001 - senza storico il campo lo compila l'AI
+            return None
+        return data if isinstance(data, dict) else None
+
     def _model_used(self, extraction: ExtractionResult) -> str:
         """Modello che ha prodotto davvero la bozza (non quello configurato)."""
         used = extraction.failover_used or ""
         if used.startswith("Llama(") or used.startswith("Ollama("):
             return used[used.index("(") + 1:-1]
-        if used.startswith("Mock"):
-            return ""  # nessuna AI: campi da compilare a mano
+        if used.startswith("Mock") or used == NO_AI_BACKEND:
+            return ""  # nessuna AI: campi da compilare a mano o compilati dal programma
         return Path(self.config.llm_effective.get("model", "")).name
 
     def _hash_of_paths(self, path_groups: Any) -> List[str]:

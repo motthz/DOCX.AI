@@ -313,6 +313,25 @@ class _VisualEditor(Dialog):
         desc = ctk.CTkTextbox(p, height=80, border_width=1, border_color=C["border"], wrap="word")
         desc.insert("1.0", str(spec.get("description") or ""))
         desc.pack(fill="x", padx=12, pady=(2, 10))
+        # campo automatico: lo compila il programma, senza AI (piu' veloce)
+        label(p, t("Chi compila il campo?"), kind="small_b").pack(anchor="w", padx=12)
+        auto_mode, auto_value = tt.auto_of(spec)
+        auto_names = {t(v): k for k, v in tt.AUTO_LABELS.items()}
+        auto_menu = ctk.CTkOptionMenu(p, values=[t(tt.AUTO_LABELS[m]) for m in tt.auto_modes(kind)], height=32)
+        auto_menu.set(t(tt.AUTO_LABELS[auto_mode]))
+        auto_menu.pack(fill="x", padx=12, pady=(2, 10))
+        fixed = ctk.CTkEntry(p, height=32, placeholder_text=t("Valore da scrivere sempre"))
+        if auto_value:
+            fixed.insert(0, auto_value)
+
+        def toggle_auto(_v=None) -> None:
+            if auto_names.get(auto_menu.get()) == "fixed":
+                fixed.pack(fill="x", padx=12, pady=(0, 10), after=auto_menu)
+            else:
+                fixed.pack_forget()
+
+        auto_menu.configure(command=toggle_auto)
+        toggle_auto()
         opt_lbl = label(p, t("Opzioni (una per riga)"), kind="small_b")
         opts = ctk.CTkTextbox(p, height=80, border_width=1, border_color=C["border"])
         opts.insert("1.0", "\n".join(str(v) for v in spec.get("enum") or []))
@@ -321,6 +340,11 @@ class _VisualEditor(Dialog):
             req.select()
 
         def toggle_opts(_v=None) -> None:
+            modes = [t(tt.AUTO_LABELS[m]) for m in tt.auto_modes(names.get(kind_menu.get(), kind))]
+            auto_menu.configure(values=modes)
+            if auto_menu.get() not in modes:
+                auto_menu.set(modes[0])
+                toggle_auto()
             if names.get(kind_menu.get()) == "choice":
                 opt_lbl.pack(anchor="w", padx=12, before=req)
                 opts.pack(fill="x", padx=12, pady=(2, 10), before=req)
@@ -340,8 +364,13 @@ class _VisualEditor(Dialog):
             if new_kind == "choice" and not options:
                 self.win.toast(t("Scrivi almeno un'opzione, una per riga."), "warning")
                 return
-            self.snapshot()
             new = tt.change_kind(spec, new_kind, options if new_kind == "choice" else None)
+            try:
+                new = tt.with_auto(new, key, auto_names.get(auto_menu.get(), ""), fixed.get().strip())
+            except ValueError:
+                self.win.toast(t("Il valore fisso non è adatto a questo tipo di campo."), "warning")
+                return
+            self.snapshot()
             title = name.get().strip()
             if title and title != tt.title_of(key, None):
                 new["title"] = title
